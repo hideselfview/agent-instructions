@@ -266,6 +266,7 @@ impl crate::command::Command {
             | Prune
             | Install
             | Tool
+            | Web(web::Picture)
             | Agent(agent::Run | agent::Resume)
             | Review(
                 review::Run

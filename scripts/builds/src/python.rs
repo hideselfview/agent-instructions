@@ -231,6 +231,7 @@ impl crate::command::Command {
             | Next
             | Agent(agent::Start | agent::Run | agent::Resume | agent::List | agent::Show)
             | Shots(shots::Findings | shots::Picture | shots::CheckProgram | shots::Checker)
+            | Web(web::Picture)
             | AppCheckout(app_checkout::Add | app_checkout::Remove | app_checkout::Reset)
             | Host(
                 host::Add

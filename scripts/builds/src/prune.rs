@@ -403,6 +403,7 @@ pub fn prune_shared(tool: &Tool, run: Run, pruner: Pruner) -> Result<()> {
     prune_caches(tool, run, pruner, SHARED_CACHES, copy_preserving)?;
     pruner.after_move(crate::shots_cache::prune(tool, run))?;
     pruner.after_move(crate::review::texts::prune(tool, run))?;
+    pruner.after_move(crate::web_picture::prune(tool, run))?;
     pruner.after_move(crate::agent_prune::prune(tool, run))?;
     prune_test_temps(tool, run)?;
     prune_temp_builds(tool, run, pruner)?;

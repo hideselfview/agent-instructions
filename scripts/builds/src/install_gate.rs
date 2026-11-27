@@ -834,7 +834,8 @@ impl crate::command::Command {
             | SccacheTmpdir
             | Agent(agent::Start)
             | Dashboard(dashboard::Serve | dashboard::Stage)
-            | Shots(shots::Checker) => Stores::Storeless,
+            | Shots(shots::Checker)
+            | Web(web::Picture) => Stores::Storeless,
             // A hook run records its run once its checks end (hook_stats.rs).
             // A review records what the reviewers answered once they answer
             // (review/mod.rs).

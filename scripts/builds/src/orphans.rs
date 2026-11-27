@@ -263,9 +263,10 @@ impl crate::command::Command {
             | Dashboard(dashboard::Serve | dashboard::Stage)
             | Units(units::Prune | units::GitCheckouts | units::AfterBuild)
             | Review(review::Audit) => Orphaned::Detached,
-            Cargo | Remote(remote::Run | remote::Step) | Checks(checks::Run) => {
-                Orphaned::OnlyPrints
-            }
+            Cargo
+            | Remote(remote::Run | remote::Step)
+            | Checks(checks::Run)
+            | Web(web::Picture) => Orphaned::OnlyPrints,
             Help
             | Ack
             | RulesOnEdit

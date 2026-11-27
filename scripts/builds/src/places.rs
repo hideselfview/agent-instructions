@@ -501,6 +501,7 @@ impl Places {
             || name == "caches"
             || name == "mode"
             || name == AGENTS_FOLDER
+            || name == crate::web_picture::FOLDER
             || name.starts_with('.')
     }
 }

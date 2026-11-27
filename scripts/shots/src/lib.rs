@@ -30,6 +30,7 @@ mod settings;
 mod shots;
 mod states;
 mod verify;
+mod web_picture;
 
 pub use crate::capture_marks::{CAPTURE_MARKS_DIR, CaptureMarkError, CaptureMarks};
 use crate::cli::{Action, Cli, Selection};
@@ -40,6 +41,7 @@ pub use crate::names::{ComponentName, Name, NameError, Prefix, ScreenName};
 pub use crate::pictures::app_picture_tree;
 pub use crate::report::{board_picture, shot_picture};
 use crate::settings::Settings;
+pub use crate::web_picture::{WebPage, WebPictureError, picture as web_picture};
 use clap::Parser;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

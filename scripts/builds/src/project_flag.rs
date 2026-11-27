@@ -169,6 +169,7 @@ impl Args {
             | Install
             | Version
             | Shots(shots::Findings | shots::CheckProgram | shots::Checker)
+            | Web(web::Picture)
             | AppCheckout(app_checkout::Add | app_checkout::Remove | app_checkout::Reset)
             | Host(
                 host::Add

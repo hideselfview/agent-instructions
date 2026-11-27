@@ -119,25 +119,10 @@ fn group(places: &Places) -> Result<Option<Group>> {
     let mut kept = Vec::new();
     for (_, project) in capped_store::tops_in(&root)? {
         for (_, folder) in folders_in(&project)? {
-            let used = folder.join(USED);
-            let Some(last_use) = capped_store::written_at(&used)? else {
-                // Publishing removes the plan marker before changing any
-                // files. A valid plan and the exclusive lock rule out a
-                // replacement between the missing file and this diagnosis.
-                let Some(_valid) = capped_store::lock_plan(&root)? else {
-                    return Ok(None);
-                };
-                if folder
-                    .try_exists()
-                    .context(|| format!("checking {}", folder.display()))?
-                {
-                    fail!("The published review run is missing {}.", used.display());
-                }
-                crate::output::note(format!(
-                    "{} disappeared during prune planning",
-                    folder.display()
-                ));
-                continue;
+            let last_use = match capped_store::published_use(&root, &folder, USED, "review run")? {
+                capped_store::Published::Used(at) => at,
+                capped_store::Published::Gone => continue,
+                capped_store::Published::PlanLost => return Ok(None),
             };
             kept.push(Kept::Folder {
                 folder: capped_store::Folder::unpinned(folder),

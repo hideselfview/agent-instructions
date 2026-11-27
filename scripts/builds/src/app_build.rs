@@ -2202,7 +2202,7 @@ impl<'a> LaneBuild<'a> {
                 &|holds| held.holds(crate::host_chrome::STEP, holds),
                 &lock::pause_before_trying_again,
             )?;
-            if !starts {
+            if starts.is_none() {
                 return Ok(Ended::Stopped);
             }
         }

@@ -585,6 +585,13 @@ pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &crate::args::Args) -> Resul
                 "review-texts (the reviews' texts)",
                 crate::review::texts::CAP_KIB,
             )?);
+        } else if entry == crate::web_picture::root(&tool.places) && entry.is_dir() {
+            out.push(capped_line(
+                tool,
+                &entry,
+                "web-pictures (web pages' pictures)",
+                crate::web_picture::CAP_KIB,
+            )?);
         } else if entry == tool.places.agents() && entry.is_dir() {
             let measured = tool.measure(&entry)?;
             out.push(format!(

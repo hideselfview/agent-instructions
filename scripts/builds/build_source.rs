@@ -158,8 +158,15 @@ const COMPARISON_ONLY: [&str; 10] = [
 /// draws`, which says whether boards draw the same at two commits, what builds
 /// asks outside a run (library.rs), and the command line (cli.rs): the
 /// subcommands and arguments name no picture, so a change to one keeps every
-/// stored shot, board picture and run.
-const UNVERSIONED: [&str; 4] = ["states.rs", "draws.rs", "library.rs", "cli.rs"];
+/// stored shot, board picture and run. The picture of a web page
+/// (web_picture.rs) is no shot and no board.
+const UNVERSIONED: [&str; 5] = [
+    "states.rs",
+    "draws.rs",
+    "library.rs",
+    "cli.rs",
+    "web_picture.rs",
+];
 
 /// Who reads a file of the shots checker.
 #[derive(PartialEq, Eq, Debug)]

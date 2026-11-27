@@ -20,9 +20,7 @@ use chromiumoxide::cdp::browser_protocol::emulation::{
     SetEmulatedMediaParams, SetVirtualTimePolicyParams, VirtualTimePolicy,
 };
 use chromiumoxide::cdp::browser_protocol::network::EventResponseReceived;
-use chromiumoxide::cdp::browser_protocol::page::{
-    AddScriptToEvaluateOnNewDocumentParams, CaptureScreenshotFormat,
-};
+use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chromiumoxide::cdp::js_protocol::runtime::{
     ConsoleApiCalledType, EventConsoleApiCalled, EventExceptionThrown, RemoteObject,
 };
@@ -273,11 +271,9 @@ pub(crate) async fn prepare(
     })
     .await
     .map_err(protocol)?;
-    page.run(AddScriptToEvaluateOnNewDocumentParams::new(watch_script(
-        mounted, body_class,
-    )))
-    .await
-    .map_err(protocol)?;
+    page.watch(watch_script(mounted, body_class))
+        .await
+        .map_err(protocol)?;
     Ok(())
 }
 

@@ -341,25 +341,8 @@ impl Held {
         };
         // This Mac always draws window scenes (`Takes`).
         let draws = self.takes.screen && host.target.is_some();
-        let seen = std::cell::RefCell::new(None);
-        let ready = crate::host_display::wait_until_ready(
-            &host,
-            &|| {
-                let reading = crate::host_display::read(&self.ssh, &host)?;
-                let reasons = reading.display.reasons(draws);
-                *seen.borrow_mut() = Some(reading);
-                Ok(reasons)
-            },
-            &|words| note(words),
-            &|holds| self.holds(step, holds),
-            &|| {
-                let seen = seen.borrow();
-                let seen = seen
-                    .as_ref()
-                    .expect("the lane reads the display before it waits");
-                crate::host_display::wait(&self.ssh, &host, seen)
-            },
-        )?;
+        let ready =
+            crate::host_display::hold(&self.ssh, &host, draws, &|holds| self.holds(step, holds))?;
         Ok(ready.then_some(window))
     }
 

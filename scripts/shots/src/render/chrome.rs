@@ -4,7 +4,9 @@ use crate::render::slots::{Slot, Slots};
 use chromiumoxide::Page;
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::browser::BrowserContextId;
-use chromiumoxide::cdp::browser_protocol::page::GetLayoutMetricsReturns;
+use chromiumoxide::cdp::browser_protocol::page::{
+    AddScriptToEvaluateOnNewDocumentParams, GetLayoutMetricsReturns,
+};
 use chromiumoxide::cdp::browser_protocol::target::{
     CreateBrowserContextParams, CreateTargetParams,
 };
@@ -210,6 +212,9 @@ pub(crate) struct DrawPage {
     in_flight: std::sync::Mutex<Option<String>>,
     /// The browser context the page is the only page of.
     context: BrowserContextId,
+    /// Set once the page is given the script that watches how far its draw
+    /// got (`watch`).
+    watched: std::sync::atomic::AtomicBool,
 }
 
 impl std::ops::Deref for DrawPage {
@@ -242,6 +247,17 @@ impl DrawPage {
             method: method.to_string(),
             source,
         })
+    }
+
+    /// Gives each document the page loads <script>, which keeps how far the
+    /// draw got in `window.__buildsShots.state`. A page that then runs out of
+    /// time says that state, or why it cannot read it.
+    pub(crate) async fn watch(&self, script: String) -> Result<(), CommandError> {
+        self.watched
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.run(AddScriptToEvaluateOnNewDocumentParams::new(script))
+            .await
+            .map(|_| ())
     }
 
     /// The method of the command Chrome has not answered, if one waits.
@@ -345,6 +361,7 @@ impl Chrome {
                 _slot: slot,
                 in_flight: std::sync::Mutex::new(None),
                 context,
+                watched: std::sync::atomic::AtomicBool::new(false),
             }),
             Err(e) => {
                 note_unless_done(
@@ -417,10 +434,11 @@ async fn note_unless_done<T, E: std::fmt::Display>(
     }
 }
 
-/// What <page> still answers after its draw ran out of time: its address and
-/// how far the board's watch script got, or the error of each question that
-/// failed, or that Chrome answered none within `CLOSE_DEADLINE`; with the
-/// command it had not answered, if one.
+/// What <page> still answers after its draw ran out of time: its address and,
+/// for a page that was given the watch script (`DrawPage::watch`), how far
+/// the draw got, or the error of each question that failed, or that Chrome
+/// answered none within `CLOSE_DEADLINE`; with the command it had not
+/// answered, if one.
 async fn last_said(page: &DrawPage) -> String {
     // Read before the questions below, which each note themselves as in flight.
     let waiting = match page.waiting_on() {
@@ -433,6 +451,9 @@ async fn last_said(page: &DrawPage) -> String {
             Ok(None) => "no address".to_string(),
             Err(error) => format!("an address that failed to read ({error})"),
         };
+        if !page.watched.load(std::sync::atomic::Ordering::Relaxed) {
+            return format!("; the page was at {url}{waiting}");
+        }
         let state = match page.evaluate("window.__buildsShots.state").await {
             Ok(result) => match result.into_value::<String>() {
                 Ok(state) => format!("reached '{state}'"),

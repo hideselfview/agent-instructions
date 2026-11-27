@@ -279,7 +279,8 @@ impl crate::command::Command {
             | BuildApp
             | Lock
             | Remote(remote::Run | remote::Step)
-            | Shots(shots::Checker) => true,
+            | Shots(shots::Checker)
+            | Web(web::Picture) => true,
             Help
             | Ack
             | RulesOnEdit

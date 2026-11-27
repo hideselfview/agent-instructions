@@ -254,7 +254,11 @@ WHAT AN IMPLEMENTING AGENT DOES
      screen. `builds checks run --since origin/main` runs the hook's checks
      over every file the branch changed and leaves HEAD, the index and the
      files as they are. Never move HEAD to check a branch: an app build
-     started meanwhile builds the commit HEAD names.
+     started meanwhile builds the commit HEAD names. To see a web page it
+     changes, such as a site on its dev server, the agent runs `builds web
+     picture <url>` and reads the picture at the path the command prints
+     (`builds help`, WEB PICTURES). No agent starts headless Chrome, or
+     another browser, outside builds.
   6. Before every commit, including fix commits, reread the text it adds or
      moves as ~/.claude/CLAUDE.md says (Talking with the user, "Write plain,
      literal, active sentences"). No review that an agent runs or that a

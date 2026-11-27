@@ -51,6 +51,15 @@ fn cache(places: &Places) -> PathBuf {
     places.caches().join("builds-shots")
 }
 
+/// The folders builds gives the checker on the volume of <places>.
+pub fn folders(places: &Places) -> boards::Folders {
+    boards::Folders {
+        cache: cache(places),
+        fonts: places.fonts.clone(),
+        volume: places.root.clone(),
+    }
+}
+
 /// Fails, with what the checker printed, when the boards at <tip> of the
 /// repo at <top> draw a component state that no preview row shows and that
 /// the listing at <base> does not hold (`builds shots states --at <tip>
@@ -107,11 +116,7 @@ pub fn cmd_checker(places: &Places, args: &crate::args::Args) -> Result<()> {
     places.require_volume()?;
     let checker = shots::Checker {
         versions: &CHECKER,
-        folders: &boards::Folders {
-            cache: cache(places),
-            fonts: places.fonts.clone(),
-            volume: places.root.clone(),
-        },
+        folders: &folders(places),
     };
     let args = with_board_store(args.words(), board_store(places)?);
     if shots::main(&checker, &args) {

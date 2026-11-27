@@ -194,6 +194,44 @@ pub enum Use {
     NewestInside,
 }
 
+/// When a published unit was last used, as `published_use` reads it.
+pub enum Published {
+    /// At a time, seconds since 1970.
+    Used(i64),
+    /// The unit is gone.
+    Gone,
+    /// A reader or writer used the root after the prune began its plan, which
+    /// the prune then drops.
+    PlanLost,
+}
+
+/// When the unit <folder> of <root> was last used: when its file <file> was
+/// written. A published unit holds the file, so a unit without it is an
+/// error that names it as a published <what>.
+pub fn published_use(root: &Path, folder: &Path, file: &str, what: &str) -> Result<Published> {
+    let used = folder.join(file);
+    if let Some(at) = written_at(&used)? {
+        return Ok(Published::Used(at));
+    }
+    // Publishing removes the plan marker before changing any files. A valid
+    // plan and the exclusive lock rule out a replacement between the missing
+    // file and this diagnosis.
+    let Some(_valid) = lock_plan(root)? else {
+        return Ok(Published::PlanLost);
+    };
+    if folder
+        .try_exists()
+        .context(|| format!("checking {}", folder.display()))?
+    {
+        fail!("The published {what} is missing {}.", used.display());
+    }
+    note(format!(
+        "{} disappeared during prune planning",
+        folder.display()
+    ));
+    Ok(Published::Gone)
+}
+
 /// The folder a capped unit occupies and the lock its readers hold, if any.
 pub struct Folder {
     pub path: PathBuf,

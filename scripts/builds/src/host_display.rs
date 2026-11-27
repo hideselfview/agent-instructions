@@ -15,7 +15,8 @@
 //!
 //! Before each window step of the mac lane, the lane reads the host once
 //! (`read`) and holds the step while the reading gives a reason
-//! (`wait_until_ready`), this Mac included. The step itself holds a display
+//! (`hold`), this Mac included; `builds web picture` holds its drawing the
+//! same way (web_picture.rs). The step itself holds a display
 //! assertion on the host while it runs (app_remote.rs `keeping_display_on`),
 //! so the display does not sleep during it. A build that draws window scenes
 //! also reads each host before it takes a checkout, and takes a host that can
@@ -24,6 +25,8 @@
 //! beside its lock (`Wait`, holder_run.rs), and `builds health` names each
 //! reason that holds a step, with how long it has waited, and each reason a
 //! host's scan gives that holds no step, in one shape (`finding`).
+
+use std::ops::ControlFlow;
 
 use serde::{Deserialize, Serialize};
 
@@ -414,11 +417,11 @@ pub fn wait_until_ready(
     wait: &dyn Fn() -> Result<Ran>,
 ) -> Result<bool> {
     let name = &host.name;
-    crate::host_hold::hold_until_ready(
+    let ready = crate::host_hold::hold_until_ready(
         &format!("{}'s display", place(name)),
         &|| match read() {
-            Ok(reasons) if reasons.is_empty() => Ok(None),
-            Ok(reasons) => Ok(Some(reasons)),
+            Ok(reasons) if reasons.is_empty() => Ok(ControlFlow::Break(())),
+            Ok(reasons) => Ok(ControlFlow::Continue(reasons)),
             Err(error) => fail!("{error}"),
         },
         &|reasons| {
@@ -449,6 +452,38 @@ pub fn wait_until_ready(
                 Ok(Ran::Finished)
             }
             ended => ended,
+        },
+    )?;
+    Ok(ready.is_some())
+}
+
+/// `wait_until_ready` with <host>'s own display: holds a step while the
+/// reading (`read`) gives a reason, waiting between readings for the display
+/// to change (`wait`). A closed lid is a reason only when <draws>
+/// (`Display::reasons`).
+pub fn hold(
+    ssh: &Ssh,
+    host: &Host,
+    draws: bool,
+    record: &dyn Fn(Option<Hold<Wait>>) -> Result<()>,
+) -> Result<bool> {
+    let seen = std::cell::RefCell::new(None);
+    wait_until_ready(
+        host,
+        &|| {
+            let reading = read(ssh, host)?;
+            let reasons = reading.display.reasons(draws);
+            *seen.borrow_mut() = Some(reading);
+            Ok(reasons)
+        },
+        &|words| crate::output::note(words),
+        record,
+        &|| {
+            let seen = seen.borrow();
+            let seen = seen
+                .as_ref()
+                .expect("the display is read before a wait for it");
+            wait(ssh, host, seen)
         },
     )
 }

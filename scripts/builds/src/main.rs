@@ -215,6 +215,7 @@ mod unlanded;
 mod usage;
 mod waits;
 mod warm;
+mod web_picture;
 mod whole_file;
 mod window_lock;
 mod worktree;
@@ -551,6 +552,7 @@ fn run(
         Shots(shots::Findings) => shot_findings::cmd_findings(&Places::from_env()?, args),
         Shots(shots::CheckProgram) => shots_check_program::cmd(&Places::from_env()?, args),
         Shots(shots::Checker) => shots_program::cmd_checker(&Places::from_env()?, args),
+        Web(web::Picture) => web_picture::cmd(&Places::from_env()?, system, args),
         Brief => brief::cmd_brief(&crate::review::default_rules_root()?, args),
         Ack => ack::cmd_ack(&Places::from_env()?, &session, args),
         Agent(agent::Start) => ack::agent::cmd_start(&Places::from_env()?),

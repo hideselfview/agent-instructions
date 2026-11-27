@@ -151,6 +151,11 @@ declare! {
         Next => [["next"]], ["builds next [--for coordinator|design-session] [--project P]"];
     }
     groups {
+        Web(web::Web) {
+            Picture => [["web", "picture"]], [
+                "builds web picture <url> [--width N] [--full-page]",
+            ];
+        }
         Agent(agent::Agent) {
             Start => [["agent", "start"]], ["builds agent start"];
             Run => [["agent", "run"]], [

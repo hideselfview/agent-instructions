@@ -5,7 +5,7 @@ use std::cell::{Cell, RefCell};
 fn reads_the_line_builds_shots_chrome_prints() {
     assert_eq!(
         parse("note: x\nchrome=started HeadlessChrome/157.0\n"),
-        Ok(Start::Started)
+        Ok(Start::Started(()))
     );
     assert_eq!(
         parse("chrome=no-address cannot start Chrome: no address in 120 seconds"),
@@ -42,7 +42,7 @@ fn the_build_holds_a_host_whose_chrome_prints_no_address_until_it_starts() {
         vec![
             Ok(Start::NoAddress("no address in 120 seconds".to_string())),
             Ok(Start::NoAddress("no address in 120 seconds".to_string())),
-            Ok(Start::Started),
+            Ok(Start::Started("made")),
         ]
         .into_iter(),
     );
@@ -63,7 +63,7 @@ fn the_build_holds_a_host_whose_chrome_prints_no_address_until_it_starts() {
         },
     )
     .unwrap();
-    assert!(started);
+    assert_eq!(started, Some("made"));
     assert_eq!(pauses.get(), 2);
     assert_eq!(
         held.into_inner(),
@@ -95,24 +95,24 @@ fn the_build_holds_a_host_whose_chrome_prints_no_address_until_it_starts() {
 fn a_host_whose_chrome_starts_holds_nothing() {
     let started = wait_until_starts(
         &m1(),
-        &|| Ok(Start::Started),
+        &|| Ok(Start::Started(())),
         &|_| panic!("nothing to say"),
         &|_| panic!("no hold"),
         &|| panic!("no pause"),
     )
     .unwrap();
-    assert!(started);
+    assert_eq!(started, Some(()));
 }
 
 #[test]
 fn a_takeover_ends_the_hold_and_another_failure_fails_the_build() {
-    let hung = || Ok(Start::NoAddress("hung".to_string()));
+    let hung = || Ok(Start::<()>::NoAddress("hung".to_string()));
     let started =
         wait_until_starts(&m1(), &hung, &|_| {}, &|_| Ok(()), &|| Ok(Ran::Stopped)).unwrap();
-    assert!(!started);
+    assert_eq!(started, None);
     let error = wait_until_starts(
         &m1(),
-        &|| Ok(Start::Failed("no such file".to_string())),
+        &|| Ok(Start::<()>::Failed("no such file".to_string())),
         &|_| {},
         &|_| Ok(()),
         &|| Ok(Ran::Finished),
@@ -125,7 +125,7 @@ fn a_takeover_ends_the_hold_and_another_failure_fails_the_build() {
     );
     let error = wait_until_starts(
         &m1(),
-        &|| Err("ssh failed".to_string()),
+        &|| Err::<Start, _>("ssh failed".to_string()),
         &|_| {},
         &|_| Ok(()),
         &|| Ok(Ran::Finished),

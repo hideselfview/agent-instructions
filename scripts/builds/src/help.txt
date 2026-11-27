@@ -314,6 +314,8 @@ on it:
   review-texts/<project>/<run>/
                         the texts of each review run (DISK), one file per
                         text, named for the text's hash
+  web-pictures/<picture>/
+                        one web page's picture, page.png (WEB PICTURES)
   agents/<session>/     what `builds agent run` keeps of each agent it
                         started: log.jsonl, the stream and Claude Code's
                         standard error as JSON lines, and scratch/, the
@@ -1437,7 +1439,7 @@ the steps a display holds (HEALTH CHECK in `builds help workflow`).
 Each host draws no more pages at once than half its cores (at least one),
 however many Chromes run there, so drawing boards leaves room for the host's
 other work. Every program that starts the pinned Chrome (a shots run, `builds
-shots draws`, the shots crate's tests) takes a slot before it opens a page and
+shots draws`, `builds web picture`, the shots crate's tests) takes a slot before it opens a page and
 gives it back when the page closes. A slot is an exclusive flock on one of the
 files in <build volume>/.chrome-slots, the volume that BUILDS_ROOT names, so a
 test and a builds run on one host share the slots, and the kernel frees the
@@ -2520,6 +2522,42 @@ built again.
                               paths that are not, and never throws away work
 
 
+WEB PICTURES
+
+An agent sees a web page it changes, such as a site on its dev server, in a
+picture that builds takes.
+
+  {web picture}
+                              picture the page at <url> on this Mac and print
+                              the path of the PNG
+
+The URL is an http or https URL, and builds refuses any other. The window is
+--width CSS pixels wide (1440 without it) and 900 high, at two pixels per CSS
+pixel, so the PNG is 2880 by 1800 without either flag. With --full-page the
+PNG shows the page's whole height, and the window the page loads in stays 900
+high. builds takes the picture once the page's load event has fired and its
+fonts have loaded. A page that no server answers, or that Chrome does not
+finish in 120 seconds, fails the command, which names the URL. A server's
+error page, such as a 404, is a page like any other.
+
+builds draws the page with the Chrome a shots run pins, which it keeps in the
+build volume's caches, with a new profile folder in the run's temporary folder.
+The page takes one of the host's Chrome slots (APP BUILDS). The command takes
+no app checkout, no place in a lane's queue and no window lock: of what an app
+build waits for, the command takes only that Chrome slot.
+
+The command waits as a shots step on this Mac waits (APP BUILDS). While this
+Mac's screen is locked or a system alert is in front of every app, it prints
+"waiting for this Mac to show windows, since <reason>" and takes the picture
+once the reason ends. A closed lid on this Mac holds no shots step and no
+picture. While Chrome prints no address within its 120 seconds, it prints
+"waiting for Chrome to start on this Mac" with why, starts Chrome again every
+minute and takes the picture once Chrome starts. `builds health` lists no
+waiting picture.
+
+The pictures are in the folder web-pictures on the build volume (DISK).
+
+
 HOSTS
 
 builds can run jobs on other machines, its hosts: other Macs, and Linux
@@ -3021,6 +3059,13 @@ has no file recording its last use. Once a run's texts are gone, a command
 that needs one (`builds review audit`, `propose`) says so and goes on to the next.
 `status` shows the folder's size against its cap. What `setup` and `prune`
 delete there they print in one line, as for a folder in shots.
+
+Web pictures. The folder web-pictures holds the pictures of `builds web
+picture`, one folder per picture, with a cap of 1 GiB. `setup` and `prune`
+delete whole pictures while the folder is over its cap, the oldest first, and
+keep a picture taken in the last 30 minutes. Builds reports an error if a
+picture's folder has no page.png. `status` shows the folder's size against its
+cap.
 
 When xcodebuild fails with "Couldn't check out revision" or "file not found" on
 a SwiftPM dependency (often Sparkle), its cache is corrupt: disconnect any VPN

@@ -1,6 +1,6 @@
 //! The limit on pages drawing at once on one host. Every program that starts the
-//! pinned Chrome (a shots run, `builds shots draws`, a test) takes a slot for
-//! each page it has open and gives it back when the page closes, so the pages
+//! pinned Chrome (a shots run, `builds shots draws`, `builds web picture`, a
+//! test) takes a slot for each page it has open and gives it back when the page closes, so the pages
 //! drawing on the host never pass the limit, however many processes draw.
 //!
 //! A slot is an exclusive flock on one of `count` files in a folder on the
