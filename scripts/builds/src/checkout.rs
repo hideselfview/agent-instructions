@@ -355,16 +355,51 @@ pub struct Root {
     pub live: Option<Checkout>,
 }
 
+/// The file in a build root that names the checkout the root belongs to.
+const MARKER: &str = ".checkout";
+
 impl Root {
-    /// The root at <path>, or None when it has no `.checkout`.
-    pub fn read(places: &Places, path: &Path) -> Result<Option<Root>> {
-        let marker = path.join(".checkout");
-        let text = match std::fs::read_to_string(&marker) {
-            Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+    /// Is <path> a build root: does it hold the marker that names its
+    /// checkout?
+    pub fn is_at(path: &Path) -> bool {
+        path.join(MARKER).is_file()
+    }
+
+    /// The checkout that the marker of the build root at <path> names; None
+    /// when <path> has no marker.
+    pub fn named_top(path: &Path) -> Result<Option<PathBuf>> {
+        let marker = path.join(MARKER);
+        match std::fs::read_to_string(&marker) {
+            Ok(text) => Ok(Some(PathBuf::from(text.trim_end_matches('\n')))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => fail!("reading {}: {error}", marker.display()),
+        }
+    }
+
+    /// The build root at or above <path>: the nearest folder that holds a
+    /// marker; None when no folder does.
+    pub fn holding(path: &Path) -> Result<Option<PathBuf>> {
+        for dir in path.ancestors() {
+            if crate::whole_file::stat(&dir.join(MARKER))?.is_some_and(|meta| meta.is_file()) {
+                return Ok(Some(dir.to_path_buf()));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Writes the marker of the build root at <path>, naming the checkout at
+    /// <top>; roots.rs `make` is its one caller.
+    pub(crate) fn mark(path: &Path, top: &Path) -> Result<()> {
+        let marker = path.join(MARKER);
+        std::fs::write(&marker, format!("{}\n", top.display()))
+            .context(|| format!("writing {}", marker.display()))
+    }
+
+    /// The root at <path>, or None when it has no marker.
+    pub fn read(places: &Places, path: &Path) -> Result<Option<Root>> {
+        let Some(top) = Root::named_top(path)? else {
+            return Ok(None);
         };
-        let top = PathBuf::from(text.trim_end_matches('\n'));
         let live = if top.is_dir() {
             Checkout::at(&top)?
                 .filter(|checkout| checkout.top == top && checkout.build_root(places) == path)
@@ -411,8 +446,8 @@ pub fn all_root_paths(places: &Places) -> Result<Vec<PathBuf>> {
     let mut markers = Vec::new();
     for repo in visible_dirs(&places.root)? {
         for checkout in visible_dirs(&repo)? {
-            if checkout.join(".checkout").is_file() {
-                markers.push(checkout.join(".checkout"));
+            if Root::is_at(&checkout) {
+                markers.push(checkout.join(MARKER));
             }
         }
     }

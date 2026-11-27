@@ -2059,6 +2059,7 @@ fn build_lane(
             lane,
             &held.checkout,
             held.checkout_lock(),
+            &tool.changed,
         )?;
         timing.held = Some(HeldTimes::of(&held, commit, site.load(places, &ssh)));
         note(format!("building in {}", held.checkout));

@@ -30,6 +30,7 @@ use crate::fail::{Context, Fail, Result};
 use crate::host::Load;
 use crate::host::{LOCAL, Ssh};
 use crate::places::{Places, Rules};
+use crate::roots::Changed;
 use crate::units::record::record;
 
 /// The variable `builds checks run` sets for each check of a recorded hook
@@ -290,8 +291,8 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
 /// (`locked_flag`) and the settings of the checkout's role (`role_config`). Exits with cargo's status, or the
 /// recorder's when cargo succeeded and a reported unit could not be recorded.
 /// An update builds nothing and runs as cargo_update.rs says, and a read as
-/// cargo_read.rs says.
-pub fn cmd_cargo(args: &[String]) -> Result<()> {
+/// cargo_read.rs says. A build adds its checkout's build root to <changed>.
+pub fn cmd_cargo(args: &[String], changed: &Changed) -> Result<()> {
     let (subcommand, format, tool): (&[String], &str, cargo_place::CargoTool) = match args
         .first()
         .map(String::as_str)
@@ -330,6 +331,9 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     let places = Places::from_env()?;
     let checkout = Checkout::at_keeping_env(&dir)?;
+    if let Some(checkout) = &checkout {
+        changed.add(checkout.build_root(&places));
+    }
     let key = checkout
         .as_ref()
         .map(|checkout| RunKey::of(checkout, subcommand));

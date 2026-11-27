@@ -8,12 +8,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::checkout::{Checkout, Root};
-use crate::evict::{Recreate, Removal, evict};
+use crate::evict::{Recreate, Removal};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::free_worktrees::retire_free;
 use crate::manifest::{SHARED_CACHES, SharedCache, build_dirs, has_manifest};
 use crate::places::{DERIVED_DATA_CAP_KIB, DERIVED_DATA_IDLE_MINUTES, FLOOR_IDLE_MINUTES, Places};
+use crate::roots::delete;
 use crate::temp_builds::temp_build_folders;
 use crate::text::{human, note};
 use crate::tool::Tool;
@@ -86,7 +87,7 @@ pub fn prune_root(
     if folders.is_empty() {
         return Ok(());
     }
-    let mut freed = units::prune::prune(&cargo_ages(tool), run, &folders)?;
+    let mut freed = units::prune::prune(&cargo_ages(tool), run, &folders, &tool.changed)?;
     freed.extend(prune_trees(tool, root, checkout, &folders, run, pruner)?);
     let claimed = checkout.claim_file().is_file();
     let lane = checkout.app_lane(&tool.places)?;
@@ -169,7 +170,7 @@ pub fn prune_after_build(tool: &Tool, checkout: &Checkout) -> Result<()> {
         .map(|entry| root.join(&entry.path))
         .filter(|folder| folder.is_dir())
         .collect();
-    units::prune::prune(&cargo_ages(tool), Run::Real, &folders)?;
+    units::prune::prune(&cargo_ages(tool), Run::Real, &folders, &tool.changed)?;
     Ok(())
 }
 
@@ -188,7 +189,7 @@ pub fn delete_folder(
     if run.dry() {
         note(format!("would delete {} ({reason})", folder.display()));
         Ok(true)
-    } else if evict(&tool.places, folder, recreate, removal)? {
+    } else if delete(tool, folder, recreate, removal)? {
         note(format!("deleted {} ({reason}){after}", folder.display()));
         Ok(true)
     } else {
@@ -840,7 +841,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
             let (path, top) = (root.path.display(), root.top.display());
             if run.dry() {
                 note(format!("would delete {path} (checkout {top} is gone)"));
-            } else if evict(&tool.places, &root.path, Recreate::No, Removal::Background)? {
+            } else if delete(tool, &root.path, Recreate::No, Removal::Background)? {
                 note(format!("deleted {path} (checkout {top} is gone)"));
             } else {
                 note(format!("checkout {top} is gone but {path} is in use, kept"));
@@ -870,7 +871,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
         empty_trash(tool)?;
         crate::prune_schedule::record_finished(&tool.places, crate::app_timing::now())?;
     }
-    Ok(())
+    crate::sizes::forget_unrooted(&tool.places)
 }
 
 /// Runs each recorded host's own `builds prune` with <options>, this

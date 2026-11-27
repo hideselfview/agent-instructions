@@ -16,12 +16,13 @@ use crate::checkout::{APP_LANE_FILE, Checkout};
 use crate::claim::{
     Claim, Note, require_one_line, require_project_named, set_project, write_claim,
 };
-use crate::evict::{Recreate, Removal, evict};
+use crate::evict::{Recreate, Removal};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::free_worktrees::find_free;
 use crate::host::Ssh;
 use crate::lane::{AppCheckout, Lane, require_app_checkout_name};
+use crate::roots::delete;
 use crate::setup::setup;
 use crate::text::note;
 use crate::tool::Tool;
@@ -148,7 +149,7 @@ pub(crate) fn hand_out(
                 .and_then(|()| reuse(&free, &start))
                 .and_then(|()| {
                     switched = true;
-                    prepare_handed(tool, ssh, &free)
+                    prepare(tool, ssh, &free)
                 });
             if let Err(error) = started {
                 return Err(undo(error, undo_reuse(&main, &free, &start, switched)));
@@ -160,7 +161,7 @@ pub(crate) fn hand_out(
             let started = Checkout::find(&dir.display().to_string()).and_then(|checkout| {
                 write_claim(&checkout, who, tool.now, Some(Note::Starting))?;
                 set_project(&tool.places, &checkout, project)?;
-                prepare_handed(tool, ssh, &checkout)?;
+                prepare(tool, ssh, &checkout)?;
                 Ok(checkout)
             });
             match started {
@@ -176,16 +177,6 @@ pub(crate) fn hand_out(
         start,
         added,
     })
-}
-
-/// `prepare` for a worktree `hand_out` hands out, then the sizes of its build
-/// root, recorded and told to the dashboard. `prepare` fills the root after
-/// setup tells the dashboard of it, and one that failed partway may have
-/// written it too.
-fn prepare_handed(tool: &Tool, ssh: &crate::host::Ssh, checkout: &Checkout) -> Result<()> {
-    let prepared = prepare(tool, ssh, checkout);
-    crate::sizes::record_roots(&tool.places, &[checkout.build_root(&tool.places)]);
-    prepared
 }
 
 /// <error>, the failure of a step of `builds new`, with the failure of the
@@ -249,7 +240,7 @@ fn undo_add(tool: &Tool, main: &Path, dir: &Path, start: &Start) -> Result<()> {
         "git worktree remove",
     )?;
     delete_made_branch(main, start)?;
-    if root.is_dir() && !evict(&tool.places, &root, Recreate::No, Removal::Background)? {
+    if root.is_dir() && !delete(tool, &root, Recreate::No, Removal::Background)? {
         fail!(
             "a process holds files in {}; run builds prune once it exits",
             root.display()
@@ -427,7 +418,7 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
             .arg(&checkout.top),
         "git worktree remove",
     )?;
-    if root.is_dir() && !evict(&tool.places, &root, Recreate::No, Removal::Background)? {
+    if root.is_dir() && !delete(tool, &root, Recreate::No, Removal::Background)? {
         fail!(
             "worktree removed, but a process holds files in {}; run builds prune once it exits",
             root.display()
@@ -523,13 +514,7 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     };
     if let Some((repo, name, matching)) = reset {
         tool.places.require_volume()?;
-        let reset = crate::app_reset::cmd_reset(&tool.places, ssh, repo, name, matching);
-        // A checkout on a host has no build root on this Mac.
-        if crate::app_remote::split(name).is_none() {
-            let root = tool.places.root.join(repo).join(name);
-            crate::sizes::record_roots(&tool.places, &[root]);
-        }
-        return reset;
+        return crate::app_reset::cmd_reset(&tool.places, ssh, repo, name, matching, &tool.changed);
     }
     let (removing, lane, arg) = match args {
         [word, lane, arg] if word == "remove" => (true, lane, arg),
@@ -553,14 +538,14 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     checkout.require_repo_name(&tool.places)?;
     let repo = checkout.repo();
     let lane = crate::repo_lanes::parse_in_source(&checkout.top, lane)?;
-    let changed = if removing {
+    // The lane a root belongs to decides the cap of each folder the
+    // dashboard shows.
+    tool.changed.add(checkout.build_root(&tool.places));
+    if removing {
         remove_local_checkout(tool, &repo, lane, &name, &checkout)
     } else {
         add_local_checkout(tool, ssh, &repo, lane, &name, &checkout)
-    };
-    // A change that failed partway may have written the root too.
-    crate::sizes::record_roots(&tool.places, &[checkout.build_root(&tool.places)]);
-    changed
+    }
 }
 
 /// Takes <checkout>, the worktree <name>, out of <repo>'s <lane>.

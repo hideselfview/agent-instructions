@@ -121,18 +121,6 @@ fn a_corrupt_record_is_an_error_not_an_empty_record() {
 }
 
 #[test]
-fn a_deletion_in_a_root_removes_its_record_so_it_is_measured_again() {
-    let scratch = Scratch::new("sizes-stale");
-    let (places, root) = root_with_folders(&scratch);
-    record(&places, &root).unwrap();
-    assert!(!read(&places, &root).unwrap().is_empty());
-    stale(&places, &root.join("target")).unwrap();
-    assert!(read(&places, &root).unwrap().is_empty());
-    // A folder outside the roots has no record to remove.
-    stale(&places, Path::new("/elsewhere/a/b")).unwrap();
-}
-
-#[test]
 fn a_record_of_a_root_that_is_gone_is_forgotten_by_prune() {
     let scratch = Scratch::new("sizes-forget");
     let (places, root) = root_with_folders(&scratch);

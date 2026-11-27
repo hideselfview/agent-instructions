@@ -12,6 +12,7 @@ use crate::fail::{Fail, Result};
 use crate::host::{Ssh, output_of};
 use crate::lane::Lane;
 use crate::places::Places;
+use crate::roots::Changed;
 use crate::side_git::{UNCOMMITTED_STATUS, paths_in_status};
 
 /// One of a repo's app checkouts, on this Mac or on a host.
@@ -23,7 +24,9 @@ pub enum Site<'a> {
 }
 
 impl<'a> Site<'a> {
-    /// The checkout <entry> of <repo>'s <lane>.
+    /// The checkout <entry> of <repo>'s <lane>, which the caller checks a
+    /// commit out in: a checkout on this Mac adds its build root to
+    /// <changed>.
     pub fn of(
         places: &Places,
         ssh: &Ssh,
@@ -31,11 +34,13 @@ impl<'a> Site<'a> {
         lane: Lane,
         entry: &str,
         checkout: CheckoutLock<'a>,
+        changed: &Changed,
     ) -> Result<Self> {
         Ok(
             match RemoteApp::find(places, ssh, repo, lane, entry, checkout)? {
                 Some(remote) => Site::Remote(Box::new(remote)),
                 None => {
+                    changed.add(places.root.join(repo).join(entry));
                     let top = app_checkout_top(places, repo, entry)?;
                     let settings = crate::xcode_cache::settings_for(places, &top)?;
                     Site::Local(top, settings, checkout)

@@ -304,6 +304,7 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
             platform.lane(),
             &held.checkout,
             held.checkout_lock(),
+            &tool.changed,
         )?;
         note(format!("building in {}", held.checkout));
         let config = site.check_out(places, repo, commit)?.config;

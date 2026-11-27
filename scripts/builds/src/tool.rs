@@ -1,5 +1,5 @@
 //! What one command runs with: where things are, the rules, the moment it
-//! started, and how it learns sizes.
+//! started, how it learns sizes, and the build roots it changed.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -9,6 +9,7 @@ use crate::checkout::{Root, all_roots};
 use crate::fail::Result;
 use crate::places::{DiskSpace, Places, Rules};
 use crate::review::Reviewer;
+use crate::roots::Changed;
 use crate::usage::{Measure, measure_many};
 
 pub struct Tool {
@@ -27,13 +28,23 @@ pub struct Tool {
     /// shots states` to find the component states a design change adds
     /// (`shots_program::require_states_shown`).
     pub program: PathBuf,
+    /// The build roots the command changed, which main measures when the
+    /// command ends (roots.rs).
+    pub changed: Changed,
     /// Sizes measured ahead, for `status`, which reads every folder once.
     measured: HashMap<PathBuf, Measure>,
 }
 
 impl Tool {
-    /// A tool whose builds program is <program>.
-    pub fn new(places: Places, rules: Rules, program: PathBuf, session: Session) -> Result<Tool> {
+    /// A tool whose builds program is <program>, which adds the build roots
+    /// the command changes to <changed>.
+    pub fn new(
+        places: Places,
+        rules: Rules,
+        program: PathBuf,
+        session: Session,
+        changed: Changed,
+    ) -> Result<Tool> {
         let dir = crate::lists::args::current_dir()?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -47,6 +58,7 @@ impl Tool {
             places,
             rules,
             now,
+            changed,
             measured: HashMap::new(),
         })
     }

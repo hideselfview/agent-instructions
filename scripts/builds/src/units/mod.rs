@@ -348,14 +348,7 @@ pub fn lock_guard(path: &Path) -> Result<Guard> {
 /// does, waits for it, so no build can begin using <path> between its being
 /// judged idle and its move. A path in no build root has no guard.
 pub fn lock_guard_creating(path: &Path) -> Result<Guard> {
-    let mut root = None;
-    for dir in path.ancestors() {
-        if is_file(&dir.join(".checkout"))? {
-            root = Some(dir);
-            break;
-        }
-    }
-    let Some(root) = root else {
+    let Some(root) = crate::checkout::Root::holding(path)? else {
         return lock_guard(path);
     };
     match crate::flock::try_lock_creating(&root.join(GUARD), libc::LOCK_EX)? {
@@ -508,7 +501,9 @@ pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
         Some("prune") if args.len() >= 4 => {
             let folders: Vec<PathBuf> = args[4..].iter().map(PathBuf::from).collect();
             let rules = prune::Ages::new(number(&args[1])?, number(&args[2])?);
-            for (folder, freed_kib) in prune::prune(&rules, run(&args[3])?, &folders)? {
+            for (folder, freed_kib) in
+                prune::prune(&rules, run(&args[3])?, &folders, &tool.changed)?
+            {
                 println!("{freed_kib}\t{}", folder.display());
             }
             Ok(())

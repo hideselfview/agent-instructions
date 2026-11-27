@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::checkout::{Checkout, Root, absolute_link_target, worktrees_of};
-use crate::evict::{Recreate, Removal, evict};
+use crate::evict::{Recreate, Removal};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::Ssh;
@@ -23,6 +23,7 @@ use crate::manifest::{MANIFEST, build_dirs, has_manifest};
 use crate::prune::{
     Pruner, Run, prune_derived_data, prune_root, prune_shared, prune_tools_and_floor,
 };
+use crate::roots::delete;
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -78,7 +79,7 @@ fn place(tool: &Tool, link: &Path, dest: &Path, checkout: &Checkout) -> Result<(
         let current = absolute_link_target(link)?;
         if current != dest {
             if current.is_dir() && may_delete(tool, &current, checkout)? {
-                if !evict(&tool.places, &current, Recreate::No, Removal::Background)? {
+                if !delete(tool, &current, Recreate::No, Removal::Background)? {
                     fail!(
                         "a build is using {}; run builds setup again once it ends",
                         current.display()
@@ -93,7 +94,7 @@ fn place(tool: &Tool, link: &Path, dest: &Path, checkout: &Checkout) -> Result<(
             note(format!("linked {shown} -> {}", dest.display()));
         }
     } else if link.exists() {
-        if !evict(&tool.places, link, Recreate::No, Removal::Background)? {
+        if !delete(tool, link, Recreate::No, Removal::Background)? {
             fail!("a build is using {shown}; run builds setup again once it ends");
         }
         note(format!(
@@ -194,17 +195,8 @@ pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare)
     }
     tool.places.require_volume()?;
     checkout.require_repo_name(&tool.places)?;
-    let root = checkout.build_root(&tool.places);
-    std::fs::create_dir_all(&root).context(|| format!("creating {}", root.display()))?;
-    let marker = root.join(".checkout");
-    std::fs::write(&marker, format!("{}\n", checkout.top.display()))
-        .context(|| format!("writing {}", marker.display()))?;
-    let linked = link_build_dirs(tool, &root, checkout);
-    // The dashboard watches nothing on the build volume, so it lists a new
-    // root only once a command tells it. The root is there even when a link
-    // failed.
-    crate::daemon::client::wrote(&tool.places, std::slice::from_ref(&root));
-    linked?;
+    let root = crate::roots::make(tool, checkout)?;
+    link_build_dirs(tool, &root, checkout)?;
     prune_root(tool, &root, checkout, Run::Real, 0, 0, Pruner::Setup)?;
     prune_derived_data(tool, Run::Real, 0, Pruner::Setup)?;
     prune_shared(tool, Run::Real, Pruner::Setup)?;

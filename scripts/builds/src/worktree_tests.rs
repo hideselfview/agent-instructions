@@ -205,12 +205,19 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     while crate::flock::is_held(&lock).unwrap() {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
+    let removing = scratch.tool(0);
     cmd_app_checkout(
-        &tool,
+        &removing,
         &crate::host::Ssh::from_env(),
         &args(&["remove", "android"], &sides[1]),
     )
     .unwrap();
+    // The root's lane changed, so its folders are measured and the
+    // dashboard told once the command ends.
+    assert_eq!(
+        removing.changed.roots(),
+        vec![tool.places.root.join("demo/app-2")]
+    );
     assert_eq!(
         tool.places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
         vec!["app-1"]

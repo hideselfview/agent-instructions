@@ -378,6 +378,7 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
         return Ok(());
     };
     let source = target_of(&held.candidate.root);
+    tool.changed.add(root.clone());
     clone_into_place(&source, &dest, &OtherCheckouts::of(&tool.places, checkout))?;
     // The source's files are read while its guard is held: no build there
     // writes them, so their mtimes are what its fingerprints were made from.
@@ -394,6 +395,7 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
         &Ages::new(tool.rules.unused_days, 0),
         Run::Real,
         std::slice::from_ref(&dest),
+        &tool.changed,
     )?;
     prune_root(
         tool,
@@ -514,6 +516,7 @@ pub fn clone_lane(tool: &Tool, lane: Lane, source: &Checkout, dest: &Checkout) -
         return Ok(());
     };
     let others = OtherCheckouts::of(&tool.places, dest);
+    tool.changed.add(dest_root.clone());
     let mut cloned = Vec::new();
     for dir in &folders {
         let (from, to) = (source_root.join(&dir.path), dest_root.join(&dir.path));
@@ -526,7 +529,12 @@ pub fn clone_lane(tool: &Tool, lane: Lane, source: &Checkout, dest: &Checkout) -
     match_times(&source.top, &dest.top)?;
     drop(held);
     // An app checkout's builds run without incremental compilation.
-    units::prune::prune(&Ages::new(tool.rules.unused_days, 0), Run::Real, &cloned)?;
+    units::prune::prune(
+        &Ages::new(tool.rules.unused_days, 0),
+        Run::Real,
+        &cloned,
+        &tool.changed,
+    )?;
     Ok(())
 }
 

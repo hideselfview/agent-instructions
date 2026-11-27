@@ -19,6 +19,7 @@ use super::{
 use crate::fail;
 use crate::fail::{Result, gone};
 use crate::prune::Run;
+use crate::roots::Changed;
 use crate::text::{counted, human_bytes, note};
 use crate::usage::{Seen, bytes_with, freeable};
 
@@ -551,7 +552,8 @@ fn single_link(path: &Path) -> Result<bool> {
 /// <replaced> (superseded), the incremental folders only they used, every
 /// incremental folder nothing wrote anywhere inside since the idle cutoff,
 /// and the other units' dead object files, but none a process holds a file
-/// of, and none in <kept>. Returns the bytes freed (or that would be).
+/// of, and none in <kept>. Returns the bytes freed (or that would be), and
+/// whether it deleted anything.
 fn prune_profile(
     profile: &Path,
     units: &Units,
@@ -560,7 +562,7 @@ fn prune_profile(
     ages: &Ages,
     run: Run,
     open_files: &mut OpenFiles,
-) -> Result<u64> {
+) -> Result<Pruned> {
     let mut stale: Vec<&Unit> = Vec::new();
     for found in &units.list {
         if !kept.contains(&found.hash) && found.last_use()? < ages.cutoff {
@@ -610,7 +612,10 @@ fn prune_profile(
         && idle.is_empty()
         && objects.is_empty()
     {
-        return Ok(0);
+        return Ok(Pruned {
+            bytes: 0,
+            deleted: false,
+        });
     }
     let held = open_files.get()?.clone();
     let mut kept = Vec::new();
@@ -640,6 +645,12 @@ fn prune_profile(
         }
     }
     let objects = unheld;
+    let deleted = !run.dry()
+        && (!stale.is_empty()
+            || !older.is_empty()
+            || !increment_dirs.is_empty()
+            || !idle_dirs.is_empty()
+            || !objects.is_empty());
     let seen = Seen::default();
     let mut freed = 0;
     let groups = [
@@ -778,15 +789,32 @@ fn prune_profile(
             profile.display()
         ));
     }
-    Ok(freed)
+    Ok(Pruned {
+        bytes: freed,
+        deleted,
+    })
+}
+
+/// What `prune_profile` did in one profile folder.
+struct Pruned {
+    /// The bytes it freed, or on a dry run would free.
+    bytes: u64,
+    /// It deleted something.
+    deleted: bool,
 }
 
 /// Prunes each build folder's profile folders, while holding its checkout's
 /// guard and each profile folder's cargo lock (a dry run takes none and
 /// deletes nothing). A folder whose guard a `builds cargo` build holds is
 /// left whole; a profile folder whose lock a build holds keeps its units.
-/// Returns the KiB freed per folder; notes go to stderr.
-pub fn prune(ages: &Ages, run: Run, folders: &[PathBuf]) -> Result<Vec<(PathBuf, u64)>> {
+/// Returns the KiB freed per folder; notes go to stderr. Each build root it
+/// deletes in goes in <changed>.
+pub fn prune(
+    ages: &Ages,
+    run: Run,
+    folders: &[PathBuf],
+    changed: &Changed,
+) -> Result<Vec<(PathBuf, u64)>> {
     let mut result = Vec::new();
     for folder in folders {
         let root = match std::fs::canonicalize(folder) {
@@ -861,6 +889,7 @@ pub fn prune(ages: &Ages, run: Run, folders: &[PathBuf]) -> Result<Vec<(PathBuf,
         }
         let mut open_files = OpenFiles::new(std::slice::from_ref(&root));
         let mut freed = 0;
+        let mut deleted = false;
         for (at, (profile, units)) in every.iter().enumerate() {
             if !free.contains(&at) {
                 continue;
@@ -871,7 +900,7 @@ pub fn prune(ages: &Ages, run: Run, folders: &[PathBuf]) -> Result<Vec<(PathBuf,
                     .map(|(_, hash)| hash.clone())
                     .collect()
             };
-            freed += prune_profile(
+            let pruned = prune_profile(
                 profile,
                 units,
                 &here(&judged.replaced),
@@ -880,8 +909,13 @@ pub fn prune(ages: &Ages, run: Run, folders: &[PathBuf]) -> Result<Vec<(PathBuf,
                 run,
                 &mut open_files,
             )?;
+            freed += pruned.bytes;
+            deleted |= pruned.deleted;
         }
         drop(locks);
+        if deleted {
+            changed.add_holding(folder)?;
+        }
         result.push((folder.clone(), freed / 1024));
     }
     Ok(result)
@@ -926,6 +960,7 @@ mod tests {
             &Ages::new(3, 100_000),
             Run::Real,
             std::slice::from_ref(&target),
+            &Changed::default(),
         )
         .unwrap();
         assert!(

@@ -110,6 +110,7 @@ impl Scratch {
             // about drawn differently.
             self.shots_script("states-shown", "differs"),
             crate::ack::agent::Session::Terminal,
+            crate::roots::Changed::default(),
         )
         .expect("the test's directory exists");
         tool.reviewer = self.empty_reviewer();

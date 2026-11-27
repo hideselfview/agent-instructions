@@ -432,7 +432,7 @@ impl Model {
             .collect();
         self.mark(|dirty| {
             for root in roots {
-                if known.contains(root) != root.join(".checkout").is_file() {
+                if known.contains(root) != crate::checkout::Root::is_at(root) {
                     dirty.layout = true;
                 }
                 dirty.sizes.insert(root.clone());

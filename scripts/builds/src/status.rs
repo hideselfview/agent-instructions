@@ -74,9 +74,7 @@ fn is_repo_dir(dir: &Path) -> Result<bool> {
         if crate::lane::is_lane_file(&name.to_string_lossy()) {
             return Ok(true);
         }
-        if name.as_encoded_bytes().first() != Some(&b'.')
-            && dir.join(&name).join(".checkout").is_file()
-        {
+        if name.as_encoded_bytes().first() != Some(&b'.') && Root::is_at(&dir.join(&name)) {
             return Ok(true);
         }
     }
@@ -84,7 +82,7 @@ fn is_repo_dir(dir: &Path) -> Result<bool> {
 }
 
 fn is_root_dir(path: &Path) -> bool {
-    path.is_dir() && !path.is_symlink() && path.join(".checkout").is_file()
+    path.is_dir() && !path.is_symlink() && Root::is_at(path)
 }
 
 /// Every repo folder on the volume with its entries, roots read (git runs

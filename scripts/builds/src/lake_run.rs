@@ -25,17 +25,22 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::host::{Runs, Ssh};
 use crate::places::{Places, Rules};
+use crate::roots::Changed;
 
 const USAGE: &str = "usage: builds lake build [<args>...]: builds runs lake build only; run other lake commands with lake itself";
 
-/// `builds lake build [<args>...]`.
-pub fn cmd_lake(args: &[String]) -> Result<()> {
+/// `builds lake build [<args>...]`, which adds its checkout's build root to
+/// <changed>.
+pub fn cmd_lake(args: &[String], changed: &Changed) -> Result<()> {
     if args.first().map(String::as_str) != Some("build") {
         fail!("{USAGE}");
     }
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     let places = Places::from_env()?;
     let checkout = Checkout::at_keeping_env(&dir)?;
+    if let Some(checkout) = &checkout {
+        changed.add(checkout.build_root(&places));
+    }
     let env = |name: &str| std::env::var_os(name);
     let named = cargo_place::named_host(&env)?;
     let ssh = Ssh::from_env();

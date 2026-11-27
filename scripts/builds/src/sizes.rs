@@ -1,10 +1,11 @@
 //! What each build root's folders take, as the last command that wrote them
 //! measured it. macOS keeps no file events for the build volume (its
 //! `.fseventsd/no_log` file turns them off, `fsevents_log.rs`), so nothing
-//! watches the volume. A command that writes build folders measures them when
-//! it ends and writes the answer to `<daemon dir>/sizes/<repo>/<checkout>.json`,
-//! then tells the dashboard (`daemon::client::wrote`). The dashboard and
-//! `builds status` read those records, and measure a folder that has none once.
+//! watches the volume. A command that changes build roots (roots.rs) measures
+//! their folders when it ends and writes the answer to
+//! `<daemon dir>/sizes/<repo>/<checkout>.json`, then tells the dashboard
+//! (`daemon::client::wrote`). The dashboard and `builds status` read those
+//! records, and measure a folder that has none once.
 //!
 //! A record holds one `Measure` for each of the root's manifest folders, keyed
 //! by the folder's path relative to the root, or one under the key "" for the
@@ -36,27 +37,6 @@ pub fn root_of(places: &Places, path: &Path) -> Option<PathBuf> {
     let repo = parts.next()?;
     let checkout = parts.next()?;
     Some(places.root.join(repo).join(checkout))
-}
-
-/// A deletion changed a folder of <path>'s root: the daemon is told, so it
-/// reads the root again and drops it when its marker is gone. A path outside
-/// the roots tells nothing.
-pub fn changed(places: &Places, path: &Path) {
-    if let Some(root) = root_of(places, path) {
-        crate::daemon::client::wrote(places, &[root]);
-    }
-}
-
-/// A deletion is about to change a folder of <path>'s root: the root's record
-/// is removed, which makes the dashboard measure it once, and the daemon is
-/// told. A path outside the roots has no record.
-pub fn stale(places: &Places, path: &Path) -> Result<()> {
-    let Some(root) = root_of(places, path) else {
-        return Ok(());
-    };
-    remove(places, &root)?;
-    changed(places, path);
-    Ok(())
 }
 
 /// The file that holds <root>'s record.
@@ -179,42 +159,17 @@ pub fn recorded(places: &Places, paths: &[PathBuf]) -> Result<Vec<Option<Measure
     Ok(answers)
 }
 
-/// After `builds <command> <args>` ran: measures the build roots it wrote
-/// and tells the dashboard. A failure is said and does not change the
-/// command's result, since the command's own work is done.
-pub fn record_after(places: &Places, command: &str, args: &[String]) {
-    let roots = match written_by(places, command, args) {
-        Ok(roots) => roots,
-        Err(error) => {
-            crate::text::note(format!("sizes: {}", error.text()));
-            Vec::new()
-        }
-    };
-    if command == "prune"
-        && let Err(error) = forget_unrooted(places)
-    {
-        crate::text::note(format!("sizes: {}", error.text()));
-    }
-    record_roots(places, &roots);
-}
-
 /// Removes the records of roots that are gone: a record has no other owner,
 /// and a root removed by another builds process or by hand leaves its
-/// record behind.
-fn forget_unrooted(places: &Places) -> Result<()> {
+/// record behind. `builds prune` runs it.
+pub fn forget_unrooted(places: &Places) -> Result<()> {
     let base = places.daemon_dir().join("sizes");
     for (repo, folder) in entries_in(&base)? {
         for (name, record) in entries_in(&folder)? {
             let Some(checkout) = name.strip_suffix(".json") else {
                 continue;
             };
-            if !places
-                .root
-                .join(&repo)
-                .join(checkout)
-                .join(".checkout")
-                .is_file()
-            {
+            if !Root::is_at(&places.root.join(&repo).join(checkout)) {
                 std::fs::remove_file(&record)
                     .context(|| format!("removing {}", record.display()))?;
             }
@@ -223,7 +178,8 @@ fn forget_unrooted(places: &Places) -> Result<()> {
     Ok(())
 }
 
-/// Measures each of <roots> and tells the dashboard about all of them.
+/// Measures each of <roots> and tells the dashboard about all of them
+/// (roots.rs `Changed::record`).
 pub fn record_roots(places: &Places, roots: &[PathBuf]) {
     if roots.is_empty() || !places.root.is_dir() {
         return;
@@ -243,35 +199,6 @@ pub fn record_roots(places: &Places, roots: &[PathBuf]) {
         }
     }
     crate::daemon::client::wrote(places, roots);
-}
-
-/// The build roots `builds <command> <args>` writes in.
-fn written_by(places: &Places, command: &str, args: &[String]) -> Result<Vec<PathBuf>> {
-    let here = || -> Result<Vec<PathBuf>> {
-        let dir =
-            std::env::current_dir().context(|| "reading the working directory".to_string())?;
-        Ok(crate::checkout::Checkout::at_keeping_env(&dir)?
-            .map(|checkout| vec![checkout.build_root(places)])
-            .unwrap_or_default())
-    };
-    match command {
-        "cargo" | "lake" | "release" | "retire" => here(),
-        "app-build" | "build-app" => {
-            let mut roots = here()?;
-            if let Some(repo) = args.iter().find(|arg| !arg.starts_with('-')) {
-                for entry in places.app_checkout_entries(repo)? {
-                    if !entry.contains(':') {
-                        roots.push(places.root.join(repo).join(entry));
-                    }
-                }
-            }
-            roots.sort();
-            roots.dedup();
-            Ok(roots)
-        }
-        "prune" => Ok(crate::checkout::all_root_paths(places)?),
-        _ => Ok(Vec::new()),
-    }
 }
 
 #[cfg(test)]

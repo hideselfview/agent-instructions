@@ -1069,10 +1069,11 @@ pub fn run_command_keeping(
 
 /// The folder of <repo>'s app checkout <name>.
 pub fn app_checkout_top(places: &Places, repo: &str, name: &str) -> Result<PathBuf> {
-    let marker = places.root.join(repo).join(name).join(".checkout");
-    let text =
-        std::fs::read_to_string(&marker).context(|| format!("reading {}", marker.display()))?;
-    Ok(PathBuf::from(text.trim()))
+    let root = places.root.join(repo).join(name);
+    match crate::checkout::Root::named_top(&root)? {
+        Some(top) => Ok(top),
+        None => fail!("{} has no marker that names its checkout", root.display()),
+    }
 }
 
 #[cfg(test)]

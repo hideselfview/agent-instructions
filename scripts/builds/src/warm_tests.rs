@@ -92,6 +92,13 @@ fn new_fills_the_empty_target_with_a_clone_of_a_warm_one() {
     let side = scratch.dir.join("demo-worktrees/side-1");
     let target = tool.places.root.join("demo/side-1/target");
     assert!(side.join("target").is_symlink());
+    // The root the clone filled is measured, and the dashboard told, once
+    // the command ends.
+    assert!(
+        tool.changed
+            .roots()
+            .contains(&tool.places.root.join("demo/side-1"))
+    );
     let rlib = "debug/deps/libdep-1.rlib";
     assert_eq!(
         std::fs::read(target.join(rlib)).unwrap(),

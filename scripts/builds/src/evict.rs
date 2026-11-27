@@ -50,7 +50,8 @@ pub enum Recreate {
 /// (instant; see `trash`) and removes it as <removal> says. The trash is
 /// <root>/.trash on the build volume, and for a folder on another volume a new
 /// folder beside it, since a rename can't cross volumes. Returns false, deleting nothing,
-/// when the folder is in use.
+/// when the folder is in use. A folder in a build root goes through
+/// roots.rs `delete`, which adds its root to the command's changed roots.
 pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) -> Result<bool> {
     displace(places, dir, Change::Move(recreate, removal))
 }
@@ -120,7 +121,6 @@ impl EvictionSlot {
 
 fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<bool> {
     let folder = std::fs::canonicalize(dir).context(|| format!("resolving {}", dir.display()))?;
-    crate::sizes::stale(places, &folder)?;
     let parent = folder.parent().expect("a folder to delete has a parent");
     let _guard = match crate::units::lock_guard_creating(&folder)? {
         crate::units::Guard::Busy => return Ok(false),
@@ -137,11 +137,6 @@ fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<bool> {
     match change {
         Change::Move(recreate, removal) => {
             let moved = move_in(&folder, slot.path(), name, recreate)?;
-            // `stale` told the daemon before the move, when a root's marker
-            // was still there: tell it again once the folder is gone.
-            if moved {
-                crate::sizes::changed(places, &folder);
-            }
             drop(locks);
             slot.remove(removal)?;
             Ok(moved)

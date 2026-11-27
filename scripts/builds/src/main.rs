@@ -154,6 +154,7 @@ mod remote;
 mod remote_worktrees;
 mod repo_lanes;
 mod review;
+mod roots;
 mod rules_on_edit;
 mod run_end;
 mod run_tmp;
@@ -304,11 +305,12 @@ fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
         Ok(held) => held,
         Err(fail) => return exit_code_after(command, fail),
     };
-    let result = run(command, rest, session);
-    // The command's folders are measured whether it succeeded or not: a
-    // failed build left what it wrote.
+    let changed = roots::Changed::default();
+    let result = run(command, rest, session, &changed);
+    // The roots the command changed are measured whether it succeeded or
+    // not: a failed build left what it wrote.
     if let Ok(places) = Places::from_env() {
-        sizes::record_after(&places, command, rest);
+        changed.record(&places);
     }
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -471,15 +473,20 @@ pub fn version() -> String {
     format!("builds {}", env!("BUILDS_SOURCE"))
 }
 
-fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<()> {
+fn run(
+    command: &str,
+    args: &[String],
+    session: ack::agent::Session,
+    changed: &roots::Changed,
+) -> Result<()> {
     if python::STEP_COMMANDS.contains(&command) {
         python::use_new_python(&Places::from_env()?)?;
     }
     match command {
         // These run in the caller's environment as it is, which cargo
         // inherits; `cargo` asks git about its checkout without changing it.
-        "cargo" => return cargo_run::cmd_cargo(args),
-        "lake" => return lake_run::cmd_lake(args),
+        "cargo" => return cargo_run::cmd_cargo(args, changed),
+        "lake" => return lake_run::cmd_lake(args, changed),
         "version" => {
             println!("{}", version());
             return Ok(());
@@ -497,6 +504,7 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
                     Rules::from_env()?,
                     this_program()?,
                     session,
+                    changed.clone(),
                 )?,
                 args,
             );
@@ -508,6 +516,7 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
                     Rules::from_env()?,
                     this_program()?,
                     session,
+                    changed.clone(),
                 )?,
                 &args[1..],
             );
@@ -546,6 +555,7 @@ fn run(command: &str, args: &[String], session: ack::agent::Session) -> Result<(
         Rules::from_env()?,
         this_program()?,
         session,
+        changed.clone(),
     )?;
     match command {
         "setup" => setup::cmd_setup(&tool, &host::Ssh::from_env(), args),

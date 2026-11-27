@@ -32,6 +32,7 @@ use crate::fail::{Context, Result};
 use crate::host::{Ssh, sh_quote};
 use crate::lock;
 use crate::places::Places;
+use crate::roots::Changed;
 use crate::text::note;
 use boards::git;
 
@@ -171,13 +172,15 @@ fn foreign_changes(site: &mut Site, commits: &[&str]) -> Result<Vec<String>> {
 }
 
 /// <matching>: a commit the dirty paths may match as well, the one a halfway
-/// switch was heading to when it is not origin's main today.
+/// switch was heading to when it is not origin's main today. A checkout on
+/// this Mac adds its build root to <changed>.
 pub fn cmd_reset(
     places: &Places,
     ssh: &Ssh,
     repo: &str,
     checkout: &str,
     matching: Option<&str>,
+    changed: &Changed,
 ) -> Result<()> {
     let Some(lane) = places.app_lane_of(repo, checkout)? else {
         fail!("{checkout} is not one of {repo}'s app checkouts (builds status lists them)");
@@ -190,6 +193,7 @@ pub fn cmd_reset(
         lane,
         checkout,
         CheckoutLock::new(lock.as_fd(), None),
+        changed,
     )?;
     let mut sent = Vec::new();
     let reset = reset_under_lock(&mut site, places, repo, matching, &mut sent);
