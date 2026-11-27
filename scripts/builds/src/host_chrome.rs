@@ -16,7 +16,7 @@
 use crate::fail;
 use crate::fail::Result;
 use crate::host::{Host, place};
-use crate::host_display::{Reason, Wait};
+use crate::host_display::{Wait, WaitReason};
 use crate::host_hold::Hold;
 use crate::lock::Ran;
 
@@ -51,7 +51,7 @@ pub fn parse(said: &str) -> std::result::Result<Start, String> {
 /// Holds the build until Chrome starts on <host>, and returns true once it
 /// does. <start> starts Chrome there; while it says Chrome printed no
 /// address, each new answer gives <announce> the words that name the host
-/// and <record> the hold (`Reason::ChromeCannotStart`) with the time it
+/// and <record> the hold (`WaitReason::ChromeCannotStart`) with the time it
 /// began, and <pause> waits before the next try; when Chrome starts,
 /// <record> gets None, so that the build's record names no step until the
 /// next one starts. It returns false as soon as <pause> says a takeover
@@ -85,7 +85,7 @@ pub fn wait_until_starts(
             record(holds.map(|hold| Hold {
                 what: Wait::on(
                     host,
-                    vec![Reason::ChromeCannotStart {
+                    vec![WaitReason::ChromeCannotStart {
                         why: hold.what.clone(),
                     }],
                 ),

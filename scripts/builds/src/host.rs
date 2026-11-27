@@ -523,14 +523,14 @@ impl Refused {
         })
     }
 
-    /// The reason a host recorded this way cannot run the mac lane's steps
-    /// that open windows (host_display.rs), or None for a kind that leaves
-    /// mac app builds alone.
-    pub fn display_reason(self) -> Option<crate::host_display::Reason> {
+    /// The reason a host recorded this way moves the mac lane to another
+    /// host (host_display.rs), or None for a kind that leaves mac app builds
+    /// alone.
+    pub fn move_reason(self) -> Option<crate::host_display::MoveReason> {
         match self {
             Refused::Jobs => None,
-            Refused::Xcode => Some(crate::host_display::Reason::XcodeCannotStart),
-            Refused::UiAutomation => Some(crate::host_display::Reason::UiAutomationTimesOut),
+            Refused::Xcode => Some(crate::host_display::MoveReason::XcodeCannotStart),
+            Refused::UiAutomation => Some(crate::host_display::MoveReason::UiAutomationTimesOut),
         }
     }
 }
@@ -586,17 +586,12 @@ pub fn refusals(places: &Places) -> Result<Vec<Refusal>> {
     Ok(found)
 }
 
-/// The records of hosts whose reason (`Refused::display_reason`) moves the
-/// mac lane to another host (`host_display::Rule::MoveLane`).
+/// The records of hosts whose reason (`Refused::move_reason`) moves the mac
+/// lane to another host.
 pub fn refusing_mac_builds(places: &Places) -> Result<Vec<Refusal>> {
     Ok(refusals(places)?
         .into_iter()
-        .filter(|refusal| {
-            refusal
-                .refused
-                .display_reason()
-                .is_some_and(|reason| reason.rule() == crate::host_display::Rule::MoveLane)
-        })
+        .filter(|refusal| refusal.refused.move_reason().is_some())
         .collect())
 }
 
@@ -657,7 +652,9 @@ pub fn refusal_finding(refusal: &Refusal) -> crate::health::Advice {
             };
             crate::host_display::finding(
                 name,
-                &crate::host_display::Reason::XcodeCannotStart,
+                &crate::host_display::Reason::MovesLane(
+                    crate::host_display::MoveReason::XcodeCannotStart,
+                ),
                 &format!(" (since {at}; xcodebuild said: {said})"),
                 &format!("{fix}, then tell builds to use {name} again with"),
                 Some(format!("builds host clear-xcode {name}")),

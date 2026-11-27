@@ -2531,7 +2531,7 @@ mod tests {
                         waits: Some(crate::host_display::Wait {
                             host: "m1".to_string(),
                             target: Some("u@m1".to_string()),
-                            reasons: vec![crate::host_display::Reason::LidClosed],
+                            reasons: vec![crate::host_display::WaitReason::LidClosed],
                         }),
                     }),
                 }),

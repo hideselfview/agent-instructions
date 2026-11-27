@@ -454,7 +454,7 @@ fn ssh_with_lids(dir: &std::path::Path, lids: &[(&str, &str)]) -> Ssh {
 /// A build that draws window scenes takes a host that can draw them over one
 /// whose lid is closed with no display, and takes that one when no host left
 /// can draw: its window steps then wait until the host can (host_display.rs
-/// `Rule::Wait`).
+/// `WaitReason`).
 #[test]
 fn a_build_that_draws_takes_a_host_whose_lid_is_closed_only_when_no_other_can_draw() {
     let scratch = Scratch::new("lock-lid");

@@ -71,7 +71,7 @@ fn the_build_holds_a_host_whose_chrome_prints_no_address_until_it_starts() {
             Some(Wait {
                 host: "m1".to_string(),
                 target: Some("u@m1".to_string()),
-                reasons: vec![Reason::ChromeCannotStart {
+                reasons: vec![WaitReason::ChromeCannotStart {
                     why: "no address in 120 seconds".to_string()
                 }],
             }),

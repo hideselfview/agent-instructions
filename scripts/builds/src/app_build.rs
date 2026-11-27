@@ -2100,7 +2100,7 @@ fn build_lane(
                 note(format!(
                     "on host {host}, {}, so the build failed there and the code did not cause it. builds health now lists {host} with what fixes it, mac app builds skip its app checkouts, and {commit} builds again in a checkout on another host. The step printed: {said}",
                     refused
-                        .display_reason()
+                        .move_reason()
                         .expect("after every host fault, the host refuses mac app builds")
                         .words()
                 ));

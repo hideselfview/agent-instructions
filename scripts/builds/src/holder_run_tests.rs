@@ -86,7 +86,7 @@ fn a_record_reads_back_as_written_and_a_missing_one_is_none() {
             waits: Some(crate::host_display::Wait {
                 host: "m1".into(),
                 target: Some("u@m1".into()),
-                reasons: vec![crate::host_display::Reason::LidClosed],
+                reasons: vec![crate::host_display::WaitReason::LidClosed],
             }),
         }),
     };

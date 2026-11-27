@@ -268,7 +268,9 @@ pub fn finding(name: &str, refusal: Option<&Refusal>, settings: Option<&UiTestSe
     };
     crate::host_display::finding(
         name,
-        &crate::host_display::Reason::UiAutomationTimesOut,
+        &crate::host_display::Reason::MovesLane(
+            crate::host_display::MoveReason::UiAutomationTimesOut,
+        ),
         &format!(
             " (since {}; the step printed: {})",
             local_minute(refusal.at),

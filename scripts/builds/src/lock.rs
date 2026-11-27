@@ -277,7 +277,7 @@ impl Where {
 
 /// Which checkouts a build takes: where it may run, and whether it draws
 /// window scenes, so that it takes a host that can when one can
-/// (host_display.rs `Reason::LidClosed`). This Mac always can.
+/// (host_display.rs `WaitReason::LidClosed`). This Mac always can.
 #[derive(Clone, Copy)]
 struct Takes {
     allowed: Where,
@@ -478,7 +478,7 @@ struct Asked<'a, T> {
 }
 
 type Loads<'a> = Asked<'a, f64>;
-type Screens<'a> = Asked<'a, Option<crate::host_display::Reason>>;
+type Screens<'a> = Asked<'a, Option<crate::host_display::WaitReason>>;
 
 impl<T: Clone> Asked<'_, T> {
     /// <host>'s answer to <ask>, or what went wrong asking it.
@@ -517,7 +517,7 @@ impl Screens<'_> {
     /// not. An entry on this Mac can, and no question is asked for it. When
     /// none can, the entries whose lid is closed come back in the first list:
     /// the build takes one and holds its window steps until the host can
-    /// draw (`Reason::rule`).
+    /// draw (host_display.rs `WaitReason`).
     fn split(&mut self, entries: Vec<String>) -> (Vec<String>, Vec<String>) {
         let mut drawing = Vec::new();
         let mut waiting = Vec::new();
@@ -535,7 +535,7 @@ impl Screens<'_> {
                         .display
                         .reasons(true)
                         .into_iter()
-                        .find(|reason| *reason == crate::host_display::Reason::LidClosed)
+                        .find(|reason| *reason == crate::host_display::WaitReason::LidClosed)
                 })
             });
             match lid {
@@ -644,7 +644,7 @@ fn take_free_lock(
             broken
                 .iter()
                 .find(|refusal| refusal.host == host_of(entry))
-                .and_then(|refusal| refusal.refused.display_reason())
+                .and_then(|refusal| refusal.refused.move_reason())
                 .map(|reason| reason.words())
         };
         let (on_broken, checkouts): (Vec<String>, Vec<String>) = checkouts

@@ -63,25 +63,38 @@ fn scan(display: std::result::Result<Option<Display>, String>) -> Scan {
     }
 }
 
-/// Each reason the person fixes at the Mac holds the step, and each reason
-/// in the host's Xcode moves the lane to another host.
+/// Each reason's finding says what builds does about it: a reason the person
+/// fixes at the Mac holds the step, and a reason in the host's Xcode moves
+/// the lane to another host.
 #[test]
-fn each_reason_has_its_rule() {
+fn each_reason_says_what_builds_does_about_it() {
+    let effect = |reason: Reason| finding("m1", &reason, "", "", None).line();
     for reason in [
-        Reason::ScreenLocked,
-        Reason::SystemAlert {
+        WaitReason::ScreenLocked,
+        WaitReason::SystemAlert {
             name: "SecurityAgent".to_string(),
             pid: 90,
         },
-        Reason::LidClosed,
-        Reason::ChromeCannotStart {
+        WaitReason::LidClosed,
+        WaitReason::ChromeCannotStart {
             why: "no address in 120 seconds".to_string(),
         },
     ] {
-        assert_eq!(reason.rule(), Rule::Wait, "{reason:?}");
+        let line = effect(Reason::Waits(reason));
+        assert!(
+            line.contains("builds holds each step that needs windows on host m1 until it ends."),
+            "{line}"
+        );
     }
-    for reason in [Reason::XcodeCannotStart, Reason::UiAutomationTimesOut] {
-        assert_eq!(reason.rule(), Rule::MoveLane, "{reason:?}");
+    for reason in [
+        MoveReason::XcodeCannotStart,
+        MoveReason::UiAutomationTimesOut,
+    ] {
+        let line = effect(Reason::MovesLane(reason));
+        assert!(
+            line.contains("Mac app builds skip its app checkouts"),
+            "{line}"
+        );
     }
 }
 
@@ -93,17 +106,17 @@ fn a_reading_gives_each_reason_it_finds() {
     assert_eq!(display(&[]).reasons(true), []);
     assert_eq!(
         display(&[("screen_locked", r#""IOConsoleLocked" = Yes"#)]).reasons(false),
-        [Reason::ScreenLocked]
+        [WaitReason::ScreenLocked]
     );
     assert_eq!(
         display(&[("front_app", ALERT)]).reasons(false),
-        [Reason::SystemAlert {
+        [WaitReason::SystemAlert {
             name: "UserNotificationCenter".to_string(),
             pid: 812
         }]
     );
     let closed = display(&[("lid", "closed"), ("screens", "0")]);
-    assert_eq!(closed.reasons(true), [Reason::LidClosed]);
+    assert_eq!(closed.reasons(true), [WaitReason::LidClosed]);
     assert_eq!(closed.reasons(false), [], "a step that draws no scene");
     for (lid, screens) in [("closed", "1"), ("none", ""), ("open", "")] {
         let lines: &[(&str, &str)] = &[("lid", lid), ("screens", screens)];
@@ -272,7 +285,7 @@ fn held_lock(lane: Lane, checkout: &str, step: &str, wait: Option<Wait>) -> Lock
 /// reason a held step names gets no second line from the host's scan.
 #[test]
 fn each_reason_that_holds_a_step_needs_action_with_how_long_it_waited() {
-    let alert = Reason::SystemAlert {
+    let alert = WaitReason::SystemAlert {
         name: "UserNotificationCenter".to_string(),
         pid: 812,
     };
@@ -281,7 +294,7 @@ fn each_reason_that_holds_a_step_needs_action_with_how_long_it_waited() {
             Lane::MAC,
             "m2:mac-1",
             "shots",
-            Some(Wait::on(&host("m2"), vec![Reason::LidClosed])),
+            Some(Wait::on(&host("m2"), vec![WaitReason::LidClosed])),
         ),
         held_lock(
             Lane::ANDROID,
@@ -289,7 +302,7 @@ fn each_reason_that_holds_a_step_needs_action_with_how_long_it_waited() {
             crate::host_chrome::STEP,
             Some(Wait::on(
                 &host("m1"),
-                vec![Reason::ChromeCannotStart {
+                vec![WaitReason::ChromeCannotStart {
                     why: "no address in 120 seconds".to_string(),
                 }],
             )),
@@ -327,16 +340,16 @@ fn each_reason_that_holds_a_step_needs_action_with_how_long_it_waited() {
 /// host gives none.
 #[test]
 fn the_lane_holds_a_step_while_the_host_gives_a_reason_the_person_fixes() {
-    let alert = Reason::SystemAlert {
+    let alert = WaitReason::SystemAlert {
         name: "SecurityAgent".to_string(),
         pid: 90,
     };
     let readings = RefCell::new(
         vec![
-            Ok(vec![Reason::ScreenLocked]),
-            Ok(vec![Reason::ScreenLocked]),
+            Ok(vec![WaitReason::ScreenLocked]),
+            Ok(vec![WaitReason::ScreenLocked]),
             Ok(vec![alert.clone()]),
-            Ok(vec![Reason::LidClosed]),
+            Ok(vec![WaitReason::LidClosed]),
             Ok(vec![]),
         ]
         .into_iter(),
@@ -366,7 +379,7 @@ fn the_lane_holds_a_step_while_the_host_gives_a_reason_the_person_fixes() {
         recorded,
         [
             Some(Hold {
-                what: Wait::on(&host("m1"), vec![Reason::ScreenLocked]),
+                what: Wait::on(&host("m1"), vec![WaitReason::ScreenLocked]),
                 since
             }),
             Some(Hold {
@@ -374,7 +387,7 @@ fn the_lane_holds_a_step_while_the_host_gives_a_reason_the_person_fixes() {
                 since
             }),
             Some(Hold {
-                what: Wait::on(&host("m1"), vec![Reason::LidClosed]),
+                what: Wait::on(&host("m1"), vec![WaitReason::LidClosed]),
                 since
             }),
             None,
@@ -411,7 +424,7 @@ fn a_host_that_can_show_windows_holds_nothing() {
 /// fails it.
 #[test]
 fn a_takeover_ends_the_hold_and_a_failed_reading_fails_it() {
-    let locked = || Ok(vec![Reason::ScreenLocked]);
+    let locked = || Ok(vec![WaitReason::ScreenLocked]);
     let m1 = host("m1");
     assert!(!wait_until_ready(&m1, &locked, &|_| {}, &|_| Ok(()), &|| Ok(Ran::Stopped)).unwrap());
     let error = wait_until_ready(
@@ -432,8 +445,8 @@ fn a_takeover_ends_the_hold_and_a_failed_reading_fails_it() {
 fn a_waiter_that_a_signal_ended_makes_the_lane_read_the_display_again() {
     let readings = RefCell::new(
         vec![
-            Ok(vec![Reason::ScreenLocked]),
-            Ok(vec![Reason::ScreenLocked]),
+            Ok(vec![WaitReason::ScreenLocked]),
+            Ok(vec![WaitReason::ScreenLocked]),
             Ok(vec![]),
         ]
         .into_iter(),
@@ -457,7 +470,7 @@ fn a_waiter_that_a_signal_ended_makes_the_lane_read_the_display_again() {
         "{said:?}"
     );
 
-    let locked = || Ok(vec![Reason::ScreenLocked]);
+    let locked = || Ok(vec![WaitReason::ScreenLocked]);
     let error = wait_until_ready(&host("m1"), &locked, &|_| {}, &|_| Ok(()), &|| {
         Err(Fail::Exit(255))
     })

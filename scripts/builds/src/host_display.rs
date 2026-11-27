@@ -3,13 +3,13 @@
 //! displays, its screen lock and the app in front. `Reason` names each reason
 //! a host cannot run a step that opens windows, the ones this reading finds
 //! and the ones a step's own failure finds (Chrome, Xcode, UI automation),
-//! and `Reason::rule` gives each its one rule:
+//! by what builds does about it:
 //!
-//! - `Rule::Wait`: the person fixes it at the Mac, so builds holds the step
+//! - `WaitReason`: the person fixes it at the Mac, so builds holds the step
 //!   and waits, naming the reason: a locked screen, a system alert in front,
 //!   a closed lid with no display when no host left can draw, and a Chrome
 //!   that cannot start.
-//! - `Rule::MoveLane`: builds records the host and runs the lane on another
+//! - `MoveReason`: builds records the host and runs the lane on another
 //!   host: an Xcode that cannot start, and UI tests that time out turning on
 //!   automation mode (host.rs `Refused`).
 //!
@@ -108,9 +108,22 @@ pub struct Display {
     pub front: FrontApp,
 }
 
-/// Why a host cannot run a step that opens windows.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Why a host cannot run a step that opens windows, by what builds does
+/// about it.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reason {
+    /// The person fixes it at the Mac, so builds holds the step and waits,
+    /// naming the reason.
+    Waits(WaitReason),
+    /// builds records the host and runs the lane on another host (host.rs
+    /// `Refused`).
+    MovesLane(MoveReason),
+}
+
+/// A reason a host holds a step that opens windows until the person fixes
+/// it at the Mac.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WaitReason {
     /// Its screen is locked, which keeps every window from rendering.
     ScreenLocked,
     /// A system alert in front of every app keeps the focus from every window
@@ -123,6 +136,11 @@ pub enum Reason {
     /// there: on a Mac, its window server does not answer (host_chrome.rs).
     /// <why> is what `builds shots chrome` said.
     ChromeCannotStart { why: String },
+}
+
+/// A reason builds runs the mac lane on another host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MoveReason {
     /// Its Xcode cannot start, so every xcodebuild run there fails.
     XcodeCannotStart,
     /// Its UI tests time out turning on automation mode
@@ -130,58 +148,52 @@ pub enum Reason {
     UiAutomationTimesOut,
 }
 
-/// What builds does about a reason.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Rule {
-    /// Holds the step and waits, naming the reason, while the person fixes it
-    /// at the Mac.
-    Wait,
-    /// Records the host and runs the lane on another host.
-    MoveLane,
-}
-
-impl Reason {
-    /// The rule builds applies to the reason.
-    pub fn rule(&self) -> Rule {
-        match self {
-            Reason::ScreenLocked
-            | Reason::SystemAlert { .. }
-            | Reason::LidClosed
-            | Reason::ChromeCannotStart { .. } => Rule::Wait,
-            Reason::XcodeCannotStart | Reason::UiAutomationTimesOut => Rule::MoveLane,
-        }
-    }
-
+impl WaitReason {
     /// The words that name the reason, after the host's name: "its screen is
     /// locked".
     pub fn words(&self) -> String {
         match self {
-            Reason::ScreenLocked => "its screen is locked".to_string(),
-            Reason::SystemAlert { name, pid } => {
+            WaitReason::ScreenLocked => "its screen is locked".to_string(),
+            WaitReason::SystemAlert { name, pid } => {
                 format!("the system alert {name} (pid {pid}) is in front of every app")
             }
-            Reason::LidClosed => "its lid is closed and it lists no other display".to_string(),
-            Reason::ChromeCannotStart { why } => {
+            WaitReason::LidClosed => "its lid is closed and it lists no other display".to_string(),
+            WaitReason::ChromeCannotStart { why } => {
                 format!("Chrome cannot start there, since the window server does not answer: {why}")
             }
-            Reason::XcodeCannotStart => "its Xcode cannot start".to_string(),
-            Reason::UiAutomationTimesOut => {
+        }
+    }
+}
+
+impl MoveReason {
+    /// The words that name the reason, after the host's name: "its Xcode
+    /// cannot start".
+    pub fn words(self) -> String {
+        match self {
+            MoveReason::XcodeCannotStart => "its Xcode cannot start".to_string(),
+            MoveReason::UiAutomationTimesOut => {
                 "its UI tests time out turning on automation mode".to_string()
             }
         }
     }
 }
 
-impl Rule {
-    /// What builds does about a reason of host <name> under this rule, as a
-    /// sentence.
-    fn effect(self, name: &str) -> String {
+impl Reason {
+    pub fn words(&self) -> String {
         match self {
-            Rule::Wait => format!(
+            Reason::Waits(reason) => reason.words(),
+            Reason::MovesLane(reason) => reason.words(),
+        }
+    }
+
+    /// What builds does about the reason on host <name>, as a sentence.
+    fn effect(&self, name: &str) -> String {
+        match self {
+            Reason::Waits(_) => format!(
                 "builds holds each step that needs windows on {} until it ends.",
                 place(name)
             ),
-            Rule::MoveLane => {
+            Reason::MovesLane(_) => {
                 "Mac app builds skip its app checkouts until builds is told it is fixed."
                     .to_string()
             }
@@ -195,11 +207,11 @@ impl Rule {
 pub struct Wait {
     pub host: String,
     pub target: Option<String>,
-    pub reasons: Vec<Reason>,
+    pub reasons: Vec<WaitReason>,
 }
 
 impl Wait {
-    pub fn on(host: &Host, reasons: Vec<Reason>) -> Wait {
+    pub fn on(host: &Host, reasons: Vec<WaitReason>) -> Wait {
         Wait {
             host: host.name.clone(),
             target: host.target.clone(),
@@ -212,10 +224,10 @@ impl Display {
     /// The reasons the host cannot run a step that opens windows. A closed
     /// lid counts only when <draws>: a step that draws window scenes needs a
     /// display, and other steps run without one.
-    pub fn reasons(&self, draws: bool) -> Vec<Reason> {
+    pub fn reasons(&self, draws: bool) -> Vec<WaitReason> {
         let mut reasons = Vec::new();
         if self.locked {
-            reasons.push(Reason::ScreenLocked);
+            reasons.push(WaitReason::ScreenLocked);
         }
         if let Some(name) = self
             .front
@@ -223,13 +235,13 @@ impl Display {
             .as_deref()
             .filter(|name| SYSTEM_ALERTS.contains(name))
         {
-            reasons.push(Reason::SystemAlert {
+            reasons.push(WaitReason::SystemAlert {
                 name: name.to_string(),
                 pid: self.front.pid,
             });
         }
         if draws && self.lid == (Lid::Closed { screens: 0 }) {
-            reasons.push(Reason::LidClosed);
+            reasons.push(WaitReason::LidClosed);
         }
         reasons
     }
@@ -396,7 +408,7 @@ pub fn wait(ssh: &Ssh, host: &Host, seen: &Reading) -> Result<Ran> {
 /// <record> None.
 pub fn wait_until_ready(
     host: &Host,
-    read: &dyn Fn() -> std::result::Result<Vec<Reason>, String>,
+    read: &dyn Fn() -> std::result::Result<Vec<WaitReason>, String>,
     announce: &dyn Fn(&str),
     record: &dyn Fn(Option<Hold<Wait>>) -> Result<()>,
     wait: &dyn Fn() -> Result<Ran>,
@@ -415,7 +427,7 @@ pub fn wait_until_ready(
                 place(name),
                 reasons
                     .iter()
-                    .map(Reason::words)
+                    .map(WaitReason::words)
                     .collect::<Vec<_>>()
                     .join(", and ")
             )
@@ -443,7 +455,7 @@ pub fn wait_until_ready(
 
 /// The finding for host <name> that <reason> keeps from running steps that
 /// open windows, in the one shape every such finding has: the reason with
-/// <detail>, what builds does about it (`Rule`), then <fix>, the person's
+/// <detail>, what builds does about it (`Reason::effect`), then <fix>, the person's
 /// step, and the command <run> when the fix has one.
 pub fn finding(
     name: &str,
@@ -456,7 +468,7 @@ pub fn finding(
         "{} cannot run steps that open windows: {}{detail}. {} {fix}",
         place(name),
         reason.words(),
-        reason.rule().effect(name)
+        reason.effect(name)
     );
     match run {
         Some(command) => Advice::run(text, command),
@@ -465,26 +477,23 @@ pub fn finding(
 }
 
 /// What the person does on host <name>, which <target> reaches, about
-/// <reason>, and the command that does it when one does. The lane moves away
-/// from a host whose Xcode or UI automation fails, so no hold names those
-/// reasons and they have their own findings (host.rs, ui_test_settings.rs).
-fn fix(name: &str, target: Option<&str>, reason: &Reason) -> (String, Option<String>) {
+/// <reason>, and the command that does it when one does.
+fn fix(name: &str, target: Option<&str>, reason: &WaitReason) -> (String, Option<String>) {
     let at = place(name);
     match reason {
-        Reason::ScreenLocked => (format!("Unlock the screen on {at}."), None),
-        Reason::SystemAlert { pid, .. } => (
+        WaitReason::ScreenLocked => (format!("Unlock the screen on {at}."), None),
+        WaitReason::SystemAlert { pid, .. } => (
             format!("Answer or close the alert on {at}, or end it with"),
             Some(crate::host::person_command(target, &format!("kill {pid}"))),
         ),
-        Reason::LidClosed => (
+        WaitReason::LidClosed => (
             format!("Open the lid of {at}, or attach a display to it."),
             None,
         ),
-        Reason::ChromeCannotStart { .. } => (
+        WaitReason::ChromeCannotStart { .. } => (
             format!("The build goes on once the window server on {at} answers."),
             None,
         ),
-        Reason::XcodeCannotStart | Reason::UiAutomationTimesOut => (String::new(), None),
     }
 }
 
@@ -508,7 +517,7 @@ pub fn held_findings(locks: &[LockHealth]) -> Vec<Advice> {
             let (fix, run) = fix(&wait.host, wait.target.as_deref(), reason);
             found.push(finding(
                 &wait.host,
-                reason,
+                &Reason::Waits(reason.clone()),
                 &format!(
                     "; the {} app build of {} has waited {} minutes on checkout {} to run step {}",
                     lock.lane.word(),
@@ -533,7 +542,7 @@ pub fn findings(
     scans: &[(Host, std::result::Result<Scan, String>)],
     locks: &[LockHealth],
 ) -> Vec<Advice> {
-    let held: Vec<(&str, &Reason)> = held_steps(locks)
+    let held: Vec<(&str, &WaitReason)> = held_steps(locks)
         .flat_map(|(_, _, wait)| {
             wait.reasons
                 .iter()
@@ -560,7 +569,7 @@ pub fn findings(
                 continue;
             }
             let (fix, run) = fix(name, host.target.as_deref(), &reason);
-            found.push(finding(name, &reason, "", &fix, run));
+            found.push(finding(name, &Reason::Waits(reason), "", &fix, run));
         }
     }
     found
