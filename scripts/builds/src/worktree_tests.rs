@@ -184,7 +184,7 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
     // Close-on-exec: a process another test starts meanwhile must not inherit
     // the lock and keep it past the close.
-    let held = crate::queue::open_with(&lock, libc::O_CREAT).unwrap();
+    let held = crate::flock::lock_creating(&lock, libc::LOCK_EX).unwrap();
     assert!(
         refusal(cmd_app_checkout(
             &tool,
@@ -200,7 +200,7 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
             .len(),
         2
     );
-    unsafe { libc::close(held) };
+    drop(held);
     // A process another test forks meanwhile has the lock until it execs.
     while crate::flock::is_held(&lock).unwrap() {
         std::thread::sleep(std::time::Duration::from_millis(5));

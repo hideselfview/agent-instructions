@@ -66,7 +66,7 @@ pub fn hold(places: &Places) -> Result<Running> {
     let dir = places.daemon_dir();
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
     let path = places.prune_lock();
-    match crate::evict::try_lock_creating(&path)? {
+    match crate::flock::try_lock_creating(&path, libc::LOCK_EX)? {
         Some(lock) => Ok(Running { _lock: lock }),
         None => fail!("prune: {BUSY} and holds {}", path.display()),
     }

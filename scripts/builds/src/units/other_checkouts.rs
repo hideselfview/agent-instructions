@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 use super::unit::{Unit, units_in};
 use super::{profile_dirs, remove};
 use crate::checkout::{Checkout, file_name, worktrees_folder};
-use crate::evict::lock_exclusive_creating;
 use crate::fail::{Context, Result};
+use crate::flock::lock_creating;
 use crate::places::Places;
 
 /// The paths of a repo's checkouts other than one of them: any folder below
@@ -53,7 +53,7 @@ impl OtherCheckouts {
     /// folder reads a run as it goes.
     pub fn forget_runs_in(&self, folder: &Path) -> Result<()> {
         for profile in profile_dirs(folder)? {
-            let _lock = lock_exclusive_creating(&profile.join(".cargo-lock"))?;
+            let _lock = lock_creating(&profile.join(".cargo-lock"), libc::LOCK_EX)?;
             for unit in units_in(&profile)?.list {
                 if let Some(fingerprint) = &unit.fingerprint
                     && self.printed_by(&unit)?

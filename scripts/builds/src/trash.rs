@@ -29,11 +29,11 @@ use crate::places::{EMPTYING_PREFIX, Places};
 
 /// The shared trash lock: waits only for an emptier's rename.
 pub fn lock_shared(places: &Places) -> Result<File> {
-    crate::evict::lock_shared_creating(&places.trash_lock())
+    crate::flock::lock_creating(&places.trash_lock(), libc::LOCK_SH)
 }
 
 fn lock_exclusive(places: &Places) -> Result<File> {
-    crate::evict::lock_exclusive_creating(&places.trash_lock())
+    crate::flock::lock_creating(&places.trash_lock(), libc::LOCK_EX)
 }
 
 /// <dir> opened, with its exclusive lock taken, waiting while another

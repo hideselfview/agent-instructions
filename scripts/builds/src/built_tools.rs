@@ -33,9 +33,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::checkout::{Root, parallel_map};
-use crate::evict::lock_exclusive_creating;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
+use crate::flock::lock_creating;
 use crate::host::{self, Host, Ssh, sh_quote};
 use crate::manifest::{BuiltTool, built_tools};
 use crate::places::Places;
@@ -210,7 +210,7 @@ fn obtain(
         .parent()
         .expect("a key's folder has a toolchain folder");
     std::fs::create_dir_all(toolchain).context(|| format!("creating {}", toolchain.display()))?;
-    let _one_at_a_time = lock_exclusive_creating(&toolchain.join(LOCK))?;
+    let _one_at_a_time = lock_creating(&toolchain.join(LOCK), libc::LOCK_EX)?;
     if dest.is_dir() {
         return Ok(());
     }

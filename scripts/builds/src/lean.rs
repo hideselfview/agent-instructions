@@ -113,7 +113,7 @@ pub fn ensure_toolchains(
         return Ok(());
     }
     std::fs::create_dir_all(locks).context(|| format!("creating {}", locks.display()))?;
-    let _one_at_a_time = crate::evict::lock_exclusive_creating(&locks.join("elan.lock"))?;
+    let _one_at_a_time = crate::flock::lock_creating(&locks.join("elan.lock"), libc::LOCK_EX)?;
     if !elan(home).exists() {
         install_elan(home, download)?;
         note(format!("installed elan {ELAN_VERSION}"));

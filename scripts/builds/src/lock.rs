@@ -63,7 +63,8 @@
 //! (`Held::requeue`), straight behind the taker, and runs again.
 
 use std::collections::HashMap;
-use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
+use std::fs::File;
+use std::os::fd::AsFd;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -274,7 +275,9 @@ struct Takes {
 
 /// A build's reservation of an app checkout and its place in the lane's queue.
 pub struct Held {
-    lock: libc::c_int,
+    /// Declared before the ticket, so it drops first: a waiter that gets the
+    /// ticket must find the checkout free.
+    lock: File,
     ticket: Ticket,
     queue: Queue,
     /// The app checkout (side-N) whose lock this is.
@@ -293,8 +296,7 @@ pub struct Held {
 
 impl Held {
     pub fn checkout_lock(&self) -> CheckoutLock<'_> {
-        // Held keeps the checkout descriptor open until it drops.
-        unsafe { CheckoutLock::new(BorrowedFd::borrow_raw(self.lock), Some(self.ticket.as_fd())) }
+        CheckoutLock::new(self.lock.as_fd(), Some(self.ticket.as_fd()))
     }
 
     /// Takes the window lock of this checkout's host for <step>, waiting
@@ -413,7 +415,8 @@ impl Held {
 impl Drop for Held {
     /// Writes when the build let the checkout go, while it still holds the
     /// lock so that the next build's use of the checkout never gets this
-    /// time, then frees the lock and the build's place in the queue.
+    /// time. The fields then drop, which frees the lock and the build's place
+    /// in the queue.
     fn drop(&mut self) {
         let ended = self
             .places
@@ -425,7 +428,6 @@ impl Drop for Held {
                 error.text()
             ));
         }
-        unsafe { libc::close(self.lock) };
     }
 }
 
@@ -541,7 +543,7 @@ fn take_free_lock(
     takes: Takes,
     queue: &Queue,
     ticket: &str,
-) -> Result<(libc::c_int, String)> {
+) -> Result<(File, String)> {
     let Takes { allowed, screen } = takes;
     let dir = places.app_locks_dir(repo, lane);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
@@ -618,7 +620,8 @@ fn take_free_lock(
                 .filter(|entry| set.contains(entry))
                 .collect();
             for checkout in &eligible {
-                if let Some(lock) = queue::try_lock(&places.app_lock_file(repo, lane, checkout))? {
+                let file = places.app_lock_file(repo, lane, checkout);
+                if let Some(lock) = crate::flock::try_lock_creating(&file, libc::LOCK_EX)? {
                     return Ok((lock, checkout.clone()));
                 }
             }
@@ -634,16 +637,15 @@ fn take_free_lock(
 /// <checkout>'s own lock among <repo>'s app locks for <lane>, waiting until
 /// no build holds it; never another checkout's. It skips the queue: a build
 /// the queue let in for a lock takes another free one, or waits for one. The
-/// descriptor holds the lock until closed and closes on exec.
-pub fn take_checkout(places: &Places, repo: &str, lane: Lane, checkout: &str) -> Result<OwnedFd> {
+/// file returned holds the lock until dropped and closes on exec.
+pub fn take_checkout(places: &Places, repo: &str, lane: Lane, checkout: &str) -> Result<File> {
     let dir = places.app_locks_dir(repo, lane);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
     let file = places.app_lock_file(repo, lane, checkout);
     let mut waiting = false;
     loop {
-        if let Some(lock) = queue::try_lock(&file)? {
-            // try_lock returns a newly opened descriptor.
-            return Ok(unsafe { OwnedFd::from_raw_fd(lock) });
+        if let Some(lock) = crate::flock::try_lock_creating(&file, libc::LOCK_EX)? {
+            return Ok(lock);
         }
         if !waiting {
             note(format!(

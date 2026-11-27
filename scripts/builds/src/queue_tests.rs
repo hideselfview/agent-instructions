@@ -29,7 +29,7 @@ fn health_reads_waits_from_unused_and_held_app_checkouts() {
     let scratch = Scratch::new("queue-health-waits");
     let queue = queue_with(&scratch, &["app-1", "m1:app-1", "app-2"]);
     let local = hold(&queue, "app-1", 10);
-    let remote = open_locked(&queue.lock_path("m1:app-1")).unwrap();
+    let remote = crate::flock::lock_creating(&queue.lock_path("m1:app-1"), libc::LOCK_EX).unwrap();
     let tickets = [
         plant_live(&queue, 30, Where::Here),
         plant_live(&queue, 40, Where::Here),
@@ -51,7 +51,7 @@ fn health_reads_waits_from_unused_and_held_app_checkouts() {
     assert!(first[&40].contains(&AppWait::Process(10)));
     assert!(first[&50].contains(&AppWait::HeldCheckout("m1:app-1".into())));
 
-    unsafe { libc::close(remote) };
+    drop(remote);
     assert!(
         waits()[&50].is_empty(),
         "the anywhere build can use the free remote checkout"
@@ -61,7 +61,7 @@ fn health_reads_waits_from_unused_and_held_app_checkouts() {
         .unwrap();
     assert_eq!(waits()[&50], [AppWait::Process(10)]);
     drop(tickets);
-    unsafe { libc::close(local) };
+    drop(local);
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn a_waiter_that_can_only_pass_on_a_remote_checkout_does_not_take_a_local_waiter
     ];
     let found: BTreeMap<_, _> = queue.app_waits().unwrap().into_iter().collect();
     drop(tickets);
-    unsafe { libc::close(local) };
+    drop(local);
     assert!(found[&30].is_empty());
     assert!(found[&40].contains(&AppWait::Process(20)), "{found:?}");
     assert!(!found[&40].contains(&AppWait::Process(30)), "{found:?}");
@@ -264,9 +264,7 @@ fn the_waiting_are_the_tickets_whose_builds_hold_no_lock_wherever_they_stand() {
         queue.waiting().unwrap(),
         vec![(20, Where::Anywhere), (40, Where::Anywhere)]
     );
-    for fd in held {
-        unsafe { libc::close(fd) };
-    }
+    drop(held);
     drop(tickets);
 }
 
@@ -330,9 +328,7 @@ fn a_waiter_moves_to_right_behind_the_holders() {
         ]
     );
     assert!(queue.move_to_top(20).is_err(), "a holder holds a lock");
-    for fd in held {
-        unsafe { libc::close(fd) };
-    }
+    drop(held);
 }
 
 #[test]
@@ -360,7 +356,7 @@ fn with_a_lock_free_a_waiter_moves_in_behind_the_builds_that_hold_one() {
             "30-1-anywhere"
         ]
     );
-    unsafe { libc::close(held) };
+    drop(held);
 }
 
 /// The lane's queue with the checkouts <entries>, in the order given.
@@ -389,9 +385,11 @@ fn plant_live_named(queue: &Queue, name: String) -> Ticket {
 
 /// Takes the lock of <checkout> and writes the record of the run of the
 /// process <pid> beside it, as the holder's `Held` does.
-fn hold(queue: &Queue, checkout: &str, pid: i32) -> libc::c_int {
+fn hold(queue: &Queue, checkout: &str, pid: i32) -> File {
     std::fs::create_dir_all(&queue.locks_dir).unwrap();
-    let lock = try_lock(&queue.lock_path(checkout)).unwrap().unwrap();
+    let lock = crate::flock::try_lock_creating(&queue.lock_path(checkout), libc::LOCK_EX)
+        .unwrap()
+        .unwrap();
     crate::holder_run::HolderRun {
         pid,
         joined_at: 0,

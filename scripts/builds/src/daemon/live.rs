@@ -6,9 +6,11 @@
 //! the daemon that claimed it, so `builds health` knows which process is the
 //! dashboard.
 
-use std::fs::{File, OpenOptions, TryLockError};
+use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
+
+use crate::flock;
 
 /// A daemon's claim on its root: held until dropped or the process exits.
 pub struct Claim {
@@ -60,23 +62,20 @@ impl<'a> DashboardLock<'a> {
     /// when a live daemon already holds the lock.
     pub fn claim(&self) -> io::Result<Option<Claim>> {
         let publication = self.publication_lock()?;
-        publication.lock()?;
+        flock::lock_io(&publication, libc::LOCK_EX)?;
         let mut file = OpenOptions::new()
             .create(true)
             .truncate(false)
             .write(true)
             .open(self.path)?;
-        match file.try_lock() {
-            Ok(()) => {
-                #[cfg(test)]
-                self.observe(Publication::Claimed);
-                file.set_len(0)?;
-                writeln!(file, "{}", std::process::id())?;
-                Ok(Some(Claim { _file: file }))
-            }
-            Err(TryLockError::WouldBlock) => Ok(None),
-            Err(TryLockError::Error(error)) => Err(error),
+        if !flock::try_lock_io(&file, libc::LOCK_EX)? {
+            return Ok(None);
         }
+        #[cfg(test)]
+        self.observe(Publication::Claimed);
+        file.set_len(0)?;
+        writeln!(file, "{}", std::process::id())?;
+        Ok(Some(Claim { _file: file }))
     }
 
     /// Waits for a claimant to publish its PID, then reads it. None when
@@ -89,7 +88,7 @@ impl<'a> DashboardLock<'a> {
         };
         #[cfg(test)]
         self.observe(Publication::Reading(&publication));
-        publication.lock_shared()?;
+        flock::lock_io(&publication, libc::LOCK_SH)?;
         #[cfg(test)]
         self.observe(Publication::ReadLocked);
         if !daemon_lives(self.path)? {
@@ -113,16 +112,13 @@ pub fn daemon_lives(lock: &Path) -> io::Result<bool> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error),
     };
-    match file.try_lock_shared() {
-        Ok(()) => Ok(false),
-        Err(TryLockError::WouldBlock) => Ok(true),
-        Err(TryLockError::Error(error)) => Err(error),
-    }
+    Ok(!flock::try_lock_io(&file, libc::LOCK_SH)?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::TryLockError;
 
     #[test]
     fn a_reader_waits_until_the_claimant_has_replaced_the_previous_pid() {

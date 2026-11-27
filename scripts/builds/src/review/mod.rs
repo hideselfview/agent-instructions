@@ -211,7 +211,8 @@ pub fn is_running(store_dir: &Path, head: &str) -> bool {
 /// Holds <path> locked until dropped, then removes it.
 struct Running {
     path: PathBuf,
-    fd: libc::c_int,
+    /// Dropped after `drop` runs, so the lock outlasts the file's removal.
+    _lock: std::fs::File,
 }
 
 impl Running {
@@ -219,17 +220,16 @@ impl Running {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
         }
-        let Some(fd) = crate::queue::try_lock(&path)? else {
+        let Some(lock) = crate::flock::try_lock_creating(&path, libc::LOCK_EX)? else {
             fail!("a review of these commits runs already");
         };
-        Ok(Running { path, fd })
+        Ok(Running { path, _lock: lock })
     }
 }
 
 impl Drop for Running {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
-        unsafe { libc::close(self.fd) };
     }
 }
 

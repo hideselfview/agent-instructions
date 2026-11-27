@@ -345,34 +345,6 @@ pub fn try_lock(path: &Path) -> Result<Option<File>> {
         .write(true)
         .open(path)
         .context(|| format!("opening {}", path.display()))?;
-    lock_now(file, path)
-}
-
-/// Like `try_lock`, creating the file when it is missing (cargo's own
-/// profile lock, the package cache's).
-pub fn try_lock_creating(path: &Path) -> Result<Option<File>> {
-    lock_now(crate::flock::open_creating(path)?, path)
-}
-
-/// Takes a shared flock on <path>, creating it when missing, waiting while
-/// another process holds it exclusively.
-pub fn lock_shared_creating(path: &Path) -> Result<File> {
-    lock_creating_waiting(path, libc::LOCK_SH)
-}
-
-/// Takes the exclusive flock on <path>, creating it when missing, waiting
-/// while any other process holds it.
-pub fn lock_exclusive_creating(path: &Path) -> Result<File> {
-    lock_creating_waiting(path, libc::LOCK_EX)
-}
-
-fn lock_creating_waiting(path: &Path, operation: libc::c_int) -> Result<File> {
-    let file = crate::flock::open_creating(path)?;
-    crate::flock::lock(&file, operation, path)?;
-    Ok(file)
-}
-
-fn lock_now(file: File, path: &Path) -> Result<Option<File>> {
     Ok(crate::flock::try_lock(&file, libc::LOCK_EX, path)?.then_some(file))
 }
 

@@ -57,9 +57,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::checkout::{Checkout, Root};
-use crate::evict::{cargo_locks, lock_exclusive_creating};
+use crate::evict::cargo_locks;
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::flock::lock_creating;
 use crate::git::resolve_revision;
 use crate::lane::Lane;
 use crate::manifest::{BuildDir, build_dirs};
@@ -211,7 +212,7 @@ pub fn acquire(ranked: &[Candidate]) -> Result<Option<Held>> {
     let Some(best) = ranked.first() else {
         return Ok(None);
     };
-    let file = lock_exclusive_creating(&best.root.join(GUARD))?;
+    let file = lock_creating(&best.root.join(GUARD), libc::LOCK_EX)?;
     hold_rest(best, Guard::Held(file))
 }
 

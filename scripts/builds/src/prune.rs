@@ -335,7 +335,7 @@ fn prune_caches(
         None
     } else {
         let lock = tool.places.root.join(".shared-cache-pruning");
-        let Some(pruning) = crate::evict::try_lock_creating(&lock)? else {
+        let Some(pruning) = crate::flock::try_lock_creating(&lock, libc::LOCK_EX)? else {
             note("Another prune is clearing shared caches.");
             return Ok(());
         };

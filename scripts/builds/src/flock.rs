@@ -47,11 +47,15 @@ pub fn lock(file: &File, how: libc::c_int, path: &Path) -> Result<()> {
     lock_io(file, how).map_err(|error| failed(path, error))
 }
 
-/// Tries to take <how> (`LOCK_SH` or `LOCK_EX`) on <file>, the file at
-/// <path>: returns false at once when another process holds a lock that
-/// keeps this one out.
+/// Tries to take <how> (`LOCK_SH` or `LOCK_EX`) on <file>: returns false at
+/// once when another process holds a lock that keeps this one out.
+pub fn try_lock_io(file: &File, how: libc::c_int) -> std::io::Result<bool> {
+    flock(file, how | libc::LOCK_NB)
+}
+
+/// `try_lock_io` on <file>, the file at <path>, which its error names.
 pub fn try_lock(file: &File, how: libc::c_int, path: &Path) -> Result<bool> {
-    flock(file, how | libc::LOCK_NB).map_err(|error| failed(path, error))
+    try_lock_io(file, how).map_err(|error| failed(path, error))
 }
 
 /// The error that says locking the file at <path> failed with <error>.
@@ -69,6 +73,23 @@ pub fn open_creating(path: &Path) -> Result<File> {
         .truncate(false)
         .open(path)
         .context(|| format!("opening {}", path.display()))
+}
+
+/// Takes <how> (`LOCK_SH` or `LOCK_EX`) on the file at <path>, creating it
+/// when it is missing, waiting while another process holds a lock that keeps
+/// this one out. The lock lasts until the file returned is dropped, and in
+/// each process that inherits its descriptor (`inherit`).
+pub fn lock_creating(path: &Path, how: libc::c_int) -> Result<File> {
+    let file = open_creating(path)?;
+    lock(&file, how, path)?;
+    Ok(file)
+}
+
+/// `lock_creating` without the wait: None while another process holds a lock
+/// that keeps this one out.
+pub fn try_lock_creating(path: &Path, how: libc::c_int) -> Result<Option<File>> {
+    let file = open_creating(path)?;
+    Ok(try_lock(&file, how, path)?.then_some(file))
 }
 
 /// Whether the path <path> names the open file <file>: a lock file that

@@ -58,7 +58,7 @@ pub fn prune_git_checkouts(cargo_home: &Path, run: Run, lockfiles: &[PathBuf]) -
     let mut locks = Vec::new();
     if !run.dry() {
         for name in [".package-cache", ".package-cache-mutate"] {
-            match crate::evict::try_lock_creating(&cargo_home.join(name))? {
+            match crate::flock::try_lock_creating(&cargo_home.join(name), libc::LOCK_EX)? {
                 Some(lock) => locks.push(lock),
                 None => {
                     note(format!(

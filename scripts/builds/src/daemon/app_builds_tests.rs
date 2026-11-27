@@ -401,7 +401,7 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
     let _held: Vec<_> = [("app-1", 31898), ("app-14", 59768)]
         .into_iter()
         .map(|(checkout, pid)| {
-            let lock = crate::queue::try_lock(&locks.join(checkout))
+            let lock = crate::flock::try_lock_creating(&locks.join(checkout), libc::LOCK_EX)
                 .unwrap()
                 .unwrap();
             crate::holder_run::HolderRun {

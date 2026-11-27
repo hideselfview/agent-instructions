@@ -2,7 +2,7 @@ use super::*;
 use crate::testing::{Scratch, git, repo};
 use std::os::fd::AsFd;
 
-fn checkout_lock(scratch: &Scratch) -> std::os::fd::OwnedFd {
+fn checkout_lock(scratch: &Scratch) -> std::fs::File {
     lock::take_checkout(&scratch.places(), "demo", Lane::MAC, "side-1").unwrap()
 }
 

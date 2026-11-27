@@ -2,7 +2,7 @@ use std::os::unix::fs::MetadataExt;
 
 use super::*;
 use crate::claim::cmd_release;
-use crate::evict::lock_shared_creating;
+use crate::flock::lock_creating;
 use crate::manifest::build_dirs;
 use crate::setup::setup;
 use crate::testing::{Scratch, fill as fill_file, git, repo};
@@ -221,7 +221,7 @@ fn a_source_a_build_holds_is_passed_over_and_the_last_one_is_waited_for() {
     let idle = candidate_at(&other);
 
     // `builds cargo` holds the guard shared while cargo runs.
-    let build = lock_shared_creating(&root.join(GUARD)).unwrap();
+    let build = lock_creating(&root.join(GUARD), libc::LOCK_SH).unwrap();
     let ranked = [busy.clone(), idle.clone()];
     let held = acquire(&ranked).unwrap().expect("one is idle");
     assert_eq!(held.candidate, idle, "the build's checkout was passed over");

@@ -681,8 +681,12 @@ pub fn sample(
         // app-checkout reset can still hold the lock. Only scan other
         // processes when a lock is taken.
         let driver_running = holding.is_some();
-        if holding.is_none() && taken(path) {
-            holding = topmost(&processes, machine.uid, opened);
+        if holding.is_none() {
+            match crate::flock::is_held(path) {
+                Ok(true) => holding = topmost(&processes, machine.uid, opened),
+                Ok(false) => {}
+                Err(error) => unread.push(error.text()),
+            }
         }
         let run = match holding.filter(|_| driver_running) {
             None => None,
@@ -830,18 +834,6 @@ pub fn sample(
 /// The label of the checkout the working directory of process <pid> is in.
 fn started_from(places: &[Place], pid: i32) -> Option<String> {
     place_of_process(places, pid).map(|at| places[at].label.clone())
-}
-
-/// Is the lock at <path> taken? Asked by taking it without waiting and
-/// letting it go at once.
-fn taken(path: &Path) -> bool {
-    match crate::queue::open_with(path, libc::O_NONBLOCK) {
-        Ok(fd) => {
-            unsafe { libc::close(fd) };
-            false
-        }
-        Err(error) => error.kind() == std::io::ErrorKind::WouldBlock,
-    }
 }
 
 /// Of <uid>'s processes for which <holds> is true, the oldest one whose

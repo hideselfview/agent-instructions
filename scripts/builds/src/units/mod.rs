@@ -271,7 +271,7 @@ pub fn newest_mtime(path: &Path, depth: usize) -> Result<f64> {
 /// Takes cargo's lock on <profile> without waiting, as cargo holds it while
 /// it builds: the open lock, or None while a build holds it.
 pub fn lock_profile(profile: &Path) -> Result<Option<File>> {
-    crate::evict::try_lock_creating(&profile.join(".cargo-lock"))
+    crate::flock::try_lock_creating(&profile.join(".cargo-lock"), libc::LOCK_EX)
 }
 
 /// The file in a checkout's build root that `builds cargo` holds a shared
@@ -296,7 +296,10 @@ pub fn hold_guard(
         .map(|checkout| checkout.build_root(places))
         .filter(|root| root.is_dir());
     match root {
-        Some(root) => Ok(Some(crate::evict::lock_shared_creating(&root.join(GUARD))?)),
+        Some(root) => Ok(Some(crate::flock::lock_creating(
+            &root.join(GUARD),
+            libc::LOCK_SH,
+        )?)),
         None => Ok(None),
     }
 }
@@ -355,7 +358,7 @@ pub fn lock_guard_creating(path: &Path) -> Result<Guard> {
     let Some(root) = root else {
         return lock_guard(path);
     };
-    match crate::evict::try_lock_creating(&root.join(GUARD))? {
+    match crate::flock::try_lock_creating(&root.join(GUARD), libc::LOCK_EX)? {
         Some(file) => Ok(Guard::Held(file)),
         None => Ok(Guard::Busy),
     }

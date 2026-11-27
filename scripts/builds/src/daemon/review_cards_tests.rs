@@ -126,12 +126,12 @@ fn a_card_follows_the_review_from_none_to_findings_to_fixes_and_says_nothing_onc
     let newest = ahead(&side)[0].full.clone();
     let path = crate::review::running_file(&demo.store.dir, &newest);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let held = crate::queue::open_locked(&path).unwrap();
+    let held = crate::flock::lock_creating(&path, libc::LOCK_EX).unwrap();
     assert_eq!(
         standing(&reads, &demo, &side),
         Some(ItemWait::RulesReview(ReviewWait::Running))
     );
-    unsafe { libc::close(held) };
+    drop(held);
     fake.answer(
         "alpha",
         &[(

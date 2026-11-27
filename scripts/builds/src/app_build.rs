@@ -1940,14 +1940,13 @@ fn lock_base_run(
     base: &str,
     environment: &str,
 ) -> Result<Option<std::fs::File>> {
-    use std::os::fd::FromRawFd;
     let folder = places.root.join(repo);
     std::fs::create_dir_all(&folder).context(|| format!("creating {}", folder.display()))?;
     let path = folder.join(format!(
         "base-run-{}-{base}-{environment}.lock",
         lane.word()
     ));
-    if let Some(file) = crate::evict::try_lock_creating(&path)? {
+    if let Some(file) = crate::flock::try_lock_creating(&path, libc::LOCK_EX)? {
         return Ok(Some(file));
     }
     note(format!(
@@ -1955,9 +1954,7 @@ fn lock_base_run(
         short(base)
     ));
     let waiting_for = format!("another build's run of the merge base {}", short(base));
-    let taken = crate::lock_wake::wait_for_lock(&path, &waiting_for, &lock::takeover_stopped)?;
-    // The descriptor is this process's, and closes when the file does.
-    Ok(taken.map(|fd| unsafe { std::fs::File::from_raw_fd(fd) }))
+    crate::lock_wake::wait_for_lock(&path, &waiting_for, &lock::takeover_stopped)
 }
 
 /// What a lane's build holds while it works: the request, the repo's commits

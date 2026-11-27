@@ -41,9 +41,8 @@
 //! a pid names its lane, and `--lane` names it when there is no pid.
 
 use std::collections::BTreeMap;
-use std::ffi::CString;
-use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
-use std::os::unix::ffi::OsStrExt;
+use std::fs::File;
+use std::os::fd::{AsFd, BorrowedFd};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -69,71 +68,6 @@ pub fn route_repoint_signal() {
         libc::sigemptyset(&mut set);
         libc::sigaddset(&mut set, libc::SIGUSR1);
         libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
-    }
-}
-
-/// Opens <path> with close-on-exec and <flags>, and takes an exclusive flock,
-/// waiting for the lock unless <flags> holds O_NONBLOCK. With O_NONBLOCK, returns
-/// `WouldBlock` when another process holds the lock.
-pub fn open_with(path: &Path, flags: libc::c_int) -> std::io::Result<libc::c_int> {
-    open_with_mode(path, flags, libc::LOCK_EX)
-}
-
-pub fn open_with_mode(
-    path: &Path,
-    flags: libc::c_int,
-    mode: libc::c_int,
-) -> std::io::Result<libc::c_int> {
-    let c_path = CString::new(path.as_os_str().as_bytes()).expect("a path holds no NUL");
-    let fd = loop {
-        let fd = unsafe {
-            libc::open(
-                c_path.as_ptr(),
-                libc::O_RDONLY | libc::O_CLOEXEC | flags,
-                0o644,
-            )
-        };
-        if fd >= 0 {
-            break fd;
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::Interrupted {
-            return Err(error);
-        }
-    };
-    let operation = if flags & libc::O_NONBLOCK != 0 {
-        mode | libc::LOCK_NB
-    } else {
-        mode
-    };
-    loop {
-        if unsafe { libc::flock(fd, operation) } == 0 {
-            return Ok(fd);
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::Interrupted {
-            unsafe { libc::close(fd) };
-            return Err(error);
-        }
-    }
-}
-
-pub fn open_locked(path: &Path) -> Result<libc::c_int> {
-    open_with(path, libc::O_CREAT).context(|| format!("locking {}", path.display()))
-}
-
-/// The lock on the file at <path> (made if missing), or None when a process
-/// holds it. The descriptor closes on exec.
-pub fn try_lock(path: &Path) -> Result<Option<libc::c_int>> {
-    try_lock_mode(path, libc::LOCK_EX)
-}
-
-/// Like `try_lock`, taking the lock in <mode> (`LOCK_SH` or `LOCK_EX`).
-pub fn try_lock_mode(path: &Path, mode: libc::c_int) -> Result<Option<libc::c_int>> {
-    match open_with_mode(path, libc::O_CREAT | libc::O_NONBLOCK, mode) {
-        Ok(fd) => Ok(Some(fd)),
-        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
-        Err(error) => fail!("locking {}: {error}", path.display()),
     }
 }
 
@@ -260,21 +194,19 @@ pub enum AppWait {
 /// One ticket of this process. Dropping it closes this process's descriptor.
 pub struct Ticket {
     pub name: String,
-    fd: OwnedFd,
+    lock: File,
 }
 
 impl Ticket {
     fn locked(name: String, path: &Path) -> Result<Self> {
-        let fd = open_locked(path)?;
-        // open_locked returned a new descriptor owned by this ticket.
-        let owner = unsafe { OwnedFd::from_raw_fd(fd) };
-        Ok(Self { name, fd: owner })
+        let lock = crate::flock::lock_creating(path, libc::LOCK_EX)?;
+        Ok(Self { name, lock })
     }
 }
 
 impl AsFd for Ticket {
     fn as_fd(&self) -> BorrowedFd<'_> {
-        self.fd.as_fd()
+        self.lock.as_fd()
     }
 }
 
@@ -291,12 +223,8 @@ pub struct Queue {
 /// The guard lock, held until dropped. It is not passed to processes this one
 /// starts. Every change to the order, and every change to the lane's set of
 /// app checkouts and every take of one of its locks, happens under it.
-pub struct Guard(libc::c_int);
-
-impl Drop for Guard {
-    fn drop(&mut self) {
-        unsafe { libc::close(self.0) };
-    }
+pub struct Guard {
+    _lock: File,
 }
 
 /// Takes the lock on <path>, creating the file and its folder when they are
@@ -305,7 +233,8 @@ pub fn guard_at(path: &Path) -> Result<Guard> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
     }
-    open_locked(path).map(Guard)
+    let lock = crate::flock::lock_creating(path, libc::LOCK_EX)?;
+    Ok(Guard { _lock: lock })
 }
 
 impl Queue {
@@ -629,14 +558,11 @@ impl Queue {
                 }
                 after_read();
                 if wake.wait()?.ready {
-                    while let Some((from, code)) = wake.message() {
+                    while let Some((from, locked)) = wake.message() {
                         let Some(found) = waiting.iter().position(|(started, _)| *started == from)
                         else {
-                            // A wait on a ticket since given up: it holds a
-                            // ticket for this instant only.
-                            if code >= 0 {
-                                unsafe { libc::close(code) };
-                            }
+                            // A wait on a ticket since given up: dropping
+                            // <locked> lets the ticket go.
                             continue;
                         };
                         let (started, name) = waiting.remove(found);
@@ -645,18 +571,16 @@ impl Queue {
                             .expect("no panic holding it")
                             .current
                             .remove(&started);
-                        if code >= 0 {
-                            let dropped = self.drop_ticket(&name);
-                            unsafe { libc::close(code) };
-                            dropped?;
-                        } else if -code == libc::ENOENT {
-                            self.drop_ticket(&name)?;
-                        } else {
-                            fail!(
-                                "waiting on {}: {}",
-                                self.ticket_path(&name).display(),
-                                std::io::Error::from_raw_os_error(-code)
-                            );
+                        match locked {
+                            // The ticket stays locked until it is out of the
+                            // order.
+                            Ok(_ticket) => self.drop_ticket(&name)?,
+                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                                self.drop_ticket(&name)?;
+                            }
+                            Err(error) => {
+                                fail!("waiting on {}: {error}", self.ticket_path(&name).display())
+                            }
                         }
                     }
                 }

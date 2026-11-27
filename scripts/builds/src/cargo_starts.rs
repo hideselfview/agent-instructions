@@ -59,7 +59,7 @@ fn dir_of(places: &Places) -> PathBuf {
 pub fn read(places: &Places, now: i64) -> Result<Starts> {
     let dir = dir_of(places);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
-    let lock = crate::evict::lock_exclusive_creating(&dir.join(".lock"))?;
+    let lock = crate::flock::lock_creating(&dir.join(".lock"), libc::LOCK_EX)?;
     let mut counts = Counts::default();
     let entries = std::fs::read_dir(&dir).context(|| format!("listing {}", dir.display()))?;
     for entry in entries {

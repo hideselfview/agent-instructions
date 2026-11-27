@@ -66,7 +66,7 @@ pub struct Staging {
 /// exclusively; the lock lasts as long as the file it returns.
 pub fn writing(root: &Path) -> Result<std::fs::File> {
     std::fs::create_dir_all(root).context(|| format!("creating {}", root.display()))?;
-    let shared = crate::evict::lock_shared_creating(&root.join(WRITING))?;
+    let shared = crate::flock::lock_creating(&root.join(WRITING), libc::LOCK_SH)?;
     remove_if_present(&root.join(PLAN))?;
     Ok(shared)
 }
@@ -312,7 +312,8 @@ fn prune_with(
     groups: impl FnOnce() -> Result<Option<Vec<Group>>>,
     open_files: impl Fn() -> Result<HeldPaths>,
 ) -> Result<()> {
-    let Some(_pruning) = crate::evict::try_lock_creating(&root.join(PRUNING))? else {
+    let Some(_pruning) = crate::flock::try_lock_creating(&root.join(PRUNING), libc::LOCK_EX)?
+    else {
         note(format!("Another prune is working in {}.", root.display()));
         return Ok(());
     };
@@ -329,7 +330,7 @@ fn prune_with(
 }
 
 fn idle(root: &Path) -> Result<Option<std::fs::File>> {
-    let lock = crate::evict::try_lock_creating(&root.join(WRITING))?;
+    let lock = crate::flock::try_lock_creating(&root.join(WRITING), libc::LOCK_EX)?;
     if lock.is_none() {
         note(format!(
             "A reader or writer holds {}. The prune skips it.",

@@ -44,7 +44,7 @@ struct Setup {
     home: PathBuf,
     places: Places,
     ssh: Ssh,
-    lock: std::os::fd::OwnedFd,
+    lock: std::fs::File,
     lane: Lane,
 }
 

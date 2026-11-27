@@ -412,14 +412,13 @@ fn remove_if_idle(at: RepoLane, lock: &CheckoutLock, times: Idle, run: Run) -> R
 /// The lock of one app checkout, which this process holds until the value
 /// is dropped.
 pub struct CheckoutLock {
-    fd: libc::c_int,
+    file: std::fs::File,
     entry: String,
 }
 
 impl std::os::fd::AsFd for CheckoutLock {
     fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
-        // The descriptor is open until this owner drops.
-        unsafe { std::os::fd::BorrowedFd::borrow_raw(self.fd) }
+        self.file.as_fd()
     }
 }
 
@@ -427,12 +426,6 @@ impl CheckoutLock {
     pub fn reservation(&self) -> crate::app_lock_guard::CheckoutLock<'_> {
         use std::os::fd::AsFd;
         crate::app_lock_guard::CheckoutLock::new(self.as_fd(), None)
-    }
-}
-
-impl Drop for CheckoutLock {
-    fn drop(&mut self) {
-        unsafe { libc::close(self.fd) };
     }
 }
 
@@ -449,11 +442,12 @@ pub fn lock_checkout(
 ) -> Result<Option<CheckoutLock>> {
     let dir = places.app_locks_dir(repo, lane);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
-    let Some(fd) = queue::try_lock(&places.app_lock_file(repo, lane, entry))? else {
+    let path = places.app_lock_file(repo, lane, entry);
+    let Some(file) = crate::flock::try_lock_creating(&path, libc::LOCK_EX)? else {
         return Ok(None);
     };
     let lock = CheckoutLock {
-        fd,
+        file,
         entry: entry.to_string(),
     };
     if !places
@@ -485,13 +479,13 @@ pub enum Waited {
 pub fn wait_checkout(places: &Places, repo: &str, lane: Lane, entry: &str) -> Result<Waited> {
     let file = places.app_lock_file(repo, lane, entry);
     let waiting_for = format!("{entry}'s lock");
-    let Some(fd) =
+    let Some(locked) =
         crate::lock_wake::wait_for_lock(&file, &waiting_for, &crate::lock::takeover_stopped)?
     else {
         return Ok(Waited::Stopped);
     };
     let lock = CheckoutLock {
-        fd,
+        file: locked,
         entry: entry.to_string(),
     };
     // A holder that removed the checkout deleted its lock file: the lock is

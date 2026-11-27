@@ -666,8 +666,9 @@ impl Transport<'_> {
         };
         let folder = self.places.root.join(repo);
         std::fs::create_dir_all(&folder).context(|| format!("creating {}", folder.display()))?;
-        let _one_at_a_time = crate::evict::lock_exclusive_creating(
+        let _one_at_a_time = crate::flock::lock_creating(
             &folder.join(format!(".send-{}.lock", self.host.name)),
+            libc::LOCK_EX,
         )?;
         let output = source_git(source)
             .args(["push", "-q", &format!("{target}:{}", clone_path(repo))])
