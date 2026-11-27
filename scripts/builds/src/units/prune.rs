@@ -172,7 +172,6 @@ impl Sources {
 }
 
 /// What a unit's own records say it was built from.
-#[derive(Clone)]
 struct OwnSources {
     package: usize,
     paths: Vec<u64>,
