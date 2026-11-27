@@ -55,6 +55,7 @@ pub(crate) static MAC: Harness = Harness {
         file!("mac", "ShotRequest.swift"),
         file!("mac", "ShotRunner.swift"),
         file!("mac", "ShotScene.swift"),
+        file!("mac", "ShotSheetShadow.swift"),
         file!("mac", "ShotWindowState.swift"),
         file!("mac", "Wait.swift"),
         file!("mac", "WindowBackdrop.swift"),

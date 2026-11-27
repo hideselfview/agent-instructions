@@ -17,6 +17,9 @@ enum ShotError: Error, CustomStringConvertible {
     /// `after` is why the scene was not captured, when it was not.
     case windowsLeftUp(String, [String], after: (any Error)?)
     case noScreen(String)
+    /// The sheet's captures with and without its shadow show its window at
+    /// two sizes, so the shadow cannot be placed.
+    case sheetShadowUnplaced(String)
     case noContentView(String)
     case noFrameView(String)
     case windowTooLarge(
@@ -59,6 +62,10 @@ enum ShotError: Error, CustomStringConvertible {
             "scene \(id) left these windows up: "
                 + windows.joined(separator: "; ")
                 + (failure.map { ". The scene had failed first: \($0)" } ?? "")
+        case .sheetShadowUnplaced(let id):
+            "scene \(id)'s sheet has no one wholly opaque box in its "
+                + "captures with and without its shadow, so its shadow cannot "
+                + "be placed"
         case .noScreen(let id):
             "ScreenCaptureKit shares no shot display for scene \(id)'s window"
         case .noContentView(let id):

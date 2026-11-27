@@ -242,6 +242,62 @@ struct ShotDisplayTests {
         #expect(left.isEmpty, "\(left.map { String(describing: $0.frame) })")
     }
 
+    /// A shot of a window with a system sheet holds the shadow the window
+    /// server draws around the sheet, and neither the dark line it draws just
+    /// outside the sheet nor the light one just inside it.
+    @Test
+    func aSheetCastsItsShadowWithoutTheWindowServersRim() async throws {
+        let display = try await TestDisplay.get()
+        let behind = Color(.sRGB, white: 128.0 / 255)
+        let face = Color(.sRGB, white: 200.0 / 255)
+        let scene = ShotScene(
+            id: "a sheet over a flat window",
+            size: CGSize(width: 600, height: 400),
+            frame: .window(title: "Shot", titleBar: .hidden)
+        ) {
+            ShotStage(
+                behind.ignoresSafeArea()
+                    .sheet(isPresented: .constant(true)) {
+                        face.frame(width: 300, height: 160)
+                    },
+                isDrawn: { $0.window?.attachedSheet != nil }
+            )
+        }
+        let capture = try await render(scene, on: display)
+        let image = try #require(NSBitmapImageRep(data: capture.png))
+        func gray(_ x: Int, _ y: Int) -> Int {
+            var pixel = [Int](repeating: 0, count: 4)
+            image.getPixel(&pixel, atX: x, y: y)
+            return pixel[0]
+        }
+        // The sheet is the one part lighter than the window behind it.
+        let middle = image.pixelsWide / 2
+        let sheetRows = (0..<image.pixelsHigh).filter { gray(middle, $0) > 170 }
+        let top = try #require(sheetRows.first)
+        let bottom = try #require(sheetRows.last)
+        let row = (top + bottom) / 2
+        let sheetColumns = (0..<image.pixelsWide).filter { gray($0, row) > 170 }
+        let left = try #require(sheetColumns.first)
+
+        let far = gray(10, row)
+        let beside = [1, 2, 4, 8].map { gray(left - $0, row) }
+        let below = [1, 2, 4, 8].map { gray(middle, bottom + $0) }
+        for edge in [beside, below] {
+            #expect(edge.allSatisfy { $0 < far - 3 }, "\(edge) beside \(far)")
+            // A rim outside the sheet is far darker than the shadow a few
+            // pixels further out.
+            #expect(abs(edge[0] - edge[2]) <= 3, "\(edge)")
+        }
+        // Lower than the sheet is above it, the shadow is darker below.
+        #expect(below[3] < gray(middle, top - 8), "\(below)")
+        // A rim inside the sheet is lighter than the sheet's face.
+        let inside = (0..<6).map { gray(left + $0, row) }
+        #expect(
+            inside.allSatisfy { abs($0 - gray(middle, row)) <= 2 },
+            "\(inside)"
+        )
+    }
+
     /// A window the scene's own teardown leaves up fails the scene that left
     /// it, and is closed, so that no later capture draws it.
     @Test

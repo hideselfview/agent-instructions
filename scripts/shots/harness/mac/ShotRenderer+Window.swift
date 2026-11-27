@@ -208,8 +208,10 @@ extension ShotRenderer {
             try await shownOnScreen(shown, scene: scene)
             return try await windowPNG(
                 CGWindowID(window.windowNumber),
-                overlays: (sheets + panels)
+                sheets: sheets.map { CGWindowID($0.windowNumber) },
+                shadowed: sheets.filter(\.hasShadow)
                     .map { CGWindowID($0.windowNumber) },
+                overlays: panels.map { CGWindowID($0.windowNumber) },
                 on: display.id,
                 sceneId: scene.id
             )
@@ -226,8 +228,9 @@ extension ShotRenderer {
         }
     }
 
-    /// The window and its overlays as the window server composes them on the
-    /// screen, as PNG bytes: a window's toolbar draws its controls on glass,
+    /// The window, its sheets and its overlays as the window server composes
+    /// them on the screen, with the shadows of the sheets that cast one
+    /// (`shadowed`, laid by `ShotSheetShadow`), as PNG bytes: a window's toolbar draws its controls on glass,
     /// and sheets and alerts are windows of their own. The capture takes what
     /// the screen shows over the parent window's frame.
     /// The window server must already show every one of the windows
@@ -238,18 +241,21 @@ extension ShotRenderer {
     @concurrent
     nonisolated static func windowPNG(
         _ windowID: CGWindowID,
+        sheets: [CGWindowID],
+        shadowed: [CGWindowID],
         overlays: [CGWindowID],
         on displayID: CGDirectDisplayID,
         sceneId: String
     ) async throws -> Data {
         let content = try await SCShareableContent.currentProcess
-        let held = ([windowID] + overlays)
+        let over = sheets + overlays
+        let held = ([windowID] + over)
             .compactMap { id in
                 content.windows.first { $0.windowID == id }
             }
         guard
             let parent = held.first(where: { $0.windowID == windowID }),
-            held.count == overlays.count + 1
+            held.count == over.count + 1
         else {
             throw ShotError.windowNotShared(sceneId)
         }
@@ -282,7 +288,14 @@ extension ShotRenderer {
             height: configuration.height,
             sceneId: sceneId
         )
-        let rep = NSBitmapImageRep(cgImage: scaled)
+        let shaded = try await ShotSheetShadow.cast(
+            by: held.filter { shadowed.contains($0.windowID) },
+            under: held.filter { overlays.contains($0.windowID) },
+            on: scaled,
+            of: parent,
+            sceneId: sceneId
+        )
+        let rep = NSBitmapImageRep(cgImage: shaded)
         rep.size = parent.frame.size
         guard let data = rep.representation(using: .png, properties: [:])
         else {
