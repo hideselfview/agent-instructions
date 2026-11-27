@@ -21,7 +21,7 @@ own. It's the product's own artwork, so the icon rules don't apply to it.
   needs the font. Fredoka is for the logo only.
 - **Sheep and "bae" in a line:** where there's width but little height, such as
   a header. The sheep comes first: on the left, or on the right in a
-  right-to-left language. The word is 0.8 of the sheep's width.
+  right-to-left language.
 - **The tagline:** "Your music, everywhere". It sits under the logo on Welcome,
   in secondary text with no period, and stays still while the logo floats.
 - **The bob:** on Welcome the sheep and the word float separately, the rise and
