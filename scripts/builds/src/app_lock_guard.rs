@@ -12,7 +12,7 @@ use std::process::Command;
 use crate::fail::Context;
 use crate::fail::Result;
 #[cfg(target_os = "macos")]
-use crate::process::{Detached, announce_pid};
+use crate::process::{Detached, announce_pid, announced_pid, let_go};
 
 #[cfg(target_os = "macos")]
 pub const COMMAND: &str = "__app-lock-guard";
@@ -142,7 +142,6 @@ impl<'a> CheckoutLock<'a> {
 
 #[cfg(target_os = "macos")]
 pub fn watch() -> Result<()> {
-    use std::io::{Read, Write};
     use std::os::fd::{FromRawFd, OwnedFd, RawFd};
     use std::os::unix::net::UnixStream;
 
@@ -167,19 +166,16 @@ pub fn watch() -> Result<()> {
         crate::fail!("The app checkout lock guard needs an open checkout descriptor");
     }
     let mut socket = unsafe { UnixStream::from_raw_fd(libc::STDIN_FILENO) };
-    let mut pid = [0; size_of::<libc::pid_t>()];
     let peer = || "Builds lost the socket for the app checkout lock guard".into();
-    if socket.read(&mut pid[..1]).context(peer)? == 0 {
+    let Some(pid) = announced_pid(&mut socket).context(peer)? else {
         return Ok(());
-    }
-    socket.read_exact(&mut pid[1..]).context(peer)?;
-    let pid = libc::pid_t::from_ne_bytes(pid);
+    };
     let queue = crate::kqueue::Queue::new()
         .context(|| "Builds could not open the app checkout lock guard's event queue".into())?;
     queue
         .watch_exit(pid)
         .context(|| format!("Builds could not watch process {pid} exit"))?;
-    socket.write_all(&[0]).context(peer)?;
+    let_go(&mut socket).context(peer)?;
     queue
         .wait(&mut [crate::kqueue::event(0, 0, 0, 0)], None)
         .context(|| format!("Builds could not wait for process {pid} to exit"))?;

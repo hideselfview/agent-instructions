@@ -135,20 +135,34 @@ pub fn announce_pid(socket: RawFd) -> io::Result<()> {
     stream.read_exact(&mut [0])
 }
 
+/// The pid that a new process sends on <stream> with `announce_pid`; None
+/// when the stream ends with nothing sent, as it does when the start fails
+/// before the process sends it.
+pub fn announced_pid(stream: &mut UnixStream) -> io::Result<Option<libc::pid_t>> {
+    let mut pid = [0; size_of::<libc::pid_t>()];
+    if stream.read(&mut pid[..1])? == 0 {
+        return Ok(None);
+    }
+    stream.read_exact(&mut pid[1..])?;
+    Ok(Some(libc::pid_t::from_ne_bytes(pid)))
+}
+
+/// Lets the process that waits in `announce_pid` on <stream> go on.
+pub fn let_go(stream: &mut UnixStream) -> io::Result<()> {
+    stream.write_all(&[0])
+}
+
 /// Reads the pid that a process `Detached::start` spawns sends on <stream>,
 /// writes its record in <folder>, then lets it go on. When the record cannot
 /// be written, dropping <stream> stops the process before its program runs.
 fn record_announced(mut stream: UnixStream, folder: &Path, purpose: &str) -> Result<()> {
     let told = || format!("hearing from the process that is to {purpose}");
-    let mut pid = [0; size_of::<libc::pid_t>()];
-    match stream.read_exact(&mut pid) {
-        Ok(()) => {}
-        // The start failed before there was a process, as the spawn says.
-        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
-        Err(error) => fail!("{}: {error}", told()),
-    }
+    // With no pid, the start failed, as the spawn says.
+    let Some(pid) = announced_pid(&mut stream).context(told)? else {
+        return Ok(());
+    };
     let record = Detached {
-        pid: libc::pid_t::from_ne_bytes(pid),
+        pid,
         started: crate::app_timing::now(),
         purpose: purpose.to_string(),
         caller: Caller {
@@ -163,7 +177,7 @@ fn record_announced(mut stream: UnixStream, folder: &Path, purpose: &str) -> Res
         &folder.join(record.file_name()),
         serde_json::to_vec(&record).expect("a record serializes"),
     )?;
-    stream.write_all(&[0]).context(told)
+    let_go(&mut stream).context(told)
 }
 
 /// The start of each line `listing_script` prints.
