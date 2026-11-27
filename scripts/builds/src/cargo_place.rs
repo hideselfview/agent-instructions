@@ -51,18 +51,21 @@ pub const BEFORE_VARIABLE: &str = "BUILDS_CARGO_BEFORE";
 /// The environment variable that names the host for one command.
 pub const HOST_VARIABLE: &str = "BUILDS_CARGO_HOST";
 
+/// The value of the variable <name>, as <env> reads the caller's
+/// environment: None when it is unset. A value that is not UTF-8 fails.
+pub fn text_variable(env: &dyn Fn(&str) -> Option<OsString>, name: &str) -> Result<Option<String>> {
+    env(name)
+        .map(|value| match value.into_string() {
+            Ok(value) => Ok(value),
+            Err(value) => fail!("{name} is not UTF-8: {value:?}"),
+        })
+        .transpose()
+}
+
 /// The host `HOST_VARIABLE` names, as <env> reads the caller's environment:
-/// None when the variable is unset or empty. A value that is not UTF-8 names
-/// no host builds could look up, so it fails.
+/// None when the variable is unset or empty.
 pub fn named_host(env: &dyn Fn(&str) -> Option<OsString>) -> Result<Option<String>> {
-    match env(HOST_VARIABLE) {
-        None => Ok(None),
-        Some(value) => match value.into_string() {
-            Ok(name) if name.is_empty() => Ok(None),
-            Ok(name) => Ok(Some(name)),
-            Err(value) => fail!("{HOST_VARIABLE} is not UTF-8: {value:?}"),
-        },
-    }
+    Ok(text_variable(env, HOST_VARIABLE)?.filter(|name| !name.is_empty()))
 }
 
 /// Says on stderr that a command runs on this Mac although <named>, the host

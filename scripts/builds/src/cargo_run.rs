@@ -339,7 +339,7 @@ pub fn cmd_cargo(args: &[String], changed: &Changed) -> Result<()> {
         .map(|checkout| RunKey::of(checkout, subcommand));
     let env = |name: &str| std::env::var_os(name);
     let named = cargo_place::named_host(&env)?;
-    let project = app_build_project(&env)?;
+    let project = cargo_place::text_variable(&env, APP_BUILD_PROJECT_VARIABLE)?;
     let runner = crate::lake_run::Runner::from_env(&env)?;
     let ssh = Ssh::from_env();
     let choice = match cargo_place::stays_here(args, tool, checkout.as_ref(), &env) {
@@ -495,13 +495,9 @@ pub fn cmd_cargo(args: &[String], changed: &Changed) -> Result<()> {
 /// The hook check that started this run, from `HOOK_CHECK_VARIABLE` as
 /// <env> reads it; None when no hook check started it.
 fn hook_check(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Result<Option<(i64, u32)>> {
-    match env(HOOK_CHECK_VARIABLE) {
-        None => Ok(None),
-        Some(value) => match value.to_str() {
-            Some(value) => Ok(Some(parse_hook_check(value)?)),
-            None => fail!("{HOOK_CHECK_VARIABLE} is not UTF-8: {value:?}"),
-        },
-    }
+    cargo_place::text_variable(env, HOOK_CHECK_VARIABLE)?
+        .map(|value| parse_hook_check(&value))
+        .transpose()
 }
 
 /// The variable that names the project of the app build whose step runs
@@ -510,17 +506,6 @@ fn hook_check(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Result<Option
 /// projects hold this names the project, as `--project` does for other
 /// commands: a worktree's claim outranks it.
 pub const APP_BUILD_PROJECT_VARIABLE: &str = "BUILDS_APP_BUILD_PROJECT";
-
-/// The project `APP_BUILD_PROJECT_VARIABLE` names, as <env> reads it; None
-/// for a run that no app build of a project started.
-fn app_build_project(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Result<Option<String>> {
-    env(APP_BUILD_PROJECT_VARIABLE)
-        .map(|value| match value.into_string() {
-            Ok(value) => Ok(value),
-            Err(value) => fail!("{APP_BUILD_PROJECT_VARIABLE} is not UTF-8: {value:?}"),
-        })
-        .transpose()
-}
 
 /// What `builds_cargo_runs` records a run under: the checkout's top folder
 /// and cargo's subcommand (`clippy`, `nextest run`). `builds cargo` records
