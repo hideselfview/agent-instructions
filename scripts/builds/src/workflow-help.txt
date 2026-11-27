@@ -183,6 +183,9 @@ PLAN, BRIEF, EXECUTE
       never the whole job (WHAT AN IMPLEMENTING AGENT DOES, steps 3 and 4).
     - A brief leaves the executor no design decision, and leaves the files and
       lines to the executor, who reads the code.
+    - A brief tells the agent to stop only on a choice the person must make.
+      Work that fits something to an existing set takes the nearest match
+      where no value matches exactly (WHAT AN IMPLEMENTING AGENT DOES, step 3).
     - Before writing a brief or settling a choice an agent raises, the
       coordinator reads the spec's text on each behavior the change touches,
       and the brief cites it
@@ -222,21 +225,25 @@ WHAT AN IMPLEMENTING AGENT DOES
      it changes
      (rules/commits-and-repo-contents/every-change-agrees-with-its-product-spec.md).
      A choice the brief didn't settle goes back to the coordinator, never into
-     a guess. When the brief and the spec differ on work the person asked for
-     or decided, edit the spec in the commit that does the work. A change
-     nobody decided goes back to the coordinator with both texts.
+     a guess, except a nearest match (step 3). When the brief and the spec
+     differ on work the person asked for or decided, edit the spec in the
+     commit that does the work. A change nobody decided goes back to the
+     coordinator with both texts.
   2. Branch from origin/main in its claimed worktree.
   3. Implement to the brief's goal sentence, which sets the scope of the
      work. The brief's steps and lists are examples of what its writer found,
      never the whole job: search for every place the goal covers, and do the
-     work there too. A bug fix starts with its failing test. The first time
-     you edit a file in Claude Code, builds adds to your context each coding
-     rule that covers it, and after each rule the findings that recent first
-     reviews confirmed of it most often (`builds help`, ACKNOWLEDGING THE
-     RULES). builds counts them in the project's records and, for the rules
-     every project shares, in every project's. Write the draft so it has none
-     of those findings. In Codex, and for paths you have not edited, `builds
-     brief` prints the rules.
+     work there too. When the work fits something to an existing set, such as
+     tokens, components or a pattern, give each value with no exact match the
+     nearest one, and list each such choice in the report (step 11). A bug fix
+     starts with its failing test. The first time you edit a file in Claude
+     Code, builds adds to your context each coding rule that covers it, and
+     after each rule the findings that recent first reviews confirmed of it
+     most often (`builds help`, ACKNOWLEDGING THE RULES). builds counts them
+     in the project's records and, for the rules every project shares, in
+     every project's. Write the draft so it has none of those findings. In
+     Codex, and for paths you have not edited, `builds brief` prints the
+     rules.
   4. Review its own diff once, against the brief's goal sentence and the
      matching rules: the goal holds in every place it covers, not only in the
      places the brief names.
@@ -295,7 +302,8 @@ WHAT AN IMPLEMENTING AGENT DOES
  10. Land the branch with `builds land` in this worktree, with the brief's
      items (LANDING), once nothing is unreviewed, no confirmed finding is
      open and, for app changes, the app build has passed.
- 11. Report the landed commits and the checks, or what stopped the landing.
+ 11. Report the landed commits, the checks and each nearest match it chose,
+     or what stopped the landing.
 
 An agent that `builds agent run` starts keeps its scratch files (commit
 messages, probes) in the scratch folder its prompt names (`builds help`,

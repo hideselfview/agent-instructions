@@ -64,8 +64,11 @@ WRITE ONE BRIEF PER ITEM
     nothing else for it.
   - Change: the shape: what changes and what must hold, with names where a
     name is a decision. Settle every design choice from the code and the
-    rules, and say which rule or fact settles it. Don't write the change file
-    by file: the executor reads the code, and a brief that deep writes the
+    rules, and say which rule or fact settles it. Tell the agent to stop
+    only on a choice the person must make: work that fits something to an
+    existing set takes the nearest match (`builds help workflow`, WHAT AN
+    IMPLEMENTING AGENT DOES, step 3). Don't write the change file by file:
+    the executor reads the code, and a brief that deep writes the
     implementation twice.
   - Test first: for a bug, the failing test (file, name, what it asserts);
     for a refactor, the existing tests that prove it.

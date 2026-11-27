@@ -19,8 +19,9 @@ wants, never from how the existing code works. Build to that sentence and check
 the result against it. A brief opens with the sentence, and the sentence sets
 the brief's scope: the brief's steps and lists are examples of what its writer
 found, and the agent finishes when the sentence holds everywhere it applies
-(`builds help workflow`, WHAT AN IMPLEMENTING AGENT DOES). A design that needs
-special cases the sentence doesn't name is wrong.
+(`builds help workflow`, WHAT AN IMPLEMENTING AGENT DOES). A brief tells the
+agent to stop only on a choice the user must make. A design that needs special
+cases the sentence doesn't name is wrong.
 
 **Revealing structure is the objective.** Find the structure the system really
 has and model it: pick the design that shows it over one that hides it, even
