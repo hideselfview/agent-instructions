@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use shots::{WebPage, WebPictureError};
+use shots::{WEB_SETTLE_LIMIT, WebPage, WebPicture, WebPictureError};
 
 use crate::args::Args;
 use crate::capped_store::{self, Group, Kept, Use};
@@ -76,15 +76,15 @@ fn is_web(url: &str) -> bool {
     })
 }
 
-/// The PNG of <page>, drawn by the pinned Chrome kept in <folders>. Holds the
-/// drawing while Chrome prints no address on this Mac.
-pub fn draw(folders: &boards::Folders, page: &WebPage) -> Result<Vec<u8>> {
+/// The picture of <page>, drawn by the pinned Chrome kept in <folders>. Holds
+/// the drawing while Chrome prints no address on this Mac.
+pub fn draw(folders: &boards::Folders, page: &WebPage) -> Result<WebPicture> {
     // Each try starts Chrome and, once it starts, draws the page.
     let drawn = crate::host_chrome::wait_until_starts(
         &Host::local(),
         &|| {
             Ok(match shots::web_picture(folders, page) {
-                Ok(png) => Start::Started(Ok(png)),
+                Ok(picture) => Start::Started(Ok(picture)),
                 Err(WebPictureError::Page(why)) => Start::Started(Err(why)),
                 Err(WebPictureError::NoAddress(why)) => Start::NoAddress(why),
                 Err(WebPictureError::Chrome(why)) => Start::Failed(why),
@@ -96,7 +96,7 @@ pub fn draw(folders: &boards::Folders, page: &WebPage) -> Result<Vec<u8>> {
         &crate::lock::pause_before_trying_again,
     )?;
     match drawn {
-        Some(Ok(png)) => Ok(png),
+        Some(Ok(picture)) => Ok(picture),
         Some(Err(why)) => fail!("cannot picture {why}"),
         None => fail!("a signal stopped the wait for Chrome to start"),
     }
@@ -135,8 +135,15 @@ pub fn cmd(places: &Places, system: &System, args: &Args) -> Result<()> {
     if !ready {
         fail!("a signal stopped the wait for this Mac's display");
     }
-    let png = draw(&crate::shots_program::folders(places), &page)?;
-    crate::output::answer_line(keep(places, &png)?.display().to_string());
+    let picture = draw(&crate::shots_program::folders(places), &page)?;
+    if !picture.settled {
+        note(format!(
+            "{} had not settled after {} seconds; the picture shows the page as it was then",
+            page.url,
+            WEB_SETTLE_LIMIT.as_secs()
+        ));
+    }
+    crate::output::answer_line(keep(places, &picture.png)?.display().to_string());
     Ok(())
 }
 

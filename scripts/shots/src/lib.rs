@@ -41,7 +41,9 @@ pub use crate::names::{ComponentName, Name, NameError, Prefix, ScreenName};
 pub use crate::pictures::app_picture_tree;
 pub use crate::report::{board_picture, shot_picture};
 use crate::settings::Settings;
-pub use crate::web_picture::{WebPage, WebPictureError, picture as web_picture};
+pub use crate::web_picture::{
+    SETTLE_LIMIT as WEB_SETTLE_LIMIT, WebPage, WebPicture, WebPictureError, picture as web_picture,
+};
 use clap::Parser;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

@@ -48,8 +48,13 @@ fn pictured(url: &str, width: u32, full_page: bool) -> image::RgbaImage {
         width,
         full_page,
     };
-    let png = picture(&fixture::folders(), &page).unwrap();
-    image::load_from_memory(&png).unwrap().to_rgba8()
+    let taken = picture(&fixture::folders(), &page).unwrap();
+    assert!(taken.settled, "{url} did not settle");
+    pixels(&taken)
+}
+
+fn pixels(taken: &WebPicture) -> image::RgbaImage {
+    image::load_from_memory(&taken.png).unwrap().to_rgba8()
 }
 
 /// A page whose stylesheet makes it a red box as tall as the window, then a
@@ -114,6 +119,70 @@ fn a_page_no_server_answers_fails_naming_the_url() {
             assert!(why.contains(&url), "{why}");
             assert!(why.contains("ERR_CONNECTION_REFUSED"), "{why}");
         }
-        other => panic!("{:?}", other.map(|png| png.len())),
+        other => panic!("{:?}", other.map(|taken| taken.png.len())),
     }
+}
+
+/// A page whose box, as tall as the window, starts clear and which runs
+/// <script> once it has loaded; <style> is added to the box's.
+fn fading(style: &str, script: &str) -> tempfile::TempDir {
+    let folder = tempfile::tempdir().unwrap();
+    std::fs::write(
+        folder.path().join("index.html"),
+        format!(
+            "<!doctype html><style>body {{ margin: 0 }} \
+             div {{ height: 100vh; background: #f00; opacity: 0; {style} }}</style>\
+             <body><div></div><script>const box = document.querySelector('div'); \
+             addEventListener('load', () => {{ {script} }});</script>"
+        ),
+    )
+    .unwrap();
+    folder
+}
+
+#[test]
+fn a_page_that_fades_its_content_in_after_load_is_pictured_once_it_has() {
+    // Nothing on the page changes while the transition waits out its delay.
+    let site = fading(
+        "transition: opacity 600ms linear 1500ms",
+        "setTimeout(() => box.style.opacity = '1', 100)",
+    );
+    let url = format!("{}/index.html", serve(site.path().to_path_buf()));
+    assert_eq!(*pictured(&url, 390, false).get_pixel(0, 0), RED);
+}
+
+#[test]
+fn a_fade_that_a_script_draws_frame_by_frame_is_pictured_once_it_ends() {
+    // The page has no animation or transition to ask about.
+    let site = fading(
+        "",
+        "const start = performance.now(); \
+         const step = (now) => { const done = Math.min(1, (now - start) / 1500); \
+         box.style.opacity = done; if (done < 1) requestAnimationFrame(step); }; \
+         requestAnimationFrame(step)",
+    );
+    let url = format!("{}/index.html", serve(site.path().to_path_buf()));
+    assert_eq!(*pictured(&url, 390, false).get_pixel(0, 0), RED);
+}
+
+#[test]
+fn a_page_that_animates_forever_is_pictured_at_the_limit_as_not_settled() {
+    // The animation changes nothing a picture shows, so only the question
+    // about animations keeps the page from settling.
+    let site = fading(
+        "opacity: 1; animation: same 1s linear infinite",
+        "document.head.insertAdjacentHTML('beforeend', \
+         '<style>@keyframes same { from { opacity: 1 } to { opacity: 1 } }</style>')",
+    );
+    let url = format!("{}/index.html", serve(site.path().to_path_buf()));
+    let page = WebPage {
+        url: &url,
+        width: 390,
+        full_page: false,
+    };
+    let started = std::time::Instant::now();
+    let taken = picture(&fixture::folders(), &page).unwrap();
+    assert!(!taken.settled);
+    assert!(started.elapsed() >= SETTLE_LIMIT);
+    assert_eq!(*pixels(&taken).get_pixel(0, 0), RED);
 }

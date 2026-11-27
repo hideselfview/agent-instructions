@@ -2551,10 +2551,18 @@ The URL is an http or https URL, and builds refuses any other. The window is
 --width CSS pixels wide (1440 without it) and 900 high, at two pixels per CSS
 pixel, so the PNG is 2880 by 1800 without either flag. With --full-page the
 PNG shows the page's whole height, and the window the page loads in stays 900
-high. builds takes the picture once the page's load event has fired and its
-fonts have loaded. A page that no server answers, or that Chrome does not
-finish in 120 seconds, fails the command, which names the URL. A server's
-error page, such as a 404, is a page like any other.
+high. A page that no server answers, or that Chrome does not finish in 120
+seconds, fails the command, which names the URL. A server's error page, such
+as a 404, is a page like any other.
+
+builds pictures the page as a person sees it once the page has settled, so a
+page that fades its content in shows the content. Once the page's load event
+has fired and its fonts have loaded, builds waits until no CSS animation or
+transition of the page is running, one that waits out its delay included, and
+the picture has stayed the same for 500 milliseconds. When a page has not
+settled after 10 seconds, such as a page that animates forever, builds
+pictures the page as it is then. The command prints that the page had not
+settled, then the PNG's path, and succeeds.
 
 builds draws the page with the Chrome a shots run pins, which it keeps in the
 build volume's caches, with a new profile folder in the run's temporary folder.
