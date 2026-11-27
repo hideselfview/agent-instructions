@@ -242,22 +242,7 @@ fn parse_picks(
     lanes: &[Lane],
     mut lane_of: impl FnMut(PickKind, &str) -> Result<Lane>,
 ) -> Result<Vec<Pick>> {
-    let mut picks = Vec::new();
-    for (flag, values) in args.given_flags() {
-        if flag == app_build::ALL_SHOTS {
-            let [lane] = values else {
-                fail!(
-                    "{} takes one app\n{}",
-                    app_build::ALL_SHOTS,
-                    args.command().usage_text()
-                );
-            };
-            picks.push(app_build::all_shots(Lane::parse_in_or_fail(lanes, lane)?));
-            continue;
-        }
-        let Some(kind) = PickKind::ALL.into_iter().find(|kind| flag == kind.flag()) else {
-            continue;
-        };
+    app_build::picks_with(args, lanes, |kind, values| {
         let [arg] = values else {
             fail!(
                 "{} needs a {}\n{}",
@@ -266,23 +251,15 @@ fn parse_picks(
                 args.command().usage_text()
             );
         };
-        if arg.is_empty() || arg.starts_with('-') || arg.contains(char::is_whitespace) {
-            fail!(
-                "{} takes one {} name, not {arg:?}",
-                kind.flag(),
-                kind.what()
-            );
-        }
+        app_build::pick_word(kind, arg)?;
         if kind == PickKind::Class && !arg.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
             fail!(
                 "--test takes one test class's type name (letters, digits, underscores), not {arg:?}: {}",
                 app_build::ONLY_WHAT_A_CHANGE_TOUCHES
             );
         }
-        let lane = lane_of(kind, arg)?;
-        picks.push(Pick::from_flag(lane, kind, arg)?);
-    }
-    Ok(picks)
+        Ok((lane_of(kind, arg)?, arg))
+    })
 }
 
 /// A branch cut before the repo declared the `on`, `needs` and `sources` lines

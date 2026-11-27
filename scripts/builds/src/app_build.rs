@@ -313,6 +313,28 @@ pub fn pick_kind_of(name: &str) -> Option<PickKind> {
 /// <prefix>` and `--all-shots <lane>` in the order given, for the lanes
 /// <lanes>.
 pub fn picks_of(args: &crate::args::Args, lanes: &[Lane]) -> Result<Vec<Pick>> {
+    picks_with(args, lanes, |kind, values| {
+        let [lane, arg] = values else {
+            fail!(
+                "{} needs a lane and a {}\n{}",
+                kind.flag(),
+                kind.what(),
+                args.command().usage_text()
+            );
+        };
+        pick_word(kind, arg)?;
+        Ok((Lane::parse_in_or_fail(lanes, lane)?, arg))
+    })
+}
+
+/// The picks of <args> in the order given, for the lanes <lanes>: each
+/// `--all-shots <lane>`, and each `--test` and `--shots`, whose values
+/// <pick> reads into the lane the pick runs in and its argument.
+pub fn picks_with<'a>(
+    args: &'a crate::args::Args,
+    lanes: &[Lane],
+    mut pick: impl FnMut(PickKind, &'a [String]) -> Result<(Lane, &'a str)>,
+) -> Result<Vec<Pick>> {
     let mut picks = Vec::new();
     for (flag, values) in args.given_flags() {
         if flag == ALL_SHOTS {
@@ -325,25 +347,23 @@ pub fn picks_of(args: &crate::args::Args, lanes: &[Lane]) -> Result<Vec<Pick>> {
         let Some(kind) = PickKind::ALL.into_iter().find(|kind| flag == kind.flag()) else {
             continue;
         };
-        let [lane, arg] = values else {
-            fail!(
-                "{} needs a lane and a {}\n{}",
-                kind.flag(),
-                kind.what(),
-                args.command().usage_text()
-            );
-        };
-        if arg.is_empty() || arg.starts_with('-') || arg.contains(char::is_whitespace) {
-            fail!(
-                "{} {lane} takes one {} name, not {arg:?}",
-                kind.flag(),
-                kind.what()
-            );
-        }
-        let lane = Lane::parse_in_or_fail(lanes, lane)?;
+        let (lane, arg) = pick(kind, values)?;
         picks.push(Pick::from_flag(lane, kind, arg)?);
     }
     Ok(picks)
+}
+
+/// Refuses <arg> as the argument of a pick of <kind> unless it is one plain
+/// word.
+pub fn pick_word(kind: PickKind, arg: &str) -> Result<()> {
+    if arg.is_empty() || arg.starts_with('-') || arg.contains(char::is_whitespace) {
+        fail!(
+            "{} takes one {} name, not {arg:?}",
+            kind.flag(),
+            kind.what()
+        );
+    }
+    Ok(())
 }
 
 /// The refusal for a pick of a kind whose line <config> lacks in <lane>.
