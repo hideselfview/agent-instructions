@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 use crate::checkout::Checkout;
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Fail, Result};
 use crate::output::note;
 
 /// The folder of <main>'s repo that holds the entries.
@@ -60,20 +60,25 @@ pub fn remove(checkout: &Checkout) -> Result<()> {
     let entry = crate::evict::make_temp_dir(&folder, &format!("{}.", checkout.name()))?;
     let files = entry.join("files");
     if let Err(error) = rename(top, &files) {
-        remove_empty(&entry)?;
-        return Err(error);
+        return Err(also(error, remove_empty(&entry)));
     }
     if let Err(error) = rename(&checkout.git_dir, &entry.join("git")) {
         // When this fails too, the entry keeps the files, and `finish` moves
         // them back.
-        if let Err(back) = rename(&files, top) {
-            fail!("{}; then {}", error.text(), back.text());
-        }
-        remove_empty(&entry)?;
-        return Err(error);
+        let undone = rename(&files, top).and_then(|()| remove_empty(&entry));
+        return Err(also(error, undone));
     }
     delete(&entry);
     Ok(())
+}
+
+/// <error>, why a removal failed, with the failure of the <undone> steps
+/// that followed it, when they failed too.
+fn also(error: Fail, undone: Result<()>) -> Fail {
+    match undone {
+        Ok(()) => error,
+        Err(then) => Fail::Message(format!("{}; then {}", error.text(), then.text())),
+    }
 }
 
 /// Ends each removal of a worktree of <main>'s repo that an earlier process
