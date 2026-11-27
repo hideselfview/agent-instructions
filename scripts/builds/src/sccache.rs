@@ -147,7 +147,7 @@ fn read_listener(status: Option<i32>, stdout: &str, stderr: &str) -> Result<Opti
 /// default stats.
 pub fn listener_script() -> String {
     format!(
-        r#"listener_err=$(mktemp)
+        r#"listener_err=$(mktemp "${{TMPDIR:-/tmp}}/builds-lsof.XXXXXX") || exit 1
 listener=$(lsof {args} 2>"$listener_err")
 listener_status=$?
 echo "listener_status=$listener_status"
