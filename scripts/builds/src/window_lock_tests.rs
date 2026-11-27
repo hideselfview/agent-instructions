@@ -258,6 +258,110 @@ fn the_mac_lane_holds_a_window_step_while_the_hosts_screen_is_locked() {
     held.release();
 }
 
+/// A program in place of ssh that answers a host probe with no load and, to
+/// a reading of the display, says the lid is closed with no display until
+/// the file <open> exists, with the screen unlocked and Terminal in front.
+/// The wait for the display to change returns once <open> exists.
+fn closed_lid_ssh(dir: &std::path::Path, open: &std::path::Path) -> Ssh {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(dir).unwrap();
+    let program = dir.join("ssh");
+    std::fs::write(
+        &program,
+        format!(
+            "#!/bin/sh\ncase \"$*\" in\n*PPID*) while [ ! -e '{open}' ]; do sleep 0.05; done ;;\n*AppleClamshellState*)\n  if [ -e '{open}' ]; then echo lid=open; else echo lid=closed; echo screens=0; fi\n  echo 'screen_locked=\"IOConsoleLocked\" = No'\n  echo 'front_app=\"LSDisplayName\"=\"Terminal\" \"pid\"=1' ;;\n*) printf 'os=Darwin\\narch=arm64\\ncores=1\\nload=0.00 0 0\\nfree_kib=900000000\\nmemory_free_percent=80\\nswap_used_mib=0\\nmemory_pressure_level=1\\nprocs=300\\nmax_procs=8000\\n' ;;\nesac\n",
+            open = open.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::testing::ssh_at(&program)
+}
+
+/// A build that draws window scenes on a host whose lid is closed, when no
+/// other host can draw, holds its window step there, and `builds health`
+/// names the host, the reason and the held step from the record the build
+/// keeps beside its lock. The step goes on once the lid opens.
+#[test]
+fn health_names_a_window_step_that_a_closed_lid_holds() {
+    let scratch = Scratch::new("window-closed-lid");
+    let places = scratch.places();
+    std::fs::create_dir_all(places.root.join("demo")).unwrap();
+    std::fs::create_dir_all(&places.home).unwrap();
+    std::fs::write(places.app_checkouts_file("demo", Lane::MAC), "m1:mac-1\n").unwrap();
+    let open = scratch.dir.join("open");
+    let ssh = closed_lid_ssh(&scratch.dir.join("ssh"), &open);
+    crate::host::add(&places, &ssh, "m1", "user@m1").unwrap();
+    let held =
+        crate::lock::take_drawing(&places, &ssh, "demo", Lane::MAC, Where::Anywhere, 0).unwrap();
+    assert_eq!(held.checkout, "m1:mac-1", "no host left can draw");
+    let run_file = places.app_lock_run_file("demo", Lane::MAC, &held.checkout);
+    let holds = || {
+        crate::holder_run::HolderRun::read(&run_file)
+            .unwrap()
+            .and_then(|run| run.step)
+            .and_then(|step| step.waits)
+            .is_some()
+    };
+    /// Opens the lid when dropped, so that a failed assertion ends the
+    /// held step's thread too.
+    struct OpensTheLid<'a>(&'a std::path::Path);
+    impl Drop for OpensTheLid<'_> {
+        fn drop(&mut self) {
+            std::fs::write(self.0, "").unwrap();
+        }
+    }
+    std::thread::scope(|scope| {
+        let opens = OpensTheLid(&open);
+        let step = scope.spawn(|| held.take_window("shots", Access::Exclusive).unwrap());
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !holds() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the lane never recorded the hold"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let run = crate::holder_run::HolderRun::read(&run_file)
+            .unwrap()
+            .unwrap();
+        let lock = crate::health::LockHealth {
+            repo: "demo".to_string(),
+            lane: Lane::MAC,
+            checkout: held.checkout.clone(),
+            path: String::new(),
+            holder: Some(crate::health::Holder {
+                pid: run.pid,
+                minutes: 0,
+                command: "builds app-build".to_string(),
+                running: Vec::new(),
+                started_from: None,
+                app_head: None,
+                driver_running: true,
+                run: Some(run.times(crate::app_timing::now())),
+            }),
+        };
+        let lines: Vec<String> = crate::host_display::findings(&[], &[lock])
+            .iter()
+            .map(|advice| advice.line())
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "host m1 cannot run steps that open windows: its lid is closed and it lists no other display; the mac app build of demo has waited 0 minutes on checkout m1:mac-1 to run step shots. builds holds each step that needs windows on host m1 until it ends. Open the lid of host m1, or attach a display to it."
+            ]
+        );
+        drop(opens);
+        let window = step
+            .join()
+            .unwrap()
+            .expect("the step went on once the lid opened");
+        drop(window);
+    });
+    assert!(!holds(), "the hold's end cleared it from the record");
+    held.release();
+}
+
 /// This Mac is a host like any other: the mac lane waits while its own screen
 /// is locked.
 #[test]

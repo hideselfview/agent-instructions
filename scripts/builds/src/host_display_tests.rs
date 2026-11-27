@@ -1,7 +1,10 @@
 use super::*;
 use crate::fail::Fail;
+use crate::health::Holder;
+use crate::holder_run::{RunTimes, StepTime};
 use crate::host::Host;
 use crate::host_scan::Scan;
+use crate::lane::Lane;
 use crate::testing::Scratch;
 use std::cell::{Cell, RefCell};
 
@@ -71,7 +74,9 @@ fn each_reason_has_its_rule() {
             pid: 90,
         },
         Reason::LidClosed,
-        Reason::ChromeCannotStart,
+        Reason::ChromeCannotStart {
+            why: "no address in 120 seconds".to_string(),
+        },
     ] {
         assert_eq!(reason.rule(), Rule::Wait, "{reason:?}");
     }
@@ -191,32 +196,35 @@ fn the_script_reads_the_display_with_the_systems_programs() {
 #[test]
 fn each_reason_in_a_hosts_reading_needs_action() {
     let here = Host::local();
-    let found = findings(&[
-        (
-            host("m1"),
-            Ok(scan(Ok(Some(display(&[("front_app", ALERT)]))))),
-        ),
-        (
-            here,
-            Ok(scan(Ok(Some(display(&[(
-                "screen_locked",
-                r#""IOConsoleLocked" = Yes"#,
-            )]))))),
-        ),
-        (
-            host("m2"),
-            Ok(scan(Ok(Some(display(&[
-                ("lid", "closed"),
-                ("screens", "0"),
-            ]))))),
-        ),
-        (host("m3"), Ok(scan(Ok(None)))),
-        (host("m4"), Err("ssh failed".to_string())),
-        (
-            host("m5"),
-            Ok(scan(Err("ioreg named no console lock state".to_string()))),
-        ),
-    ]);
+    let found = findings(
+        &[
+            (
+                host("m1"),
+                Ok(scan(Ok(Some(display(&[("front_app", ALERT)]))))),
+            ),
+            (
+                here,
+                Ok(scan(Ok(Some(display(&[(
+                    "screen_locked",
+                    r#""IOConsoleLocked" = Yes"#,
+                )]))))),
+            ),
+            (
+                host("m2"),
+                Ok(scan(Ok(Some(display(&[
+                    ("lid", "closed"),
+                    ("screens", "0"),
+                ]))))),
+            ),
+            (host("m3"), Ok(scan(Ok(None)))),
+            (host("m4"), Err("ssh failed".to_string())),
+            (
+                host("m5"),
+                Ok(scan(Err("ioreg named no console lock state".to_string()))),
+            ),
+        ],
+        &[],
+    );
     let lines: Vec<String> = found.iter().map(|advice| advice.line()).collect();
     assert_eq!(
         lines,
@@ -224,6 +232,89 @@ fn each_reason_in_a_hosts_reading_needs_action() {
             "host m1 cannot run steps that open windows: the system alert UserNotificationCenter (pid 812) is in front of every app. builds holds each step that needs windows on host m1 until it ends. Answer or close the alert on host m1, or end it with `ssh u@m1 'kill 812'`",
             "this Mac cannot run steps that open windows: its screen is locked. builds holds each step that needs windows on this Mac until it ends. Unlock the screen on this Mac.",
             "health could not read the display of host m5: ioreg named no console lock state",
+        ]
+    );
+}
+
+/// The lock of <lane>'s <checkout> in repo bae, whose build has waited 7
+/// minutes for <wait> to let step <step> start.
+fn held_lock(lane: Lane, checkout: &str, step: &str, wait: Option<Wait>) -> LockHealth {
+    LockHealth {
+        repo: "bae".to_string(),
+        lane,
+        checkout: checkout.to_string(),
+        path: String::new(),
+        holder: Some(Holder {
+            pid: 4,
+            minutes: 12,
+            command: "builds app-build".to_string(),
+            running: Vec::new(),
+            started_from: None,
+            app_head: None,
+            driver_running: true,
+            run: Some(RunTimes {
+                moved_at: 0,
+                waited_minutes: 0,
+                building_minutes: 12,
+                step: Some(StepTime {
+                    name: step.to_string(),
+                    minutes: 7,
+                    waits: wait,
+                }),
+            }),
+        }),
+    }
+}
+
+/// Each reason that holds a step gets a line in the one shape, naming the
+/// host, the build, its step and how long the step has waited, the closed
+/// lid and Chrome's reason among them. A reason a held step names gets no
+/// second line from the host's scan, and a step that runs gets none.
+#[test]
+fn each_reason_that_holds_a_step_needs_action_with_how_long_it_waited() {
+    let alert = Reason::SystemAlert {
+        name: "UserNotificationCenter".to_string(),
+        pid: 812,
+    };
+    let found = findings(
+        &[(
+            host("m1"),
+            Ok(scan(Ok(Some(display(&[("front_app", ALERT)]))))),
+        )],
+        &[
+            held_lock(
+                Lane::MAC,
+                "m2:mac-1",
+                "shots",
+                Some(Wait::on(&host("m2"), vec![Reason::LidClosed])),
+            ),
+            held_lock(
+                Lane::ANDROID,
+                "m1:app-2",
+                crate::host_chrome::STEP,
+                Some(Wait::on(
+                    &host("m1"),
+                    vec![Reason::ChromeCannotStart {
+                        why: "no address in 120 seconds".to_string(),
+                    }],
+                )),
+            ),
+            held_lock(
+                Lane::MAC,
+                "m1:mac-2",
+                "test UITests",
+                Some(Wait::on(&host("m1"), vec![alert])),
+            ),
+            held_lock(Lane::MAC, "m3:mac-3", "macos", None),
+        ],
+    );
+    let lines: Vec<String> = found.iter().map(|advice| advice.line()).collect();
+    assert_eq!(
+        lines,
+        [
+            "host m2 cannot run steps that open windows: its lid is closed and it lists no other display; the mac app build of bae has waited 7 minutes on checkout m2:mac-1 to run step shots. builds holds each step that needs windows on host m2 until it ends. Open the lid of host m2, or attach a display to it.",
+            "host m1 cannot run steps that open windows: Chrome cannot start there, since the window server does not answer: no address in 120 seconds; the android app build of bae has waited 7 minutes on checkout m1:app-2 to run step start Chrome. builds holds each step that needs windows on host m1 until it ends. The build goes on once the window server on host m1 answers.",
+            "host m1 cannot run steps that open windows: the system alert UserNotificationCenter (pid 812) is in front of every app; the mac app build of bae has waited 7 minutes on checkout m1:mac-2 to run step test UITests. builds holds each step that needs windows on host m1 until it ends. Answer or close the alert on host m1, or end it with `ssh u@m1 'kill 812'`",
         ]
     );
 }
@@ -241,18 +332,23 @@ fn the_lane_holds_a_step_while_the_host_gives_a_reason_the_person_fixes() {
         vec![
             Ok(vec![Reason::ScreenLocked]),
             Ok(vec![Reason::ScreenLocked]),
-            Ok(vec![alert]),
+            Ok(vec![alert.clone()]),
             Ok(vec![Reason::LidClosed]),
             Ok(vec![]),
         ]
         .into_iter(),
     );
     let said = RefCell::new(Vec::new());
+    let recorded = RefCell::new(Vec::new());
     let waits = Cell::new(0);
     let ready = wait_until_ready(
-        "m1",
+        &host("m1"),
         &|| readings.borrow_mut().next().unwrap(),
         &|words| said.borrow_mut().push(words.to_string()),
+        &|holds| {
+            recorded.borrow_mut().push(holds);
+            Ok(())
+        },
         &|| {
             waits.set(waits.get() + 1);
             Ok(Ran::Finished)
@@ -261,6 +357,27 @@ fn the_lane_holds_a_step_while_the_host_gives_a_reason_the_person_fixes() {
     .unwrap();
     assert!(ready);
     assert_eq!(waits.get(), 4);
+    let recorded = recorded.into_inner();
+    let since = recorded[0].as_ref().unwrap().since;
+    assert_eq!(
+        recorded,
+        [
+            Some(Hold {
+                what: Wait::on(&host("m1"), vec![Reason::ScreenLocked]),
+                since
+            }),
+            Some(Hold {
+                what: Wait::on(&host("m1"), vec![alert.clone()]),
+                since
+            }),
+            Some(Hold {
+                what: Wait::on(&host("m1"), vec![Reason::LidClosed]),
+                since
+            }),
+            None,
+        ],
+        "each new reason replaces the hold's record, which keeps when it began"
+    );
     assert_eq!(
         said.into_inner(),
         [
@@ -276,9 +393,10 @@ fn the_lane_holds_a_step_while_the_host_gives_a_reason_the_person_fixes() {
 fn a_host_that_can_show_windows_holds_nothing() {
     let said = RefCell::new(Vec::new());
     let ready = wait_until_ready(
-        "m1",
+        &host("m1"),
         &|| Ok(Vec::new()),
         &|words| said.borrow_mut().push(words.to_string()),
+        &|_| panic!("no hold"),
         &|| panic!("no wait"),
     )
     .unwrap();
@@ -291,10 +409,15 @@ fn a_host_that_can_show_windows_holds_nothing() {
 #[test]
 fn a_takeover_ends_the_hold_and_a_failed_reading_fails_it() {
     let locked = || Ok(vec![Reason::ScreenLocked]);
-    assert!(!wait_until_ready("m1", &locked, &|_| {}, &|| Ok(Ran::Stopped)).unwrap());
-    let error = wait_until_ready("m1", &|| Err("ssh failed".to_string()), &|_| {}, &|| {
-        Ok(Ran::Finished)
-    })
+    let m1 = host("m1");
+    assert!(!wait_until_ready(&m1, &locked, &|_| {}, &|_| Ok(()), &|| Ok(Ran::Stopped)).unwrap());
+    let error = wait_until_ready(
+        &m1,
+        &|| Err("ssh failed".to_string()),
+        &|_| {},
+        &|_| Ok(()),
+        &|| Ok(Ran::Finished),
+    )
     .unwrap_err();
     assert!(error.text().contains("ssh failed"));
 }
@@ -315,9 +438,10 @@ fn a_waiter_that_a_signal_ended_makes_the_lane_read_the_display_again() {
     let waits = RefCell::new(vec![Err(Fail::Exit(143)), Ok(Ran::Finished)].into_iter());
     let said = RefCell::new(Vec::new());
     let ready = wait_until_ready(
-        "m1",
+        &host("m1"),
         &|| readings.borrow_mut().next().unwrap(),
         &|words| said.borrow_mut().push(words.to_string()),
+        &|_| Ok(()),
         &|| waits.borrow_mut().next().unwrap(),
     )
     .unwrap();
@@ -331,7 +455,10 @@ fn a_waiter_that_a_signal_ended_makes_the_lane_read_the_display_again() {
     );
 
     let locked = || Ok(vec![Reason::ScreenLocked]);
-    let error = wait_until_ready("m1", &locked, &|_| {}, &|| Err(Fail::Exit(255))).unwrap_err();
+    let error = wait_until_ready(&host("m1"), &locked, &|_| {}, &|_| Ok(()), &|| {
+        Err(Fail::Exit(255))
+    })
+    .unwrap_err();
     assert!(matches!(error, Fail::Exit(255)));
 }
 

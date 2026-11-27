@@ -77,6 +77,7 @@ fn running(mut lock: LockHealth, waited: i64, building: i64, step: (&str, i64)) 
         step: Some(StepTime {
             name: step.0.into(),
             minutes: step.1,
+            waits: None,
         }),
     });
     lock
@@ -192,7 +193,8 @@ fn a_lane_with_a_running_build_says_whose_it_is_and_what_runs() {
                 building_minutes: 7,
                 step: Some(StepTime {
                     name: "macos-tests".into(),
-                    minutes: 4
+                    minutes: 4,
+                    waits: None,
                 }),
             }),
             programs: vec![

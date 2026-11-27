@@ -978,11 +978,6 @@ pub fn assess(
             Advice::said(format!("processes: {line}")),
         )
     }));
-    findings.extend(
-        crate::host_chrome::findings(&machine.locks)
-            .into_iter()
-            .map(|advice| Finding::new(FindingKind::Host, advice)),
-    );
     let mut schedule_needed = !left.branches.is_empty();
     let mut leftover = Vec::new();
     for Unclaimed {
@@ -1817,7 +1812,8 @@ impl Scanned {
 /// `builds` differs from this Mac's or that builds could not ask, and each
 /// Mac whose sccache server launchd does not run (host_installed.rs), and
 /// each Mac that lacks a setting that UI tests need or whose UI tests timed out
-/// (ui_test_settings.rs), and each reason a Mac's display reading gives
+/// (ui_test_settings.rs), and each reason a host gives that holds a step of
+/// a build that holds one of <locks>, or that a Mac's display reading gives
 /// (host_display.rs). `assess` judges
 /// only what this Mac's process reading finds, which runs no ssh, so `builds
 /// health` and the dashboard each add these findings to the ones `assess`
@@ -1827,6 +1823,7 @@ pub fn host_findings(
     busy: &[crate::stuck::HostBusy],
     refusals: &[crate::host::Refusal],
     installed: &[crate::host_installed::HostInstalled],
+    locks: &[LockHealth],
 ) -> Vec<Finding> {
     let caches = match &scanned.caches {
         Ok(caches) => crate::sccache_queue::findings(caches),
@@ -1857,7 +1854,7 @@ pub fn host_findings(
                 .map(crate::host::refusal_finding)
                 .chain(crate::host_installed::installed_findings(installed))
                 .chain(crate::ui_test_settings::findings(refusals, installed))
-                .chain(crate::host_display::findings(&scanned.scans))
+                .chain(crate::host_display::findings(&scanned.scans, locks))
                 .map(|advice| Finding::new(FindingKind::Host, advice)),
         )
         .collect()
@@ -2309,9 +2306,13 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
     // written or removed one.
     let refusals = crate::host::refusals(&tool.places)?;
     let installed = crate::host_installed::read_all_installed(&tool.places, &ssh, &hosts);
-    health
-        .findings
-        .extend(host_findings(&scanned, &busy, &refusals, &installed));
+    health.findings.extend(host_findings(
+        &scanned,
+        &busy,
+        &refusals,
+        &installed,
+        &health.locks,
+    ));
     let caller = crate::health_new::caller_name(&tool.session)?;
     // Read before this run writes its own. A record that cannot be read is a
     // finding, and every line counts as new, since none can be compared.
@@ -3330,7 +3331,7 @@ mod tests {
             host: "m1".to_string(),
             read: crate::stuck::HostRead::ScanFailed("ssh failed".to_string()),
         }];
-        let found = host_findings(&nothing_scanned(), &busy, &[refusal], &[]);
+        let found = host_findings(&nothing_scanned(), &busy, &[refusal], &[], &[]);
         assert_eq!(found.len(), 2, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Busy);
         assert!(found[0].advice.line().contains("ssh failed"));
@@ -3377,7 +3378,7 @@ mod tests {
             ),
         }];
 
-        let found = host_findings(&scanned, &busy, &[], &[]);
+        let found = host_findings(&scanned, &busy, &[], &[], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Busy);
         assert!(found[0].advice.line().contains("Permission denied"));
@@ -3453,7 +3454,7 @@ esac"#,
             at: 1_800_000_000,
             said: "A required plugin failed to load. Please ensure system content is up-to-date, try running 'xcodebuild -runFirstLaunch'.".to_string(),
         };
-        let found = host_findings(&nothing_scanned(), &[], &[refusal], &[]);
+        let found = host_findings(&nothing_scanned(), &[], &[refusal], &[], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Host);
         assert_eq!(
@@ -3484,7 +3485,7 @@ esac"#,
             crate::host::refusal_finding(&refusal).command.as_deref(),
             Some("builds host setup m1")
         );
-        let found = host_findings(&nothing_scanned(), &[], &[refusal], &[]);
+        let found = host_findings(&nothing_scanned(), &[], &[refusal], &[], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(
             found[0].advice.command.as_deref(),

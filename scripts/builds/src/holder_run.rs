@@ -1,7 +1,8 @@
 //! What the build that holds an app lock is doing, kept beside the lock in
 //! `app.locks/<checkout>.run` for health and the dashboard to read: the
 //! build's process, when it joined the lane's queue, how long it waited there
-//! in all, and the step it runs now with when that step started. The holder
+//! in all, and the step it runs now with when that step started, or the step
+//! a host holds and what holds it (host_display.rs `Wait`). The holder
 //! writes the record whole when it takes the lock and again as each step
 //! starts (lock.rs `Held`). A record that names another process than the
 //! lock's holder is a past holder's, and readers leave it out.
@@ -32,8 +33,11 @@ pub struct HolderRun {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunningStep {
     pub name: String,
-    /// Seconds since 1970.
+    /// Seconds since 1970: when the step started, or, while a host holds it,
+    /// when the hold began.
     pub started_at: i64,
+    /// What holds the step before it starts; None once it runs.
+    pub waits: Option<crate::host_display::Wait>,
 }
 
 /// How long a holder has waited and built, at one moment, in whole minutes.
@@ -54,6 +58,8 @@ pub struct RunTimes {
 pub struct StepTime {
     pub name: String,
     pub minutes: i64,
+    /// What holds the step before it starts, for those minutes.
+    pub waits: Option<crate::host_display::Wait>,
 }
 
 impl HolderRun {
@@ -75,6 +81,7 @@ impl HolderRun {
             step: self.step.as_ref().map(|step| StepTime {
                 name: step.name.clone(),
                 minutes: minutes_since(now, step.started_at),
+                waits: step.waits.clone(),
             }),
         }
     }

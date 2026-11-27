@@ -1027,11 +1027,11 @@ impl Site<'_> {
         Ok((sha, self.head()?))
     }
 
-    /// The name of the host the checkout is on.
-    fn host_name(&self) -> &str {
+    /// The host the checkout is on.
+    fn host(&self) -> crate::host::Host {
         match self {
-            Site::Local(..) => crate::host::LOCAL,
-            Site::Remote(remote) => &remote.host.name,
+            Site::Local(..) => crate::host::Host::local(),
+            Site::Remote(remote) => remote.host.clone(),
         }
     }
 
@@ -2095,7 +2095,7 @@ fn build_lane(
                 ));
             }
             Ended::HostFault(refused, said) => {
-                let host = site.host_name().to_string();
+                let host = site.host().name;
                 crate::host::record_refusal(places, refused, &host, &said)?;
                 note(format!(
                     "on host {host}, {}, so the build failed there and the code did not cause it. builds health now lists {host} with what fixes it, mac app builds skip its app checkouts, and {commit} builds again in a checkout on another host. The step printed: {said}",
@@ -2191,16 +2191,13 @@ impl<'a> LaneBuild<'a> {
         // A shots run draws the boards it compares with Chrome, so a build
         // with shots builds nothing on a host where Chrome does not start.
         if !prefixes.is_empty() {
-            let host = site.host_name().to_string();
+            let host = site.host();
             let asking = std::cell::RefCell::new(&mut *site);
             let starts = crate::host_chrome::wait_until_starts(
                 &host,
                 &|| asking.borrow_mut().chrome_start(self.programs),
                 &|words| note(words),
-                &|step| match step {
-                    Some(step) => held.runs(step),
-                    None => held.runs_no_step(),
-                },
+                &|holds| held.holds(crate::host_chrome::STEP, holds),
                 &lock::pause_before_trying_again,
             )?;
             if !starts {

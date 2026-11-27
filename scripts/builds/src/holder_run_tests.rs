@@ -16,6 +16,7 @@ fn a_run_that_waited_then_ran_two_steps_shows_its_wait_its_step_and_its_building
         step: Some(RunningStep {
             name: "macos".into(),
             started_at: JOINED + 25 * MINUTE,
+            waits: None,
         }),
     };
     assert_eq!(
@@ -26,13 +27,15 @@ fn a_run_that_waited_then_ran_two_steps_shows_its_wait_its_step_and_its_building
             building_minutes: 2,
             step: Some(StepTime {
                 name: "macos".into(),
-                minutes: 2
+                minutes: 2,
+                waits: None,
             }),
         }
     );
     run.step = Some(RunningStep {
         name: "macos-tests".into(),
         started_at: JOINED + 28 * MINUTE,
+        waits: None,
     });
     assert_eq!(
         run.times(JOINED + 32 * MINUTE + 30),
@@ -42,7 +45,8 @@ fn a_run_that_waited_then_ran_two_steps_shows_its_wait_its_step_and_its_building
             building_minutes: 7,
             step: Some(StepTime {
                 name: "macos-tests".into(),
-                minutes: 4
+                minutes: 4,
+                waits: None,
             }),
         }
     );
@@ -79,6 +83,11 @@ fn a_record_reads_back_as_written_and_a_missing_one_is_none() {
         step: Some(RunningStep {
             name: "macos".into(),
             started_at: JOINED + MINUTE,
+            waits: Some(crate::host_display::Wait {
+                host: "m1".into(),
+                target: Some("u@m1".into()),
+                reasons: vec![crate::host_display::Reason::LidClosed],
+            }),
         }),
     };
     run.write(&file).unwrap();

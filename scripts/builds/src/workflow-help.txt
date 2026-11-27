@@ -814,15 +814,15 @@ processes only with `--stop-junk`. The lines below are what remains to act on.
   - A process whose caller is gone that health leaves to run, such as a
     landing whose shell ended, does its work to its end: check what it did
     once it ends. Stop one whose stop failed with the command the line gives.
-  - A Mac that cannot run steps that open windows because its screen is
-    locked, or because a system alert (UserNotificationCenter, SecurityAgent
-    or CoreServicesUIAgent) is in front of every app and keeps the focus: the
-    mac lane holds each such step there until it ends. The line names the
-    reason, and for an alert its name, its pid and the command that ends it.
-    Unlock the screen, or answer or close the alert, on that Mac (`builds
-    help`, APP BUILDS).
-  - A host that holds an app build while Chrome cannot start there: a Mac
-    whose window server does not answer starts no Chrome, so no shots run
-    there can draw its boards. The line names the host, the held build's
-    checkout and how long it has built nothing. The held build goes on once
-    the window server answers (`builds help`, APP BUILDS).
+  - A Mac that cannot run steps that open windows: its screen is locked, a
+    system alert (UserNotificationCenter, SecurityAgent or
+    CoreServicesUIAgent) is in front of every app and keeps the focus, its
+    lid is closed with no display while no other host can draw a build's
+    window scenes, or Chrome cannot start there because its window server
+    does not answer. builds holds each such step there until the reason
+    ends. The line names the host and the reason, and for a held step its
+    build, its checkout, the step and how long it has waited; for an alert,
+    it names the alert, its pid and the command that ends it. Unlock the
+    screen, answer or close the alert, or open the lid or attach a display,
+    on that Mac. A build that Chrome holds goes on once the window server
+    answers (`builds help`, APP BUILDS).

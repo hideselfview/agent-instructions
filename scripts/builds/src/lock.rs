@@ -313,8 +313,9 @@ impl Held {
     /// Takes the window lock of this checkout's host for <step>, waiting
     /// while another run that opens windows holds it (window_lock.rs), and
     /// then, in the mac lane, while the host's display gives a reason it
-    /// cannot show the step's windows (host_display.rs). None when a takeover
-    /// or an install stopped this build while it waited.
+    /// cannot show the step's windows (host_display.rs), recording that hold
+    /// beside its lock (`holds`). None when a takeover or an install stopped
+    /// this build while it waited.
     pub fn take_window(
         &self,
         step: &str,
@@ -344,7 +345,7 @@ impl Held {
         let draws = self.takes.screen && host.target.is_some();
         let seen = std::cell::RefCell::new(None);
         let ready = crate::host_display::wait_until_ready(
-            host_name,
+            &host,
             &|| {
                 let reading = crate::host_display::read(&self.ssh, &host)?;
                 let reasons = reading.display.reasons(draws);
@@ -352,6 +353,7 @@ impl Held {
                 Ok(reasons)
             },
             &|words| note(words),
+            &|holds| self.holds(step, holds),
             &|| {
                 let seen = seen.borrow();
                 let seen = seen
@@ -379,17 +381,27 @@ impl Held {
         )
     }
 
-    /// Records that this build runs no step: the record names none until
-    /// `runs` names the next.
-    pub fn runs_no_step(&self) -> Result<()> {
-        self.record(None)
-    }
-
     /// Records <step> as the step this build runs from now on.
     pub fn runs(&self, step: &str) -> Result<()> {
         self.record(Some(RunningStep {
             name: step.to_string(),
             started_at: crate::app_timing::now(),
+            waits: None,
+        }))
+    }
+
+    /// Records that a host holds <step> before it starts, with <holds>, what
+    /// holds it and when the hold began; for None, that the hold is over and
+    /// the build runs no step until `runs` names the next.
+    pub fn holds(
+        &self,
+        step: &str,
+        holds: Option<crate::host_hold::Hold<crate::host_display::Wait>>,
+    ) -> Result<()> {
+        self.record(holds.map(|hold| RunningStep {
+            name: step.to_string(),
+            started_at: hold.since,
+            waits: Some(hold.what),
         }))
     }
 

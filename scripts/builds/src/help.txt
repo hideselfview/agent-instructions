@@ -1409,8 +1409,14 @@ builds instead records the host and runs the lane on another host.
 
 While the step runs on the host, it runs under `caffeinate -d -u`, which
 holds a display assertion there, so the display neither sleeps nor locks
-during the step. `builds health` lists each Mac whose screen is locked or
-that shows a system alert (HEALTH CHECK in `builds help workflow`).
+during the step.
+
+While a host holds a step for one of these reasons, the lane records beside
+its lock the step, the reasons and when the hold began. `builds health`
+reads that record and lists each held step with its host, its reasons, its
+build and how long it has waited. `builds health` also lists each Mac whose
+screen is locked or that shows a system alert while no step waits there
+(HEALTH CHECK in `builds help workflow`).
 
 A shots run draws the boards it compares with Chrome, and on a Mac Chrome's
 main thread waits for the window server to answer before it prints the address
@@ -1418,13 +1424,13 @@ of its debugging socket, so a host whose window server does not answer never
 starts Chrome. A build with --shots or --all-shots starts Chrome on its
 checkout's host (`builds shots chrome`) after it takes the checkout and before
 it builds anything. While Chrome prints no address within its 120 seconds, the
-lane prints "waiting for Chrome to start on host <name>" once, with why, keeps
-its checkout, records the step "waiting for Chrome to start on <name>" beside
-its lock, and starts Chrome there again every minute, then goes on when Chrome
-starts and prints "Chrome starts on host <name> again". A takeover ends the
-wait. A Chrome that fails to start for another reason fails the build at once.
-`builds health` lists each host that holds a build this way (HEALTH CHECK in
-`builds help workflow`).
+lane prints "waiting for Chrome to start on host <name>" with why, once for
+each new why, keeps its checkout, records the step "start Chrome" beside its
+lock with why, and starts Chrome there again every minute, then goes on when
+Chrome starts and prints "Chrome starts on host <name> again". A takeover ends
+the wait. A Chrome that fails to start for another reason fails the build at
+once. `builds health` lists each host that holds a build this way, as it lists
+the steps a display holds (HEALTH CHECK in `builds help workflow`).
 
 Each host draws no more pages at once than half its cores (at least one),
 however many Chromes run there, so drawing boards leaves room for the host's

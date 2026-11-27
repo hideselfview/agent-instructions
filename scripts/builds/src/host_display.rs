@@ -20,13 +20,18 @@
 //! so the display does not sleep during it. A build that draws window scenes
 //! also reads each host before it takes a checkout, and takes a host that can
 //! draw when one can (lock.rs). Every host's scan runs the same script
-//! (host_scan.rs), and `builds health` names each reason it finds in one
-//! shape (`finding`).
+//! (host_scan.rs). While a host holds a step, the lane records the hold
+//! beside its lock (`Wait`, holder_run.rs), and `builds health` names each
+//! reason that holds a step, with how long it has waited, and each reason a
+//! host's scan gives that holds no step, in one shape (`finding`).
+
+use serde::{Deserialize, Serialize};
 
 use crate::fail;
 use crate::fail::{Fail, Result};
-use crate::health::Advice;
+use crate::health::{Advice, LockHealth};
 use crate::host::{Host, Ssh, Terminal, answer_value, command_at, output_at, place};
+use crate::host_hold::Hold;
 use crate::host_scan::Scan;
 use crate::lock::Ran;
 
@@ -103,7 +108,7 @@ pub struct Display {
 }
 
 /// Why a host cannot run a step that opens windows.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Reason {
     /// Its screen is locked, which keeps every window from rendering.
     ScreenLocked,
@@ -115,7 +120,8 @@ pub enum Reason {
     LidClosed,
     /// Chrome, which draws the boards a shots run compares, cannot start
     /// there: on a Mac, its window server does not answer (host_chrome.rs).
-    ChromeCannotStart,
+    /// <why> is what `builds shots chrome` said.
+    ChromeCannotStart { why: String },
     /// Its Xcode cannot start, so every xcodebuild run there fails.
     XcodeCannotStart,
     /// Its UI tests time out turning on automation mode
@@ -140,7 +146,7 @@ impl Reason {
             Reason::ScreenLocked
             | Reason::SystemAlert { .. }
             | Reason::LidClosed
-            | Reason::ChromeCannotStart => Rule::Wait,
+            | Reason::ChromeCannotStart { .. } => Rule::Wait,
             Reason::XcodeCannotStart | Reason::UiAutomationTimesOut => Rule::MoveLane,
         }
     }
@@ -154,8 +160,8 @@ impl Reason {
                 format!("the system alert {name} (pid {pid}) is in front of every app")
             }
             Reason::LidClosed => "its lid is closed and it lists no other display".to_string(),
-            Reason::ChromeCannotStart => {
-                "Chrome cannot start there, since the window server does not answer".to_string()
+            Reason::ChromeCannotStart { why } => {
+                format!("Chrome cannot start there, since the window server does not answer: {why}")
             }
             Reason::XcodeCannotStart => "its Xcode cannot start".to_string(),
             Reason::UiAutomationTimesOut => {
@@ -178,6 +184,25 @@ impl Rule {
                 "Mac app builds skip its app checkouts until builds is told it is fixed."
                     .to_string()
             }
+        }
+    }
+}
+
+/// A step that a host holds before it starts: the host, the target that
+/// reaches it (None for this Mac), and the reasons it gives.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Wait {
+    pub host: String,
+    pub target: Option<String>,
+    pub reasons: Vec<Reason>,
+}
+
+impl Wait {
+    pub fn on(host: &Host, reasons: Vec<Reason>) -> Wait {
+        Wait {
+            host: host.name.clone(),
+            target: host.target.clone(),
+            reasons,
         }
     }
 }
@@ -359,24 +384,32 @@ pub fn wait(ssh: &Ssh, host: &Host, seen: &Reading) -> Result<Ran> {
     )
 }
 
-/// Holds a step while <read> gives host <name> a reason it cannot show the
+/// Holds a step while <read> gives <host> a reason it cannot show the
 /// step's windows, and returns true once it gives none. Between readings it
 /// blocks in <wait>, which returns when the host's display changed or a
 /// signal ended the waiter (the next reading says what holds), and returns
 /// false as soon as <wait> says a takeover stopped the build. Each reading
 /// whose reasons differ from the last gives <announce> the words that name
-/// the host and the reasons, and the end of the hold gives it one line more.
+/// the host and the reasons, and <record> the hold with the time it began;
+/// the end of the hold gives <announce> one line more and
+/// <record> None.
 pub fn wait_until_ready(
-    name: &str,
+    host: &Host,
     read: &dyn Fn() -> std::result::Result<Vec<Reason>, String>,
     announce: &dyn Fn(&str),
+    record: &dyn Fn(Option<Hold<Wait>>) -> Result<()>,
     wait: &dyn Fn() -> Result<Ran>,
 ) -> Result<bool> {
+    let name = &host.name;
     crate::host_hold::hold_until_ready(
         &format!("{}'s display", place(name)),
         &|| match read() {
             Ok(reasons) if reasons.is_empty() => Ok(None),
-            Ok(reasons) => Ok(Some(format!(
+            Ok(reasons) => Ok(Some(reasons)),
+            Err(error) => fail!("{error}"),
+        },
+        &|reasons| {
+            format!(
                 "waiting for {} to show windows, since {}; fix it on that Mac",
                 place(name),
                 reasons
@@ -384,11 +417,15 @@ pub fn wait_until_ready(
                     .map(Reason::words)
                     .collect::<Vec<_>>()
                     .join(", and ")
-            ))),
-            Err(error) => fail!("{error}"),
+            )
         },
         announce,
-        &|| Ok(()),
+        &|holds| {
+            record(holds.map(|hold| Hold {
+                what: Wait::on(host, hold.what.clone()),
+                since: hold.since,
+            }))
+        },
         &format!("{} shows windows again", place(name)),
         &|| match wait() {
             Err(Fail::Exit(WAITER_KILLED)) => {
@@ -426,12 +463,71 @@ pub fn finding(
     }
 }
 
-/// The lines for <scans>: each reason a host's display reading gives a step
-/// that opens no window scene (a closed lid matters only to the runs that
-/// draw them, which say so), and each host whose display health could not
-/// read. A host whose scan failed, and one that is no Mac, get no line here.
-pub fn findings(scans: &[(Host, std::result::Result<Scan, String>)]) -> Vec<Advice> {
+/// What the person does on host <name>, which <target> reaches, about
+/// <reason>, and the command that does it when one does. The lane moves away
+/// from a host whose Xcode or UI automation fails, so no hold names those
+/// reasons and they have their own findings (host.rs, ui_test_settings.rs).
+fn fix(name: &str, target: Option<&str>, reason: &Reason) -> (String, Option<String>) {
+    let at = place(name);
+    match reason {
+        Reason::ScreenLocked => (format!("Unlock the screen on {at}."), None),
+        Reason::SystemAlert { pid, .. } => (
+            format!("Answer or close the alert on {at}, or end it with"),
+            Some(crate::host::person_command(target, &format!("kill {pid}"))),
+        ),
+        Reason::LidClosed => (
+            format!("Open the lid of {at}, or attach a display to it."),
+            None,
+        ),
+        Reason::ChromeCannotStart { .. } => (
+            format!("The build goes on once the window server on {at} answers."),
+            None,
+        ),
+        Reason::XcodeCannotStart | Reason::UiAutomationTimesOut => (String::new(), None),
+    }
+}
+
+/// The lines for the display of each host: each reason that holds a step of
+/// a build that holds one of <locks>, with the build, its step and how long
+/// the step has waited; then each reason a host's reading in <scans> gives a
+/// step that opens no window scene that no held step names, and each host
+/// whose display health could not read. A host whose scan failed, and one
+/// that is no Mac, get no line from <scans>.
+pub fn findings(
+    scans: &[(Host, std::result::Result<Scan, String>)],
+    locks: &[LockHealth],
+) -> Vec<Advice> {
     let mut found = Vec::new();
+    let mut held: Vec<(&str, &Reason)> = Vec::new();
+    for lock in locks {
+        let Some(step) = lock
+            .holder
+            .as_ref()
+            .and_then(|holder| holder.run.as_ref())
+            .and_then(|run| run.step.as_ref())
+        else {
+            continue;
+        };
+        let Some(wait) = &step.waits else { continue };
+        for reason in &wait.reasons {
+            let (fix, run) = fix(&wait.host, wait.target.as_deref(), reason);
+            found.push(finding(
+                &wait.host,
+                reason,
+                &format!(
+                    "; the {} app build of {} has waited {} minutes on checkout {} to run step {}",
+                    lock.lane.word(),
+                    lock.repo,
+                    step.minutes,
+                    lock.checkout,
+                    step.name
+                ),
+                &fix,
+                run,
+            ));
+            held.push((&wait.host, reason));
+        }
+    }
     for (host, scan) in scans {
         let Ok(scan) = scan else { continue };
         let name = &host.name;
@@ -447,28 +543,11 @@ pub fn findings(scans: &[(Host, std::result::Result<Scan, String>)]) -> Vec<Advi
             }
         };
         for reason in display.reasons(false) {
-            found.push(match &reason {
-                Reason::SystemAlert { pid, .. } => finding(
-                    name,
-                    &reason,
-                    "",
-                    &format!(
-                        "Answer or close the alert on {}, or end it with",
-                        place(name)
-                    ),
-                    Some(crate::host::person_command(
-                        host.target.as_deref(),
-                        &format!("kill {pid}"),
-                    )),
-                ),
-                _ => finding(
-                    name,
-                    &reason,
-                    "",
-                    &format!("Unlock the screen on {}.", place(name)),
-                    None,
-                ),
-            });
+            if held.contains(&(name.as_str(), &reason)) {
+                continue;
+            }
+            let (fix, run) = fix(name, host.target.as_deref(), &reason);
+            found.push(finding(name, &reason, "", &fix, run));
         }
     }
     found

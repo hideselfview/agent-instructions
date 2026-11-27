@@ -5,40 +5,54 @@
 use crate::fail::Result;
 use crate::lock::Ran;
 
+/// What holds a build, and when the hold began, seconds since 1970.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hold<T> {
+    pub what: T,
+    pub since: i64,
+}
+
 /// Holds the build until <held> says the host is ready, and returns true
 /// once it does; returns false as soon as <wait> says a takeover stopped the
-/// build. <held> says Some(words) while the host is not ready, and None when
-/// it is. Each Some whose words differ from the last gives <announce> its
-/// words, the first runs <first>, and <wait> blocks before each next reading.
-/// When a hold ends, <announce> gets <over> (one line more). A stop signal,
-/// or an error of <held>, fails the build; <doing> names what the build
-/// waited for.
-pub fn hold_until_ready(
+/// build. <held> says Some(what holds the build) while the host is not
+/// ready, and None when it is. Each Some that differs from the last gives
+/// <announce> the words <words> makes of it and <record> it with the time
+/// the hold began, and <wait> blocks before each next
+/// reading. When a hold ends, <announce> gets <over> (one line more) and
+/// <record> gets None. A stop signal, or an error of <held>, fails the build;
+/// <doing> names what the build waited for.
+pub fn hold_until_ready<T: PartialEq>(
     doing: &str,
-    held: &dyn Fn() -> Result<Option<String>>,
+    held: &dyn Fn() -> Result<Option<T>>,
+    words: &dyn Fn(&T) -> String,
     announce: &dyn Fn(&str),
-    first: &dyn Fn() -> Result<()>,
+    record: &dyn Fn(Option<Hold<&T>>) -> Result<()>,
     over: &str,
     wait: &dyn Fn() -> Result<Ran>,
 ) -> Result<bool> {
-    let mut said: Option<String> = None;
+    let mut said: Option<(T, i64)> = None;
     loop {
         crate::lock::refuse_when_stopped(&format!("waited for {doing}"))?;
         match held()? {
             None => {
                 if said.is_some() {
                     announce(over);
+                    record(None)?;
                 }
                 return Ok(true);
             }
-            Some(words) => {
-                if said.as_deref() != Some(words.as_str()) {
-                    announce(&words);
+            Some(holds) => {
+                let since = said
+                    .as_ref()
+                    .map_or_else(crate::app_timing::now, |(_, since)| *since);
+                if said.as_ref().map(|(before, _)| before) != Some(&holds) {
+                    announce(&words(&holds));
+                    record(Some(Hold {
+                        what: &holds,
+                        since,
+                    }))?;
                 }
-                if said.is_none() {
-                    first()?;
-                }
-                said = Some(words);
+                said = Some((holds, since));
                 if wait()? == Ran::Stopped {
                     return Ok(false);
                 }

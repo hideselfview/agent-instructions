@@ -9,19 +9,19 @@
 //!   Chrome there (`builds shots chrome`, which prints one line that `parse`
 //!   reads) and holds the build while Chrome prints no address, saying so in
 //!   the build's output, naming the host (`wait_until_starts`). The build
-//!   keeps its checkout while it holds.
-//! - `builds health` names each host that holds a build that way, from the
-//!   step the held build records beside its lock (`findings`).
+//!   keeps its checkout while it holds, and records the step `STEP` beside
+//!   its lock with the hold, which `builds health` names (host_display.rs
+//!   `findings`).
 
 use crate::fail;
 use crate::fail::Result;
-use crate::health::{Advice, LockHealth};
-use crate::host::place;
+use crate::host::{Host, place};
+use crate::host_display::{Reason, Wait};
+use crate::host_hold::Hold;
 use crate::lock::Ran;
 
-/// What the held build records as its step while it waits for Chrome, ahead
-/// of the host's name.
-pub const HOLD_STEP: &str = "waiting for Chrome to start on";
+/// The step the held build records while it waits for Chrome.
+pub const STEP: &str = "start Chrome";
 
 /// What `builds shots chrome` says about starting Chrome on a host.
 #[derive(Debug, PartialEq, Eq)]
@@ -48,72 +48,53 @@ pub fn parse(said: &str) -> std::result::Result<Start, String> {
     }
 }
 
-/// Holds the build until Chrome starts on host <name>, and returns true once
-/// it does. <start> starts Chrome there; while it says Chrome printed no
-/// address, the first such answer gives <announce> the words that name the
-/// host and <hold> the step the build records, and <pause> waits before the
-/// next try; when Chrome starts, <hold> gets None, so that the build's record
-/// names no step until the next one starts. It returns false as soon as <pause> says a takeover stopped the
-/// build, and fails when Chrome fails to start for another reason or <start>
-/// cannot ask. The end of a hold gives <announce> one line more.
+/// Holds the build until Chrome starts on <host>, and returns true once it
+/// does. <start> starts Chrome there; while it says Chrome printed no
+/// address, each new answer gives <announce> the words that name the host
+/// and <record> the hold (`Reason::ChromeCannotStart`) with the time it
+/// began, and <pause> waits before the next try; when Chrome starts,
+/// <record> gets None, so that the build's record names no step until the
+/// next one starts. It returns false as soon as <pause> says a takeover
+/// stopped the build, and fails when Chrome fails to start for another
+/// reason or <start> cannot ask. The end of a hold gives <announce> one line
+/// more.
 pub fn wait_until_starts(
-    name: &str,
+    host: &Host,
     start: &dyn Fn() -> std::result::Result<Start, String>,
     announce: &dyn Fn(&str),
-    hold: &dyn Fn(Option<&str>) -> Result<()>,
+    record: &dyn Fn(Option<Hold<Wait>>) -> Result<()>,
     pause: &dyn Fn() -> Result<Ran>,
 ) -> Result<bool> {
-    let recorded = std::cell::Cell::new(false);
-    let started = crate::host_hold::hold_until_ready(
+    let name = &host.name;
+    crate::host_hold::hold_until_ready(
         &format!("Chrome to start on {name}"),
         &|| match start() {
             Ok(Start::Started) => Ok(None),
-            Ok(Start::NoAddress(why)) => Ok(Some(format!(
-                "waiting for Chrome to start on {}, since a shots run draws its boards with Chrome and builds nothing there until it does; on a Mac this means the window server does not answer: {why}",
-                place(name)
-            ))),
+            Ok(Start::NoAddress(why)) => Ok(Some(why)),
             Ok(Start::Failed(why)) => fail!("Chrome cannot start on {}: {why}", place(name)),
             Err(error) => fail!("{error}"),
         },
+        &|why| {
+            format!(
+                "waiting for Chrome to start on {}, since a shots run draws its boards with Chrome and builds nothing there until it does; on a Mac this means the window server does not answer: {why}",
+                place(name)
+            )
+        },
         announce,
-        &|| {
-            recorded.set(true);
-            hold(Some(&format!("{HOLD_STEP} {name}")))
+        &|holds| {
+            record(holds.map(|hold| Hold {
+                what: Wait::on(
+                    host,
+                    vec![Reason::ChromeCannotStart {
+                        why: hold.what.clone(),
+                    }],
+                ),
+                since: hold.since,
+            }))
         },
         &format!("Chrome starts on {} again", place(name)),
         pause,
-    )?;
-    // The hold's end clears the step it recorded, so that the record names no
-    // step until the next one starts.
-    if started && recorded.get() {
-        hold(None)?;
-    }
-    Ok(started)
-}
-
-/// The lines for <locks>: each host that holds a build while Chrome does not
-/// start there, with the build's checkout and how long it has waited.
-pub fn findings(locks: &[LockHealth]) -> Vec<Advice> {
-    locks
-        .iter()
-        .filter_map(|lock| {
-            let step = lock.holder.as_ref()?.run.as_ref()?.step.as_ref()?;
-            let host = step.name.strip_prefix(HOLD_STEP)?.trim();
-            Some(crate::host_display::finding(
-                host,
-                &crate::host_display::Reason::ChromeCannotStart,
-                "",
-                &format!(
-                    "The {} app build of {} holds checkout {} and has built nothing for {} minutes; it goes on once the window server there answers.",
-                    lock.lane.word(),
-                    lock.repo,
-                    lock.checkout,
-                    step.minutes
-                ),
-                None,
-            ))
-        })
-        .collect()
+    )
 }
 
 #[cfg(test)]
