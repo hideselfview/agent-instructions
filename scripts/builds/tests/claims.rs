@@ -620,8 +620,6 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
     let mut demo = Demo::new("daemon");
     let side = path(&demo.side(1)).to_string();
     let side2 = path(&demo.side(2)).to_string();
-    // Its name sorts after the side worktrees'.
-    demo.add_app_checkout("xcode-1");
     demo.run(&["claim", &side, "agent A"]);
     demo.run(&["note", &side, "waiting", "on", "Linux", "CI"]);
     let measured = demo.status_json(true);
@@ -788,11 +786,11 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
     demo.run(&["note", &side]);
 
     // The state the dashboard derives for each side worktree: <side-1>
-    // <side-2>, with side-3 free until health retires it. Main and the app
-    // checkout have no card, so no state.
+    // <side-2>, with side-3 free until health retires it. Main has no card, so
+    // no state.
     let free_side_3 = std::cell::Cell::new(" free");
     let states = |side_1: &str, side_2: &str| {
-        let wanted = format!("None {side_1} {side_2}{} None", free_side_3.get());
+        let wanted = format!("None {side_1} {side_2}{}", free_side_3.get());
         let deadline = Instant::now() + PATIENCE;
         loop {
             let (_, body) = get(port, "/api/state", None);
@@ -872,6 +870,19 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
     std::fs::remove_file(demo.claim_file(1)).unwrap();
     // The hold went with the claim, and the commits wait to land again.
     states("ready-to-land", "working");
+
+    // A checkout added while the daemon runs shows too. An app checkout has no
+    // card, so no state. Its name sorts after the side worktrees'.
+    demo.add_app_checkout("xcode-1");
+    until("the daemon to list the added checkout", || {
+        let (_, body) = get(port, "/api/state", None);
+        let state: Value = serde_json::from_str(&body).unwrap();
+        state["repos"][0]["checkouts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == "xcode-1" && c["app_checkout"] == true && c["state"].is_null())
+    });
 
     // Once the daemon is gone, status measures again.
     unsafe { libc::kill(server_pid, libc::SIGTERM) };

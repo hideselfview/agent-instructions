@@ -162,21 +162,8 @@ pub fn setup(tool: &Tool, ssh: &Ssh, checkout: &Checkout) -> Result<()> {
     setup_with(tool, ssh, checkout, Prepare::Yes)
 }
 
-pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare) -> Result<()> {
-    if !has_manifest(&checkout.top) {
-        note(format!(
-            "{} has no {MANIFEST}; nothing to link",
-            checkout.top.display()
-        ));
-        return Ok(());
-    }
-    tool.places.require_volume()?;
-    checkout.require_repo_name(&tool.places)?;
-    let root = checkout.build_root(&tool.places);
-    std::fs::create_dir_all(&root).context(|| format!("creating {}", root.display()))?;
-    let marker = root.join(".checkout");
-    std::fs::write(&marker, format!("{}\n", checkout.top.display()))
-        .context(|| format!("writing {}", marker.display()))?;
+/// Links each path <checkout>'s manifest lists to the same path under <root>.
+fn link_build_dirs(tool: &Tool, root: &Path, checkout: &Checkout) -> Result<()> {
     for entry in build_dirs(&checkout.top)? {
         place(
             tool,
@@ -194,6 +181,30 @@ pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare)
             ));
         }
     }
+    Ok(())
+}
+
+pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare) -> Result<()> {
+    if !has_manifest(&checkout.top) {
+        note(format!(
+            "{} has no {MANIFEST}; nothing to link",
+            checkout.top.display()
+        ));
+        return Ok(());
+    }
+    tool.places.require_volume()?;
+    checkout.require_repo_name(&tool.places)?;
+    let root = checkout.build_root(&tool.places);
+    std::fs::create_dir_all(&root).context(|| format!("creating {}", root.display()))?;
+    let marker = root.join(".checkout");
+    std::fs::write(&marker, format!("{}\n", checkout.top.display()))
+        .context(|| format!("writing {}", marker.display()))?;
+    let linked = link_build_dirs(tool, &root, checkout);
+    // The dashboard watches nothing on the build volume, so it lists a new
+    // root only once a command tells it. The root is there even when a link
+    // failed.
+    crate::daemon::client::wrote(&tool.places, std::slice::from_ref(&root));
+    linked?;
     prune_root(tool, &root, checkout, Run::Real, 0, 0, Pruner::Setup)?;
     prune_derived_data(tool, Run::Real, 0, Pruner::Setup)?;
     prune_shared(tool, Run::Real, Pruner::Setup)?;
