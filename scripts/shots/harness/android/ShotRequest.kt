@@ -12,7 +12,7 @@ internal object ShotRequest {
     val directory: File?
         get() = property("builds.shotsDir")?.let(::File)
 
-    /** Whether [board] is in the run's selection, the comma-separated board-name prefixes of `builds.shotsSelect`. */
+    /** Whether [board] is in the run's selection, the comma-separated entries of `builds.shotsSelect`. */
     fun selects(board: String): Boolean = isSelected(board, property("builds.shotsSelect"))
 
     /** The file of the component boards' sizes. */
@@ -22,8 +22,13 @@ internal object ShotRequest {
     private fun property(name: String): String? = System.getProperty(name)?.takeIf { it.isNotEmpty() }
 }
 
-/** Whether [board] is in the run: every board when [select] is absent, else those a listed prefix starts. */
+/**
+ * Whether [board] is in the run: every board when [select] is absent, else those an entry picks. An entry `=<name>`
+ * picks the board of that name alone, and any other entry each board whose name it starts.
+ */
 internal fun isSelected(
     board: String,
     select: String?,
-): Boolean = select.isNullOrEmpty() || select.split(',').any { board.startsWith(it) }
+): Boolean =
+    select.isNullOrEmpty() ||
+        select.split(',').any { if (it.startsWith('=')) board == it.drop(1) else board.startsWith(it) }

@@ -6,8 +6,9 @@ import Foundation
 struct ShotRequest {
     /// The folder each shot is written to.
     let out: URL
-    /// The board-name prefixes of the scenes to take; nil for every scene.
-    let prefixes: [String]?
+    /// The scenes to take, each a board-name prefix or `=` and a whole board
+    /// name; nil for every scene.
+    let selection: [String]?
     /// Whether the run also takes the scenes that take the keyboard focus.
     let takesFocus: Bool
     /// The file of the component scenes' board sizes.
@@ -29,25 +30,31 @@ struct ShotRequest {
         }
         self.out = URL(fileURLWithPath: out, isDirectory: true)
         self.boardSizes = URL(fileURLWithPath: boardSizes)
-        prefixes = value("BUILDS_SHOTS_SELECT")
+        selection = value("BUILDS_SHOTS_SELECT")
             .map { $0.split(separator: ",").map(String.init) }
         takesFocus = value("BUILDS_SHOTS_WINDOWS") == "1"
         displayTool = value("BUILDS_SHOTS_DISPLAY")
     }
 
-    /// The scenes of `scenes` the run takes: those a prefix starts, or all
-    /// of them, without the ones that take the focus unless the run takes
-    /// those. A prefix that starts none fails.
+    /// The scenes of `scenes` the run takes: those the selection picks, or
+    /// all of them, without the ones that take the focus unless the run takes
+    /// those. An entry of the selection that picks none fails.
     @MainActor
     func selected(of scenes: [ShotScene]) throws -> [ShotScene] {
         let taken = scenes.filter { takesFocus || !$0.takesFocus }
-        guard let prefixes else { return taken }
-        for prefix in prefixes
-        where !taken.contains(where: { $0.id.hasPrefix(prefix) }) {
-            throw ShotError.unknownSelection(prefix)
+        guard let selection else { return taken }
+        for entry in selection
+        where !taken.contains(where: { Self.picks(entry, $0.id) }) {
+            throw ShotError.unknownSelection(entry)
         }
         return taken.filter { scene in
-            prefixes.contains { scene.id.hasPrefix($0) }
+            selection.contains { Self.picks($0, scene.id) }
         }
+    }
+
+    /// Whether `entry` of a selection picks the scene named `id`: `=<name>`
+    /// picks that name alone, and any other entry each name it starts.
+    private static func picks(_ entry: String, _ id: String) -> Bool {
+        entry.hasPrefix("=") ? id == entry.dropFirst() : id.hasPrefix(entry)
     }
 }

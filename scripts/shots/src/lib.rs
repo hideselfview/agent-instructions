@@ -124,6 +124,11 @@ impl Selection {
         app: &App,
         tree: &str,
     ) -> Result<(), String> {
+        // A mark says the folder keeps every shot of a prefix, and a run
+        // with `--only` takes some of them.
+        if !self.only.is_empty() {
+            return Ok(());
+        }
         pictures
             .mark_taken(
                 app,
@@ -197,6 +202,7 @@ fn capture(
                 declared,
                 app,
                 &selection.prefixes,
+                &selection.only,
                 selection.windows,
                 selection.base,
             )
@@ -229,6 +235,7 @@ fn capture(
                 app,
                 &settings.apps,
                 &selection.prefixes,
+                &selection.only,
                 selection.windows,
                 selection.base,
                 &capture::Target {
@@ -245,6 +252,7 @@ fn capture(
                 app,
                 apps: &settings.apps,
                 prefixes: &selection.prefixes,
+                only: &selection.only,
                 base: selection.base,
                 out: &out,
                 settings,
@@ -459,6 +467,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                     &declared,
                     app,
                     &selection.prefixes,
+                    &selection.only,
                     selection.windows,
                     selection.base,
                 )
@@ -718,6 +727,7 @@ mod tests {
         let selection = |prefixes: &[&str]| Selection {
             apps: Vec::new(),
             prefixes: prefixes.iter().map(|p| Prefix::parse(p).unwrap()).collect(),
+            only: Vec::new(),
             windows: false,
             base: false,
         };
@@ -774,6 +784,7 @@ mod tests {
         let selection = |apps: &[&str], prefixes: &[&str]| Selection {
             apps: apps.iter().map(|a| a.to_string()).collect(),
             prefixes: prefixes.iter().map(|p| Prefix::parse(p).unwrap()).collect(),
+            only: Vec::new(),
             windows: false,
             base: false,
         };

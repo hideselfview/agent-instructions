@@ -7,8 +7,9 @@
 //! - `BUILDS_SHOTS_OUT`: the absolute folder the harness writes each shot to,
 //!   as `<name>@<file word>.png` and `<name>@<file word>.json`, the file
 //!   word being the platform's.
-//! - `BUILDS_SHOTS_SELECT`: the name prefixes of the shots to take, comma
-//!   separated; unset for every shot of the app.
+//! - `BUILDS_SHOTS_SELECT`: the shots to take, comma separated, each a name
+//!   prefix, or `=<name>` for the shot of exactly that name; unset for every
+//!   shot of the app.
 //! - `BUILDS_SHOTS_BOARD_SIZES`: the absolute path of `board-sizes.json` in
 //!   the out folder: one JSON object that maps the name of each selected
 //!   component scene to `{"width": <points>, "height": <points>}`, the size of
@@ -56,6 +57,8 @@ pub(crate) enum CaptureError {
     Directory(PathBuf, std::io::Error),
     #[error("the prefix '{0}' selects no declared shot")]
     UnknownPrefix(String),
+    #[error("--only names '{0}', which no --select prefix selects among the declared shots")]
+    NotSelected(String),
     #[error("no declared {0} shot is selected")]
     NothingSelected(String),
     #[error("cannot measure the boards: {0}")]
@@ -144,18 +147,29 @@ pub(crate) fn taken(
     declared: &[Declared],
     app: &App,
     prefixes: &[Prefix],
+    only: &[String],
     windows: bool,
     base: bool,
 ) -> Result<Taken, CaptureError> {
     let all: Vec<Name> = declared.iter().map(|d| d.name.clone()).collect();
-    let (names, not_taken) = selected(&all, app, prefixes, base)?
-        .into_iter()
-        .partition(|name| {
-            windows
-                || !declared
-                    .iter()
-                    .any(|d| &d.name == name && d.marks.takes_focus)
-        });
+    let mut chosen = selected(&all, app, prefixes, base)?;
+    if !only.is_empty() {
+        let own = only
+            .iter()
+            .filter(|name| name.split('.').next() == Some(app.name.as_str()));
+        for name in own {
+            if !chosen.iter().any(|shot| shot.to_string() == *name) {
+                return Err(CaptureError::NotSelected(name.clone()));
+            }
+        }
+        chosen.retain(|shot| only.contains(&shot.to_string()));
+    }
+    let (names, not_taken) = chosen.into_iter().partition(|name| {
+        windows
+            || !declared
+                .iter()
+                .any(|d| &d.name == name && d.marks.takes_focus)
+    });
     Ok(Taken {
         names,
         not_taken,
@@ -213,12 +227,13 @@ pub(crate) fn capture(
     app: &App,
     apps: &Apps,
     prefixes: &[Prefix],
+    only: &[String],
     windows: bool,
     base: bool,
     target: &Target,
 ) -> Result<Taken, CaptureError> {
     let Target { out, measure } = *target;
-    let taken = taken(declared, app, prefixes, windows, base)?;
+    let taken = taken(declared, app, prefixes, only, windows, base)?;
     for name in &taken.not_taken {
         crate::log::note(format_args!("{name}: {TAKES_FOCUS}"));
     }
@@ -246,7 +261,7 @@ pub(crate) fn capture(
             app.platform,
             out,
             &sizes,
-            &harness_prefixes(app, prefixes, &taken.names),
+            &harness_selection(app, prefixes, only, &taken.names),
             windows,
             tool.as_deref(),
         ))
@@ -289,11 +304,20 @@ pub(crate) fn capture(
     })
 }
 
-/// The prefixes the harness is given: those of `app` that start a shot
-/// this run takes. A harness may fail on a prefix that starts none of the
-/// shots it draws, and without `--windows` it draws no shot that takes the
-/// focus.
-fn harness_prefixes(app: &App, prefixes: &[Prefix], taken: &[Name]) -> Vec<String> {
+/// What the harness is told to take. With `only`, that is each shot this run
+/// takes, as `=<name>`, which names that shot alone. Otherwise it is the
+/// prefixes of `app` that start a shot this run takes: a harness may fail on a
+/// prefix that starts none of the shots it draws, and without `--windows` it
+/// draws no shot that takes the focus.
+fn harness_selection(
+    app: &App,
+    prefixes: &[Prefix],
+    only: &[String],
+    taken: &[Name],
+) -> Vec<String> {
+    if !only.is_empty() {
+        return taken.iter().map(|name| format!("={name}")).collect();
+    }
     prefixes
         .iter()
         .filter(|p| p.app() == app.name && taken.iter().any(|n| p.matches(n)))

@@ -56,6 +56,8 @@ pub(crate) struct Job<'a> {
     pub(crate) app: &'a App,
     pub(crate) apps: &'a Apps,
     pub(crate) prefixes: &'a [Prefix],
+    /// The shots to take among those the prefixes select; all when none.
+    pub(crate) only: &'a [String],
     pub(crate) base: bool,
     /// The absolute folder the shots are written to.
     pub(crate) out: &'a Path,
@@ -70,7 +72,14 @@ pub(crate) struct Job<'a> {
 /// into `out`. A shot that fails does not fail the capture; it is in
 /// `failed`.
 pub(crate) fn capture(job: &Job) -> Result<Taken, CaptureError> {
-    let taken = super::taken(job.declared, job.app, job.prefixes, false, job.base)?;
+    let taken = super::taken(
+        job.declared,
+        job.app,
+        job.prefixes,
+        job.only,
+        false,
+        job.base,
+    )?;
     super::clear(job.out, job.app, job.apps)?;
     if taken.names.is_empty() {
         return Ok(taken);

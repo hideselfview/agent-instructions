@@ -266,10 +266,10 @@ fn declared(texts: &[(&str, bool)]) -> Vec<Declared> {
 #[test]
 fn a_window_shot_is_not_taken_without_windows_and_taken_with_them() {
     let all = declared(&[("mac.welcome.a", false), ("mac.settings.toolbar", true)]);
-    let without = taken(&all, &App::named_for(Platform::Mac), &[], false, false).unwrap();
+    let without = taken(&all, &App::named_for(Platform::Mac), &[], &[], false, false).unwrap();
     assert_eq!(without.names, names(&["mac.welcome.a"]));
     assert_eq!(without.not_taken, names(&["mac.settings.toolbar"]));
-    let with = taken(&all, &App::named_for(Platform::Mac), &[], true, false).unwrap();
+    let with = taken(&all, &App::named_for(Platform::Mac), &[], &[], true, false).unwrap();
     assert_eq!(
         with.names,
         names(&["mac.welcome.a", "mac.settings.toolbar"])
@@ -284,6 +284,7 @@ fn a_selection_of_only_window_shots_is_all_not_taken_without_windows() {
         &all,
         &App::named_for(Platform::Mac),
         &[prefix("mac.settings.")],
+        &[],
         false,
         false,
     )
@@ -297,7 +298,7 @@ fn the_completeness_check_passes_without_a_window_shot_when_it_was_not_taken() {
     let out = tempfile::tempdir().unwrap();
     write_shot(out.path(), "mac.welcome.a");
     let all = declared(&[("mac.welcome.a", false), ("mac.settings.toolbar", true)]);
-    let chosen = taken(&all, &App::named_for(Platform::Mac), &[], false, false).unwrap();
+    let chosen = taken(&all, &App::named_for(Platform::Mac), &[], &[], false, false).unwrap();
     let declared: Vec<Name> = all.iter().map(|d| d.name.clone()).collect();
     check_complete(
         out.path(),
@@ -314,7 +315,7 @@ fn the_completeness_check_reports_a_window_shot_missing_when_windows_were_given(
     let out = tempfile::tempdir().unwrap();
     write_shot(out.path(), "mac.welcome.a");
     let all = declared(&[("mac.welcome.a", false), ("mac.settings.toolbar", true)]);
-    let chosen = taken(&all, &App::named_for(Platform::Mac), &[], true, false).unwrap();
+    let chosen = taken(&all, &App::named_for(Platform::Mac), &[], &[], true, false).unwrap();
     let declared: Vec<Name> = all.iter().map(|d| d.name.clone()).collect();
     let CaptureError::Incomplete(problems) = check_complete(
         out.path(),
@@ -365,6 +366,7 @@ fn a_capture_runs_the_apps_command_with_the_variables_and_checks_what_it_wrote()
         &App::named_for(Platform::Mac),
         &Apps::default(),
         &[prefix("mac.welcome.")],
+        &[],
         false,
         false,
         &Target {
@@ -416,6 +418,7 @@ fn a_mac_capture_gives_the_command_the_display_tool_while_it_runs() {
         &App::named_for(Platform::Mac),
         &Apps::default(),
         &[],
+        &[],
         false,
         false,
         &Target {
@@ -453,6 +456,7 @@ fn an_android_capture_gives_the_command_no_display_tool() {
         &App::named_for(Platform::Android),
         &Apps::default(),
         &[],
+        &[],
         false,
         false,
         &Target {
@@ -478,6 +482,7 @@ fn a_capture_command_that_fails_before_any_shot_fails_the_capture() {
             &shots,
             &App::named_for(Platform::Android),
             &Apps::default(),
+            &[],
             &[],
             true,
             false,
@@ -530,6 +535,7 @@ fn the_board_sizes_file_is_written_whole_before_the_command_starts() {
         &App::named_for(Platform::Mac),
         &Apps::default(),
         &[],
+        &[],
         false,
         false,
         &Target {
@@ -559,6 +565,7 @@ fn a_run_that_cannot_measure_the_boards_does_not_start_the_command() {
         &declared(&[("mac.checkbox.default", false)]),
         &App::named_for(Platform::Mac),
         &Apps::default(),
+        &[],
         &[],
         false,
         false,
@@ -596,6 +603,7 @@ fn one_failed_scene_among_several_leaves_the_others_taken_and_names_it() {
         &shots,
         &App::named_for(Platform::Mac),
         &Apps::default(),
+        &[],
         &[],
         false,
         false,
@@ -653,4 +661,39 @@ fn two_apps_on_one_platform_select_and_clear_their_own_shots() {
     clear(out.path(), &windows, &apps).unwrap();
     assert!(!out.path().join("windows.main.home@web.png").exists());
     assert!(out.path().join("linux.main.home@web.png").exists());
+}
+
+/// `--only` takes exactly the shots it names among the selected ones, and the
+/// harness is told each name is whole, so that it takes no shot whose name
+/// only starts with one.
+#[test]
+fn only_takes_exactly_the_named_shots_of_the_selection() {
+    let all = declared(&[
+        ("mac.a.one", false),
+        ("mac.a.one.more", false),
+        ("mac.a.two", false),
+        ("mac.b.one", false),
+    ]);
+    let app = App::named_for(Platform::Mac);
+    let only = |wanted: &[&str]| {
+        let wanted: Vec<String> = wanted.iter().map(|name| name.to_string()).collect();
+        taken(&all, &app, &[prefix("mac.a.")], &wanted, false, false)
+    };
+    let chosen = only(&["mac.a.one"]).unwrap();
+    assert_eq!(chosen.names, names(&["mac.a.one"]));
+    assert_eq!(
+        harness_selection(
+            &app,
+            &[prefix("mac.a.")],
+            &["mac.a.one".to_string()],
+            &chosen.names
+        ),
+        ["=mac.a.one"]
+    );
+    assert_eq!(
+        harness_selection(&app, &[prefix("mac.a.")], &[], &chosen.names),
+        ["mac.a."]
+    );
+    let error = only(&["mac.b.one"]).unwrap_err();
+    assert!(error.to_string().contains("mac.b.one"), "{error}");
 }

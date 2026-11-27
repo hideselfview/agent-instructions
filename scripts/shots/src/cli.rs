@@ -167,6 +167,12 @@ pub(crate) struct Selection {
     /// none, every shot the app declares.
     #[arg(long = "select", value_parser = Prefix::parse)]
     pub(crate) prefixes: Vec<Prefix>,
+    /// A shot's whole name: among the shots --select selects, take only the
+    /// named ones. Repeat for several. builds passes it for the shots of a
+    /// merge base that no cached run holds. A run with it marks no prefix
+    /// taken in the picture folder.
+    #[arg(long = "only")]
+    pub(crate) only: Vec<String>,
     /// Also take the shots that take the keyboard focus, which bring the app to
     /// the front.
     #[arg(long)]
