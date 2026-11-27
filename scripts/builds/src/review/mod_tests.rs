@@ -1904,7 +1904,7 @@ fn only_by_person_allows_a_confirmed_finding_to_land() {
         .and_then(|args| settle(&demo.tool, &args, None))
         .unwrap_err()
         .text()
-        .contains("never on your own judgment")
+        .starts_with("--by-person is required")
     );
     assert!(
         crate::args::Args::of(
@@ -1970,7 +1970,7 @@ fn every_review_command_fails_for_a_project_with_no_store() {
     let main = demo.main.display().to_string();
     let rules = demo.scratch.dir.display().to_string();
     let commands: Vec<Vec<&str>> = vec![
-        vec![&main, "--by", "tester"],
+        vec![&main, "--kind", "code", "--by", "tester"],
         vec!["check-landing", &main, "HEAD"],
         vec!["landed", &main, "HEAD"],
         vec!["settle", "1", "confirmed", "--why", "real"],
@@ -2203,7 +2203,7 @@ fn a_review_reads_the_brief_from_the_main_checkout_of_another_repo() {
         .unwrap();
     let args = Args::of(
         crate::command::Command::Review(crate::command::review::Run),
-        &["w".to_string(), "--item".to_string(), "1".to_string()],
+        &["w", "--kind", "code", "--item", "1"].map(String::from),
     )
     .unwrap();
     assert_eq!(

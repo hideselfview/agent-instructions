@@ -77,7 +77,11 @@ fn a_request_wakes_the_listening_session_which_takes_it_and_records_the_commit_i
     );
     let open = h.standing();
     assert_eq!(open.latest.as_ref().unwrap().taken, None);
-    let untaken = h.run(&["publish", "done", "1"]).unwrap_err().text();
+    let link = "boards=https://claude.ai/design/p/x";
+    let untaken = h
+        .run(&["publish", "done", "1", "--link", link])
+        .unwrap_err()
+        .text();
     assert!(untaken.contains("was never taken"), "{untaken}");
     let taken = h.run(&["publish", "take", "1"]).unwrap();
     assert!(taken.contains(&format!("--at {COMMIT}")), "{taken}");
@@ -120,7 +124,10 @@ fn a_request_wakes_the_listening_session_which_takes_it_and_records_the_commit_i
         done.contains(&format!("published commit {COMMIT}")),
         "{done}"
     );
-    let twice = h.run(&["publish", "done", "1"]).unwrap_err().text();
+    let twice = h
+        .run(&["publish", "done", "1", "--link", link])
+        .unwrap_err()
+        .text();
     assert!(twice.contains("has ended"), "{twice}");
     let done = h.standing();
     let ended = done.latest.unwrap();

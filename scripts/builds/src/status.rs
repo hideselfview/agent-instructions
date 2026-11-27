@@ -527,16 +527,13 @@ fn volume_line(root: &Path) -> Result<String> {
 /// listing without folder sizes: it lists the checkouts, their app lanes and
 /// their locks, and reads no folder.
 pub fn is_folderless_json(args: &crate::args::Args) -> bool {
-    args.switch("json") && args.switch("no-folders")
+    args.switch("no-folders")
 }
 
 /// `builds status [--json [--no-folders]]`.
 pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &crate::args::Args) -> Result<()> {
     if args.switch("json") {
         return print_json(tool, !is_folderless_json(args));
-    }
-    if args.switch("no-folders") {
-        fail!("{}", crate::command::Command::Status.usage_text());
     }
     tool.places.require_volume()?;
     let repos = repos(&tool.places)?;

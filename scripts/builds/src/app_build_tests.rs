@@ -526,7 +526,9 @@ fn all_shots_asks_a_lanes_process_for_every_shot_of_the_lane_and_reads_back_the_
         words,
         args(&["--all-shots", "android", "--shots", "mac", "mac.import."])
     );
-    assert_eq!(split_picks(&words).unwrap(), (Vec::new(), picks));
+    let mut lane_words = args(&["--lane", "android", "--built-ref", "main"]);
+    lane_words.extend(words);
+    assert_eq!(split_picks(&lane_words).unwrap(), (Vec::new(), picks));
     assert!(split_picks(&args(&["--all-shots"])).is_err());
     assert!(split_picks(&args(&["--all-shots", "ios"])).is_err());
 }
@@ -2182,6 +2184,8 @@ fn a_request_names_its_repo_and_ref() {
             "bae",
             "--lane",
             "mac",
+            "work",
+            "--built-ref",
             "work"
         ])),
         None
@@ -2206,6 +2210,8 @@ fn a_lanes_process_names_its_repo_and_commit() {
             "--lane",
             "android",
             "abc123",
+            "--built-ref",
+            "work",
             "android-tests"
         ])),
         Some("abc123".to_string())
@@ -2310,7 +2316,9 @@ fn an_agent_option_does_not_hide_a_build_request_or_lane() {
             "bae",
             "--lane",
             "mac",
-            "abc"
+            "abc",
+            "--built-ref",
+            "work"
         ])),
         Some("abc".to_string())
     );

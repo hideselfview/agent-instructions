@@ -822,9 +822,7 @@ pub fn listen_command(
     inbox: Option<&Messaging>,
 ) -> Result<String> {
     args.exactly(0)?;
-    let Some(project) = args.value("project")? else {
-        fail!("say which project's reviews the session judges with --project");
-    };
+    let project = args.require("project")?;
     let Some(caller) = caller else {
         fail!(
             "Run this command from the Codex or Claude Code session that will judge the project."

@@ -140,16 +140,9 @@ fn only_a_sessions_main_agent_with_an_inbox_listens() {
         no_inbox.contains("cannot receive notifications"),
         "{no_inbox}"
     );
-    let unnamed = listen_command(
-        &h.tool,
-        &crate::args::Args::of(
-            crate::command::Command::Judge(crate::command::judge::Listen),
-            &["--by".to_string(), "judge".to_string()],
-        )
-        .unwrap(),
-        &h.scratch.dir,
-        Some(&caller("s1", "s1")),
-        Some(&h.inbox()),
+    let unnamed = crate::args::Args::of(
+        crate::command::Command::Judge(crate::command::judge::Listen),
+        &["--by".to_string(), "judge".to_string()],
     )
     .unwrap_err()
     .text();

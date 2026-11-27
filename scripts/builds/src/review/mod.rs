@@ -1431,12 +1431,6 @@ fn settle(tool: &Tool, args: &Args, caller: Option<&Caller>) -> Result<()> {
             crate::command::Command::Review(crate::command::review::Settle).usage_text()
         ),
     };
-    // No usage line takes --by-person without `allowed`.
-    if how == "allowed" && !by_person {
-        fail!(
-            "only the person can allow a finding to land: pass --by-person once they have said to land finding {finding} as it is, with their words in --why, never on your own judgment"
-        );
-    }
     let id: i64 = finding
         .parse()
         .map_err(|_| Fail::Message(format!("'{finding}' is not a finding number")))?;

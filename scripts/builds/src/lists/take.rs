@@ -416,12 +416,6 @@ fn check_brief(
 pub fn check(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
     let brief = args.require("brief")?.to_string();
     let worktrees = args.values("worktree");
-    if worktrees.is_empty() {
-        fail!(
-            "check-brief needs --worktree: the spec check reads each worktree's repo: {usage}",
-            usage = crate::command::Command::Item(crate::command::item::CheckBrief).usage_text(),
-        );
-    }
     let mut checkouts: Vec<Checkout> = Vec::new();
     for worktree in worktrees {
         let checkout = side_checkout(worktree, checkouts.iter())?;

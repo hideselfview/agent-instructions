@@ -599,7 +599,7 @@ fn check_brief_needs_a_worktree_and_names_no_items() {
         &crate::testing::no_ssh(),
         &crate::lists::item_fixtures::read_words(&["check-brief", "--brief", &b.brief]),
     ));
-    assert!(none.contains("needs --worktree"), "{none}");
+    assert!(none.starts_with("--worktree is required"), "{none}");
     let item = refusal(b.check_brief(&["1"]));
     assert!(item.starts_with("usage: builds item check-brief"), "{item}");
 }

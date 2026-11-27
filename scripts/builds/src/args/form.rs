@@ -5,8 +5,9 @@
 //! The grammar of a usage line, after the words that name the command:
 //!
 //! - `--name` or `-n` is a flag. At the top level of the line it takes the
-//!   one value word that follows it, if any. Inside brackets or parentheses
-//!   it takes every value word up to the next flag, `|` or bracket.
+//!   one value word that follows it, if any, and the words must give it.
+//!   Inside brackets or parentheses it takes every value word up to the next
+//!   flag, `|` or bracket.
 //! - `[...]` is optional, `(...)` is required, and ` | ` separates the
 //!   alternatives inside either.
 //! - `...` after a word or a group repeats it, and a flag that repeats, or
@@ -31,6 +32,8 @@ pub struct Flag {
     pub values: usize,
     /// Whether it may be given more than once.
     pub repeats: bool,
+    /// Whether the words must give it: a flag at the top level of the line.
+    pub required: bool,
 }
 
 /// What a usage line says of a command's words.
@@ -164,6 +167,13 @@ impl Form {
         if !ends(&self.pattern, &read.positional, 0).contains(&read.positional.len()) {
             return Err(Misfit::Positional);
         }
+        if let Some(flag) = self
+            .flags
+            .iter()
+            .find(|flag| flag.required && !read.flags.iter().any(|(given, _)| *given == flag.name))
+        {
+            return Err(Misfit::Missing(flag.name));
+        }
         Ok(read)
     }
 }
@@ -192,6 +202,8 @@ pub struct Read {
 pub enum Misfit {
     /// A word spelled as a flag that the form lacks.
     Unknown,
+    /// A flag the form requires that the words do not give.
+    Missing(&'static str),
     /// A flag with fewer words after it than its values.
     NeedsValue(&'static str),
     /// A flag given twice that the form takes once.
@@ -309,6 +321,7 @@ fn collect_flags(nodes: &[(Node, bool)], top: bool, repeating: bool, flags: &mut
                     name,
                     values: taken.len(),
                     repeats: repeating || *repeats || taken.iter().any(|(_, repeats)| *repeats),
+                    required: top,
                 };
                 match flags.iter_mut().find(|known| known.name == flag.name) {
                     // A flag the line names twice may be given twice.

@@ -49,8 +49,10 @@ fn a_missing_or_repeated_value_is_refused() {
         .unwrap_err()
         .text();
     assert!(twice.starts_with("--title is given twice\n"), "{twice}");
-    let args = Args::of(Command::Item(item::Stop), &words("3")).unwrap();
-    assert!(args.require("why").is_err());
+    let none = Args::of(Command::Item(item::Stop), &words("3"))
+        .unwrap_err()
+        .text();
+    assert!(none.starts_with("--why is required\n"), "{none}");
 }
 
 #[test]
@@ -68,7 +70,7 @@ fn double_dash_ends_the_flags_and_a_value_may_start_with_dashes() {
 fn ids_come_as_bare_numbers() {
     let args = Args::of(
         Command::Question(question::Ask),
-        &words("--blocks 3,5 --from-item 9"),
+        &words("--title T --kind question --effect E --details-file F --blocks 3,5 --from-item 9"),
     )
     .unwrap();
     assert_eq!(args.ids("blocks").unwrap(), Some(vec![Id(3), Id(5)]));

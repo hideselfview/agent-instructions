@@ -27,9 +27,7 @@ fn request_id(text: &str) -> Result<i64> {
 /// requests, in place of any earlier one.
 pub fn listen(tool: &Tool, args: &Args, cwd: &Path, session: Option<&Messaging>) -> Result<String> {
     args.exactly(0)?;
-    let Some(project) = args.value("project")? else {
-        fail!("say which project's publish requests the session listens for with --project");
-    };
+    let project = args.require("project")?;
     let Some(session) = session else {
         fail!(
             "Run this command from the Codex or Claude Code design session so the dashboard can notify it."

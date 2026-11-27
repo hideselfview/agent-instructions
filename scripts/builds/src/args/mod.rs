@@ -24,6 +24,7 @@ const GLOBAL: [Flag; 1] = [Flag {
     name: crate::project_flag::PROJECT,
     values: 1,
     repeats: false,
+    required: false,
 }];
 
 #[derive(Clone, Debug)]
@@ -39,7 +40,8 @@ pub struct Args {
 impl Args {
     /// <words>, the words after those that name <command>, read by the first
     /// of the command's forms they fit. Fails naming a flag that no form
-    /// takes, else with the first form's reason and the command's usage.
+    /// takes, else a flag that a form whose other words fit requires, else
+    /// with the first form's reason, and the command's usage.
     pub fn of(command: Command, words: &[String]) -> Result<Args> {
         let forms = forms(command)?;
         let mut first_misfit = None;
@@ -52,6 +54,16 @@ impl Args {
                         positional: read.positional,
                         flags: read.flags,
                     });
+                }
+                // A form whose words fit but for a flag they lack says more
+                // than a form whose words or flags do not fit.
+                Err(misfit @ Misfit::Missing(_)) => {
+                    if matches!(
+                        first_misfit,
+                        None | Some(Misfit::Positional | Misfit::Unknown)
+                    ) {
+                        first_misfit = Some(misfit);
+                    }
                 }
                 Err(misfit) => {
                     first_misfit.get_or_insert(misfit);
@@ -82,6 +94,7 @@ impl Args {
         match first_misfit {
             Some(Misfit::NeedsValue(flag)) => fail!("{flag} needs a value\n{usage}"),
             Some(Misfit::Twice(flag)) => fail!("{flag} is given twice\n{usage}"),
+            Some(Misfit::Missing(flag)) => fail!("{flag} is required\n{usage}"),
             _ => fail!("{usage}"),
         }
     }
