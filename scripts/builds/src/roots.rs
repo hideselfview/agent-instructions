@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::checkout::{Checkout, Root};
-use crate::evict::{Recreate, Removal, evict};
+use crate::evict::{Evicted, Recreate, Removal, evict};
 use crate::fail::{Context, Result};
 use crate::places::Places;
 use crate::tool::Tool;
@@ -70,9 +70,8 @@ pub fn make(tool: &Tool, checkout: &Checkout) -> Result<PathBuf> {
 /// Deletes <dir> whole unless a build uses it (`evict::evict`), and adds the
 /// build root that holds it: the root <dir> is in, or <dir> itself when it
 /// is a root, found from <dir> as the caller names it, as the build roots'
-/// paths join the volume's. Returns false, deleting nothing, when <dir> is
-/// in use.
-pub fn delete(tool: &Tool, dir: &Path, recreate: Recreate, removal: Removal) -> Result<bool> {
+/// paths join the volume's.
+pub fn delete(tool: &Tool, dir: &Path, recreate: Recreate, removal: Removal) -> Result<Evicted> {
     tool.changed.add_holding(dir)?;
     evict(&tool.places, dir, recreate, removal)
 }

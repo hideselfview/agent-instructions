@@ -46,13 +46,24 @@ pub enum Recreate {
     No,
 }
 
+/// What became of a folder builds set out to delete.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Evicted {
+    /// builds moved it away.
+    Deleted,
+    /// A build or a process uses it, so it stays.
+    InUse,
+    /// Something else deleted it before builds could move it.
+    Gone,
+}
+
 /// Deletes <dir> whole unless a build is using it: renames it into the trash
 /// (instant; see `trash`) and removes it as <removal> says. The trash is
 /// <root>/.trash on the build volume, and for a folder on another volume a new
-/// folder beside it, since a rename can't cross volumes. Returns false, deleting nothing,
-/// when the folder is in use. A folder in a build root goes through
+/// folder beside it, since a rename can't cross volumes. Deletes nothing when the
+/// folder is in use or gone. A folder in a build root goes through
 /// roots.rs `delete`, which adds its root to the command's changed roots.
-pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) -> Result<bool> {
+pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) -> Result<Evicted> {
     displace(places, dir, Change::Move(recreate, removal))
 }
 
@@ -62,7 +73,7 @@ pub fn replace(
     places: &Places,
     dir: &Path,
     prepare: &dyn Fn(&Path, &Path) -> Result<()>,
-) -> Result<bool> {
+) -> Result<Evicted> {
     displace(places, dir, Change::Replace(prepare))
 }
 
@@ -119,18 +130,27 @@ impl EvictionSlot {
     }
 }
 
-fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<bool> {
+fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<Evicted> {
+    match displace_present(places, dir, change) {
+        // A program may delete its folder at any moment after a caller listed
+        // it, so any step may fail on it: then there is nothing to delete.
+        Err(_) if crate::whole_file::lstat(dir)?.is_none() => Ok(Evicted::Gone),
+        done => done,
+    }
+}
+
+fn displace_present(places: &Places, dir: &Path, change: Change<'_>) -> Result<Evicted> {
     let folder = std::fs::canonicalize(dir).context(|| format!("resolving {}", dir.display()))?;
     let parent = folder.parent().expect("a folder to delete has a parent");
     let _guard = match crate::units::lock_guard_creating(&folder)? {
-        crate::units::Guard::Busy => return Ok(false),
+        crate::units::Guard::Busy => return Ok(Evicted::InUse),
         guard => guard,
     };
     let Some(locks) = cargo_locks(&folder)? else {
-        return Ok(false);
+        return Ok(Evicted::InUse);
     };
     if matches!(change, Change::Move(..)) && held_by_a_process(&folder)? {
-        return Ok(false);
+        return Ok(Evicted::InUse);
     }
     let slot = EvictionSlot::make(places, parent)?;
     let name = folder.file_name().expect("a folder to delete has a name");
@@ -139,7 +159,11 @@ fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<bool> {
             let moved = move_in(&folder, slot.path(), name, recreate)?;
             drop(locks);
             slot.remove(removal)?;
-            Ok(moved)
+            Ok(if moved {
+                Evicted::Deleted
+            } else {
+                Evicted::Gone
+            })
         }
         Change::Replace(prepare) => {
             let replacement = slot.path().join(name);
@@ -150,7 +174,11 @@ fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<bool> {
             } else {
                 slot.discard()
             };
-            with_move_cleanup(moved, cleanup)
+            Ok(if with_move_cleanup(moved, cleanup)? {
+                Evicted::Deleted
+            } else {
+                Evicted::InUse
+            })
         }
     }
 }

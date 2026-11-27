@@ -141,7 +141,7 @@ fn mtime(meta: &Metadata) -> i64 {
 fn measure_with(path: &Path, workers: usize) -> Result<Measure> {
     let meta = match std::fs::symlink_metadata(path) {
         Ok(meta) => meta,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Measure::default()),
+        Err(error) if gone(&error) => return Ok(Measure::default()),
         Err(error) => fail!("reading {}: {error}", path.display()),
     };
     let seen = Seen::default();

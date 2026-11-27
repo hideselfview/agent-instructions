@@ -16,7 +16,7 @@ use crate::checkout::{APP_LANE_FILE, Checkout};
 use crate::claim::{
     Claim, Note, require_one_line, require_project_named, set_project, write_claim,
 };
-use crate::evict::{Recreate, Removal};
+use crate::evict::{Evicted, Recreate, Removal};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::free_worktrees::find_free;
@@ -240,7 +240,7 @@ fn undo_add(tool: &Tool, main: &Path, dir: &Path, start: &Start) -> Result<()> {
         "git worktree remove",
     )?;
     delete_made_branch(main, start)?;
-    if root.is_dir() && !delete(tool, &root, Recreate::No, Removal::Background)? {
+    if root.is_dir() && delete(tool, &root, Recreate::No, Removal::Background)? == Evicted::InUse {
         fail!(
             "a process holds files in {}; run builds prune once it exits",
             root.display()
@@ -418,7 +418,7 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
             .arg(&checkout.top),
         "git worktree remove",
     )?;
-    if root.is_dir() && !delete(tool, &root, Recreate::No, Removal::Background)? {
+    if root.is_dir() && delete(tool, &root, Recreate::No, Removal::Background)? == Evicted::InUse {
         fail!(
             "worktree removed, but a process holds files in {}; run builds prune once it exits",
             root.display()

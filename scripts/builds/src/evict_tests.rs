@@ -39,12 +39,16 @@ fn a_held_cargo_lock_keeps_the_folder() {
     assert_eq!(said, "held\n");
     let kept = evict(&places, &folder, Recreate::Yes, Removal::Now);
     kill_group(&mut build);
-    assert!(
-        !kept.unwrap(),
+    assert_eq!(
+        kept.unwrap(),
+        Evicted::InUse,
         "a folder whose cargo lock a build holds was deleted"
     );
     assert!(folder.join("debug/blob").exists());
-    assert!(evict(&places, &folder, Recreate::Yes, Removal::Now).unwrap());
+    assert_eq!(
+        evict(&places, &folder, Recreate::Yes, Removal::Now).unwrap(),
+        Evicted::Deleted
+    );
     assert!(
         folder.is_dir() && !folder.join("debug").exists(),
         "the folder was not recreated empty"
@@ -65,8 +69,15 @@ fn a_process_working_inside_keeps_the_folder() {
     let kept = evict(&places, &folder, Recreate::No, Removal::Now);
     sleeper.kill().unwrap();
     sleeper.wait().unwrap();
-    assert!(!kept.unwrap(), "a folder a process works in was deleted");
-    assert!(evict(&places, &folder, Recreate::No, Removal::Now).unwrap());
+    assert_eq!(
+        kept.unwrap(),
+        Evicted::InUse,
+        "a folder a process works in was deleted"
+    );
+    assert_eq!(
+        evict(&places, &folder, Recreate::No, Removal::Now).unwrap(),
+        Evicted::Deleted
+    );
     assert!(!folder.exists());
     assert_eq!(
         std::fs::read_dir(places.trash()).unwrap().count(),
@@ -103,12 +114,16 @@ fn a_build_holding_the_checkouts_guard_keeps_the_folder() {
     assert_eq!(said, "held\n");
     let kept = evict(&places, &folder, Recreate::Yes, Removal::Now);
     kill_group(&mut build);
-    assert!(
-        !kept.unwrap(),
+    assert_eq!(
+        kept.unwrap(),
+        Evicted::InUse,
         "a folder whose checkout's guard a build holds was deleted"
     );
     assert!(folder.join("debug/deps/test-binary").exists());
-    assert!(evict(&places, &folder, Recreate::Yes, Removal::Now).unwrap());
+    assert_eq!(
+        evict(&places, &folder, Recreate::Yes, Removal::Now).unwrap(),
+        Evicted::Deleted
+    );
 }
 
 #[test]
@@ -166,7 +181,10 @@ fn a_build_root_without_a_guard_yet_gets_one_held_while_the_folder_moves() {
 fn an_eviction_of_a_build_root_without_a_guard_makes_the_guard_and_moves_the_folder() {
     let scratch = Scratch::new("evict-new-guard-moves");
     let (places, folder, guard) = root_without_a_guard(&scratch);
-    assert!(evict(&places, &folder, Recreate::Yes, Removal::Now).unwrap());
+    assert_eq!(
+        evict(&places, &folder, Recreate::Yes, Removal::Now).unwrap(),
+        Evicted::Deleted
+    );
     assert!(guard.is_file(), "the eviction made no guard");
     assert!(
         folder.is_dir() && !folder.join("debug").exists(),
@@ -218,8 +236,9 @@ fn a_removal_that_never_completes_leaves_the_slot_to_the_next_emptier() {
         )
         .unwrap();
     }
-    assert!(
+    assert_eq!(
         moved.expect("a removal that could not finish failed the build"),
+        Evicted::Deleted,
         "the folder had been moved"
     );
     assert!(!folder.exists());

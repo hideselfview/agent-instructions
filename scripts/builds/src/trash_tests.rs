@@ -100,14 +100,15 @@ fn an_eviction_after_the_trash_was_taken_makes_a_fresh_one() {
     fill(&folder.join("debug/blob"), 4);
     fill(&places.trash().join("evict.old/blob"), 4);
     empty_now(&places).unwrap();
-    assert!(
+    assert_eq!(
         crate::evict::evict(
             &places,
             &folder,
             crate::evict::Recreate::No,
             crate::evict::Removal::Now
         )
-        .unwrap()
+        .unwrap(),
+        crate::evict::Evicted::Deleted
     );
     assert!(!folder.exists());
 }

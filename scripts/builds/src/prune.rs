@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::checkout::{Checkout, Root};
-use crate::evict::{Recreate, Removal};
+use crate::evict::{Evicted, Recreate, Removal};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::free_worktrees::retire_free;
@@ -176,8 +176,9 @@ pub fn prune_after_build(tool: &Tool, checkout: &Checkout) -> Result<()> {
 }
 
 /// Deletes <folder> for <reason>, removing it as <removal> says, or says it
-/// would, or that it is in use. Returns whether it went, or on a dry run
-/// would go.
+/// would, or that it is in use; says nothing of one that something else
+/// deleted. Returns whether it takes no space now, or on a dry run would take
+/// none.
 pub fn delete_folder(
     tool: &Tool,
     folder: &Path,
@@ -190,12 +191,18 @@ pub fn delete_folder(
     if run.dry() {
         note(format!("would delete {} ({reason})", folder.display()));
         Ok(true)
-    } else if delete(tool, folder, recreate, removal)? {
-        note(format!("deleted {} ({reason}){after}", folder.display()));
-        Ok(true)
     } else {
-        note(format!("in use, kept: {} ({reason})", folder.display()));
-        Ok(false)
+        Ok(match delete(tool, folder, recreate, removal)? {
+            Evicted::Deleted => {
+                note(format!("deleted {} ({reason}){after}", folder.display()));
+                true
+            }
+            Evicted::InUse => {
+                note(format!("in use, kept: {} ({reason})", folder.display()));
+                false
+            }
+            Evicted::Gone => true,
+        })
     }
 }
 
@@ -366,12 +373,12 @@ fn prune_caches(
                 copy_settings(live, replacement, cache.settings, &copy)
             });
             match pruner.after_move(moved)? {
-                Some(true) => note(format!(
+                Some(Evicted::Deleted) => note(format!(
                     "deleted {} ({reason}); every checkout downloads into it again",
                     dir.display()
                 )),
-                Some(false) => note(format!("in use, kept: {} ({reason})", dir.display())),
-                None => {}
+                Some(Evicted::InUse) => note(format!("in use, kept: {} ({reason})", dir.display())),
+                Some(Evicted::Gone) | None => {}
             }
         }
     }
@@ -605,9 +612,20 @@ pub fn prune_test_temps(tool: &Tool, run: Run) -> Result<()> {
 /// open) and no process holds a file in is deleted.
 fn prune_temp_builds(tool: &Tool, run: Run, pruner: Pruner) -> Result<()> {
     let folders = temp_build_folders(&tool.places)?;
+    prune_listed_temp_builds(tool, run, folders, pruner)
+}
+
+/// `prune_temp_builds` of the <folders> it listed.
+fn prune_listed_temp_builds(
+    tool: &Tool,
+    run: Run,
+    folders: Vec<PathBuf>,
+    pruner: Pruner,
+) -> Result<()> {
     let measures = tool.measure_all(&folders)?;
     for (folder, measured) in folders.into_iter().zip(measures) {
-        if tool.written_within(&measured, FLOOR_IDLE_MINUTES) {
+        // No newest write: the folder was deleted after the listing.
+        if measured.newest.is_none() || tool.written_within(&measured, FLOOR_IDLE_MINUTES) {
             continue;
         }
         let what = format!(
@@ -842,10 +860,14 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
             let (path, top) = (root.path.display(), root.top.display());
             if run.dry() {
                 note(format!("would delete {path} (checkout {top} is gone)"));
-            } else if delete(tool, &root.path, Recreate::No, Removal::Background)? {
-                note(format!("deleted {path} (checkout {top} is gone)"));
             } else {
-                note(format!("checkout {top} is gone but {path} is in use, kept"));
+                match delete(tool, &root.path, Recreate::No, Removal::Background)? {
+                    Evicted::Deleted => note(format!("deleted {path} (checkout {top} is gone)")),
+                    Evicted::InUse => {
+                        note(format!("checkout {top} is gone but {path} is in use, kept"))
+                    }
+                    Evicted::Gone => {}
+                }
             }
             continue;
         };

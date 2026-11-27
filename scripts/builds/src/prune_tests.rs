@@ -713,3 +713,39 @@ fn a_setting_written_after_its_copy_keeps_the_live_cache_and_fails_the_prune() {
         "new"
     );
 }
+
+/// A program may delete its build folder in a temporary folder after the
+/// prune listed it: the prune goes on, with nothing to prune there.
+#[test]
+fn a_listed_temp_build_folder_gone_before_the_prune_acts_is_nothing_to_prune() {
+    let scratch = Scratch::new("prune-temp-gone");
+    let tool = scratch.tool(0);
+    let build = |name: &str| {
+        let folder = tool.places.private_tmp.join(name).join("target");
+        fill(&folder.join(".rustc_info.json"), 1);
+        age_all(&folder, 1);
+        folder
+    };
+    let (gone, left) = (build("probe-gone"), build("probe-left"));
+    let listed = temp_build_folders(&tool.places).unwrap();
+    assert_eq!(listed.len(), 2, "{listed:?}");
+    std::fs::remove_dir_all(gone.parent().unwrap()).unwrap();
+    for run in [Run::Dry, Run::Real] {
+        prune_listed_temp_builds(&tool, run, listed.clone(), Pruner::Prune).unwrap();
+    }
+    assert!(
+        !left.exists(),
+        "the prune stopped at the folder that was gone"
+    );
+    // Gone between the measuring and the deletion.
+    let went = delete_folder(
+        &tool,
+        &gone,
+        Run::Real,
+        "idle",
+        Recreate::No,
+        Removal::Now,
+        "",
+    );
+    assert!(went.unwrap(), "a folder that is gone still takes space");
+}

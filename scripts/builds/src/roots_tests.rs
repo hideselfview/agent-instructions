@@ -1,4 +1,5 @@
 use super::*;
+use crate::evict::Evicted;
 use crate::testing::Scratch;
 
 /// A tool and the checkout of a repo whose manifest names `target`, whose
@@ -29,11 +30,17 @@ fn a_deletion_adds_the_root_that_held_the_folder_and_none_outside_a_root() {
     let tool = scratch.tool(0);
     let outside = scratch.dir.join("elsewhere");
     std::fs::create_dir_all(&outside).unwrap();
-    assert!(delete(&tool, &outside, Recreate::No, Removal::Now).unwrap());
+    assert_eq!(
+        delete(&tool, &outside, Recreate::No, Removal::Now).unwrap(),
+        Evicted::Deleted
+    );
     assert_eq!(tool.changed.roots(), Vec::<PathBuf>::new());
     let target = root.join("target");
     std::fs::create_dir_all(target.join("debug")).unwrap();
-    assert!(delete(&tool, &target, Recreate::Yes, Removal::Now).unwrap());
+    assert_eq!(
+        delete(&tool, &target, Recreate::Yes, Removal::Now).unwrap(),
+        Evicted::Deleted
+    );
     assert!(!target.join("debug").exists());
     assert_eq!(tool.changed.roots(), vec![root]);
 }
@@ -48,7 +55,10 @@ fn the_changed_roots_are_measured_once_the_command_ends_and_a_removed_one_loses_
     let sizes = crate::sizes::read(&tool.places, &root).unwrap();
     assert!(sizes["target"].kib >= 20, "{sizes:?}");
     let removing = scratch.tool(0);
-    assert!(delete(&removing, &root, Recreate::No, Removal::Now).unwrap());
+    assert_eq!(
+        delete(&removing, &root, Recreate::No, Removal::Now).unwrap(),
+        Evicted::Deleted
+    );
     assert_eq!(removing.changed.roots(), vec![root.clone()]);
     removing.changed.record(&removing.places);
     assert!(crate::sizes::read(&tool.places, &root).unwrap().is_empty());
@@ -87,7 +97,10 @@ fn the_daemon_hears_once_of_a_removed_root_after_its_marker_is_gone() {
             std::io::Write::write_all(&mut stream, format!("{done}\n").as_bytes()).unwrap();
         }
     });
-    assert!(delete(&tool, &root, Recreate::No, Removal::Now).unwrap());
+    assert_eq!(
+        delete(&tool, &root, Recreate::No, Removal::Now).unwrap(),
+        Evicted::Deleted
+    );
     assert_eq!(
         told.try_iter().count(),
         0,

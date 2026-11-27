@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::checkout::{Checkout, Root, absolute_link_target, worktrees_of};
-use crate::evict::{Recreate, Removal};
+use crate::evict::{Evicted, Recreate, Removal};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::Ssh;
@@ -79,7 +79,7 @@ fn place(tool: &Tool, link: &Path, dest: &Path, checkout: &Checkout) -> Result<(
         let current = absolute_link_target(link)?;
         if current != dest {
             if current.is_dir() && may_delete(tool, &current, checkout)? {
-                if !delete(tool, &current, Recreate::No, Removal::Background)? {
+                if delete(tool, &current, Recreate::No, Removal::Background)? == Evicted::InUse {
                     fail!(
                         "a build is using {}; run builds setup again once it ends",
                         current.display()
@@ -94,7 +94,7 @@ fn place(tool: &Tool, link: &Path, dest: &Path, checkout: &Checkout) -> Result<(
             note(format!("linked {shown} -> {}", dest.display()));
         }
     } else if link.exists() {
-        if !delete(tool, link, Recreate::No, Removal::Background)? {
+        if delete(tool, link, Recreate::No, Removal::Background)? == Evicted::InUse {
             fail!("a build is using {shown}; run builds setup again once it ends");
         }
         note(format!(
