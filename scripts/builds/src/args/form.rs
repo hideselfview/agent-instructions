@@ -144,7 +144,7 @@ impl Form {
                     .flag(word)
                     .or_else(|| global.iter().find(|flag| flag.name == word).copied())
                 else {
-                    return Err(Misfit::Unknown(word.clone()));
+                    return Err(Misfit::Unknown);
                 };
                 let values: Vec<String> = rest.by_ref().take(flag.values).cloned().collect();
                 if values.len() < flag.values {
@@ -191,7 +191,7 @@ pub struct Read {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Misfit {
     /// A word spelled as a flag that the form lacks.
-    Unknown(String),
+    Unknown,
     /// A flag with fewer words after it than its values.
     NeedsValue(&'static str),
     /// A flag given twice that the form takes once.

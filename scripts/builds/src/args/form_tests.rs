@@ -61,7 +61,7 @@ fn positional_words_follow_the_pattern() {
 fn unknown_flags_and_missing_values_misfit() {
     assert_eq!(
         read("N [--why WHY]", "3 --nope").unwrap_err(),
-        Misfit::Unknown("--nope".to_string())
+        Misfit::Unknown
     );
     assert_eq!(
         read("N [--why WHY]", "3 --why").unwrap_err(),
