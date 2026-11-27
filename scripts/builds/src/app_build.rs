@@ -790,11 +790,15 @@ impl StepRunner for LocalSteps<'_> {
         let (top, shots) = (self.top, self.shots);
         let kept = lock::Captured::default();
         let keep = keep_for(kind, &kept, fault, read);
-        let (command, _writing) = if takes_pictures(step) {
+        let (mut command, _writing) = if takes_pictures(step) {
             (shots.local_command(step), Some(shots.writing()?))
         } else {
             (step.command.clone(), None)
         };
+        // A step that opens windows holds this Mac's display on while it runs.
+        if step.window.is_some() {
+            command = crate::app_remote::keeping_display_on(step.lane, &command);
+        }
         let outcome = run_command_keeping(
             top,
             &command,

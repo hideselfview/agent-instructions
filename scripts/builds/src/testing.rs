@@ -70,6 +70,7 @@ impl Scratch {
             lists: self.dir.join("lists"),
             codex_program: self.dir.join("codex"),
             claude_program: self.dir.join("claude"),
+            ioreg_program: self.dir.join("ioreg"),
             fonts: None,
         }
     }

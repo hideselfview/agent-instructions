@@ -7,10 +7,10 @@
 //!   under "needs action" (`findings`), from the scan's `screen_locked` line.
 //! - The mac lane holds a window step for the host until its screen unlocks
 //!   (`wait_until_unlocked`), and says so in the build's output, naming the
-//!   host. The wait runs a script on the host (`wait_script`) that reads the
-//!   lock every 15 seconds. The step itself holds a display
-//!   assertion on the host while it runs (app_remote.rs `keeping_display_on`),
-//!   so the screen does not lock during it.
+//!   host, this Mac included. The wait runs a script on the host
+//!   (`wait_script`) that reads the lock every 15 seconds. The step itself
+//!   holds a display assertion on the host while it runs (app_remote.rs
+//!   `keeping_display_on`), so the display does not sleep during it.
 
 use crate::fail;
 use crate::fail::{Fail, Result};
@@ -18,13 +18,16 @@ use crate::health::Advice;
 use crate::host::{Host, Ssh, Terminal, command_at, output_of, place};
 use crate::host_scan::Scan;
 use crate::lock::Ran;
+use crate::places::Places;
+use std::process::Command;
 
 /// The line the scan script runs on a Mac (host_scan.rs) to print what
 /// `parse` reads: the lines of `ioreg`'s root entry that say whether the
 /// console is locked (`"IOConsoleLocked" = Yes`) and whether the console
 /// user's session has its screen locked (`"CGSSessionScreenIsLocked"=Yes`),
 /// on one line. When ioreg fails, the line says so, and `parse` fails on it.
-pub const SCRIPT_LINE: &str = r#"if said=$(ioreg -n Root -d1 2>&1); then echo "screen_locked=$(printf '%s\n' "$said" | tr ',' '\n' | grep -E 'IOConsoleLocked|CGSSessionScreenIsLocked' | tr '\n' ' ')"; else echo "screen_locked=ioreg failed: $(printf '%s\n' "$said" | head -n 1)"; fi"#;
+/// The line runs the program `IOREG_VARIABLE` names, else `ioreg`.
+pub const SCRIPT_LINE: &str = r#"if said=$("${BUILDS_IOREG:-ioreg}" -n Root -d1 2>&1); then echo "screen_locked=$(printf '%s\n' "$said" | tr ',' '\n' | grep -E 'IOConsoleLocked|CGSSessionScreenIsLocked' | tr '\n' ' ')"; else echo "screen_locked=ioreg failed: $(printf '%s\n' "$said" | head -n 1)"; fi"#;
 
 /// The script the lane runs on a Mac whose screen is locked: it returns once
 /// the screen reads unlocked, reading the lock every <poll_seconds>. The host
@@ -41,13 +44,26 @@ pub fn wait_script(poll_seconds: u32) -> String {
 sleeper=
 trap 'kill $sleeper 2>/dev/null' EXIT
 trap 'exit 143' HUP INT TERM
-while ioreg -n Root -d1 2>/dev/null | tr ',' '\n' | grep -Eq 'IOConsoleLocked" = Yes|CGSSessionScreenIsLocked"=Yes'; do
+while "${{BUILDS_IOREG:-ioreg}}" -n Root -d1 2>/dev/null | tr ',' '\n' | grep -Eq 'IOConsoleLocked" = Yes|CGSSessionScreenIsLocked"=Yes'; do
   kill -0 $parent 2>/dev/null || exit 0
   sleep {poll_seconds} &
   sleeper=$!
   wait $sleeper
 done"#
     )
+}
+
+/// The variable that names the program `SCRIPT_LINE` and `wait_script` run in
+/// place of `ioreg`.
+const IOREG_VARIABLE: &str = "BUILDS_IOREG";
+
+/// <script> as a command on <host>; on this Mac it runs the ioreg of <places>.
+fn command_on(places: &Places, ssh: &Ssh, host: &Host, script: &str) -> Command {
+    let mut command = command_at(ssh, host, script, Terminal::None);
+    if host.target.is_none() {
+        command.env(IOREG_VARIABLE, &places.ioreg_program);
+    }
+    command
 }
 
 /// The exit status of a waiter that a signal ended: 128 and SIGTERM.
@@ -100,9 +116,9 @@ pub fn findings(scans: &[(Host, std::result::Result<Scan, String>)]) -> Vec<Advi
 
 /// Asks <host> whether its screen is locked; fails when the host does not
 /// say.
-pub fn read(ssh: &Ssh, host: &Host) -> std::result::Result<bool, String> {
+pub fn read(places: &Places, ssh: &Ssh, host: &Host) -> std::result::Result<bool, String> {
     let said = output_of(
-        command_at(ssh, host, &format!("{SCRIPT_LINE}\n"), Terminal::None),
+        command_on(places, ssh, host, &format!("{SCRIPT_LINE}\n")),
         &format!(
             "reading whether {} has its screen locked",
             place(&host.name)
@@ -114,9 +130,9 @@ pub fn read(ssh: &Ssh, host: &Host) -> std::result::Result<bool, String> {
 
 /// Blocks until <host> says its screen is unlocked (`wait_script`); stops
 /// early, with `Ran::Stopped`, when a takeover stops the build.
-pub fn wait(ssh: &Ssh, host: &Host) -> Result<Ran> {
+pub fn wait(places: &Places, ssh: &Ssh, host: &Host) -> Result<Ran> {
     crate::lock::run_in_group(
-        command_at(ssh, host, &wait_script(POLL_SECONDS), Terminal::None),
+        command_on(places, ssh, host, &wait_script(POLL_SECONDS)),
         "waiting for the screen to unlock",
     )
 }

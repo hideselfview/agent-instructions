@@ -1339,14 +1339,15 @@ goes through. A host that does not answer is skipped and named the same way.
 This Mac is never asked about its lid. Runs of UI tests and every other step ignore the lid.
 
 A locked screen keeps every window of a mac lane step from rendering, so a mac
-lane step that opens windows never starts on a host whose screen is locked.
-After it takes the host's window lock, the lane reads the host's screen
-(`ioreg`: IOConsoleLocked and CGSSessionScreenIsLocked). While the screen is
-locked, the lane prints "waiting for host <name>'s screen to unlock" once and
-reads the host's screen every 15 seconds until it unlocks, then starts the
-step. A takeover ends the wait. While the step runs on the
-host, it runs under `caffeinate -d -u`, which holds a display assertion there,
-so the display neither sleeps nor locks during the step.
+lane step that opens windows never starts on a host whose screen is locked,
+this Mac included. After it takes the host's window lock, the lane reads the
+host's screen (`ioreg`: IOConsoleLocked and CGSSessionScreenIsLocked). While
+the screen is locked, the lane prints "waiting for host <name>'s screen to
+unlock" ("this Mac's" on this Mac) once and reads the host's screen every 15
+seconds until it unlocks, then starts the step. A takeover ends the wait. While
+the step runs on the host, it runs under `caffeinate -d -u`, which holds a
+display assertion there, so the display neither sleeps nor locks during the
+step.
 `builds health` lists each Mac whose screen is locked (HEALTH CHECK in `builds
 help workflow`).
 

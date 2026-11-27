@@ -98,6 +98,9 @@ pub struct Places {
     pub codex_program: PathBuf,
     /// The Claude Code CLI that `builds agent run` and `resume` start.
     pub claude_program: PathBuf,
+    /// The `ioreg` that says whether this Mac's screen is locked
+    /// (host_screen_lock.rs).
+    pub ioreg_program: PathBuf,
     /// The folder of the SF Mono files that the boards whose mono stack names
     /// them draw mono text in: the Mac's Terminal.app ships them
     /// (`boards::fonts`).
@@ -139,6 +142,7 @@ impl Places {
             lists,
             codex_program: PathBuf::from("codex"),
             claude_program: PathBuf::from("claude"),
+            ioreg_program: PathBuf::from("ioreg"),
             fonts: cfg!(target_os = "macos").then(|| PathBuf::from(boards::fonts::TERMINAL_FONTS)),
         })
     }

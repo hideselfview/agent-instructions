@@ -25,9 +25,10 @@ struct Volume {
     started: Vec<Child>,
 }
 
-/// Writes `xcodebuild` and `sw_vers` into <bin>: the mac lane reads the host's
-/// Xcode and macOS from them, so a test never depends on the Xcode the Mac it
-/// runs on has installed or has agreed to the license of.
+/// Writes `xcodebuild`, `sw_vers` and `ioreg` into <bin>: the mac lane reads
+/// the host's Xcode, macOS and screen lock from them, so a test never depends
+/// on the Xcode the Mac it runs on has installed or has agreed to the license
+/// of, or on whether its screen is locked.
 fn fake_apple_tools(bin: &Path) {
     std::fs::create_dir_all(bin).unwrap();
     for (name, script) in [
@@ -39,6 +40,7 @@ fn fake_apple_tools(bin: &Path) {
             "sw_vers",
             "#!/bin/sh\nif [ \"$1\" = -buildVersion ]; then cat \"$QUEUE_TEST_DIR/macos-build\" 2>/dev/null || echo 26B131; else exit 1; fi\n",
         ),
+        ("ioreg", "#!/bin/sh\necho '\"IOConsoleLocked\" = No'\n"),
     ] {
         let path = bin.join(name);
         std::fs::write(&path, script).unwrap();

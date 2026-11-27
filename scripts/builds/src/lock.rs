@@ -319,15 +319,19 @@ impl Held {
         else {
             return Ok(None);
         };
-        if !crate::app_platform::of(self.lane).opens_windows() || host_name == host::LOCAL {
+        if !crate::app_platform::of(self.lane).opens_windows() {
             return Ok(Some(window));
         }
-        let host = host::remote_named(&self.places, &self.checkout, host_name)?;
+        let host = if host_name == host::LOCAL {
+            host::Host::local()
+        } else {
+            host::remote_named(&self.places, &self.checkout, host_name)?
+        };
         let unlocked = crate::host_screen_lock::wait_until_unlocked(
             host_name,
-            &|| crate::host_screen_lock::read(&self.ssh, &host),
+            &|| crate::host_screen_lock::read(&self.places, &self.ssh, &host),
             &|words| note(words),
-            &|| crate::host_screen_lock::wait(&self.ssh, &host),
+            &|| crate::host_screen_lock::wait(&self.places, &self.ssh, &host),
         )?;
         Ok(unlocked.then_some(window))
     }

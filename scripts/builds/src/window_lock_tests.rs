@@ -260,3 +260,39 @@ fn the_mac_lane_holds_a_window_step_while_the_hosts_screen_is_locked() {
     drop(window);
     held.release();
 }
+
+/// This Mac is a host like any other: the mac lane waits while its own screen
+/// is locked.
+#[test]
+fn the_mac_lane_holds_a_window_step_while_this_macs_screen_is_locked() {
+    let scratch = Scratch::new("window-locked-here");
+    let places = scratch.places();
+    // Locked at the lane's first reading, and unlocked from then on.
+    scratch.script(
+        "ioreg",
+        &format!(
+            "if [ -e {read} ]; then echo '\"IOConsoleLocked\" = No'; else echo '\"IOConsoleLocked\" = Yes'; fi\necho x >> {read}",
+            read = scratch.dir.join("readings").display()
+        ),
+    );
+    places
+        .write_app_checkouts(
+            "demo",
+            Lane::MAC,
+            &[crate::lane::AppCheckout::by_person("app-1").unwrap()],
+        )
+        .unwrap();
+    let held = crate::lock::take(&places, "demo", Lane::MAC).unwrap();
+    let window = held
+        .take_window("shots", Access::Exclusive)
+        .unwrap()
+        .expect("the step went on once the screen unlocked");
+    let readings = std::fs::read_to_string(scratch.dir.join("readings")).unwrap();
+    assert_eq!(
+        readings.lines().count(),
+        3,
+        "the lane's reading, the wait's and the lane's next one"
+    );
+    drop(window);
+    held.release();
+}
