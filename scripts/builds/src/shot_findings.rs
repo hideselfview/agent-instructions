@@ -229,11 +229,9 @@ pub fn is_host_failure(line: &str) -> bool {
 }
 
 /// Whether a run that exited <exit> printed findings: it passed, or said that
-/// pairs fail the run and not that the host failed it. A shot the host kept
-/// the run from taking counts among the failing pairs and says nothing about
-/// the code.
+/// pairs fail the run.
 pub fn has_findings(exit: i64, findings: &str) -> bool {
-    exit == 0 || findings.contains(PAIRS_FAIL) && !findings.lines().any(is_host_failure)
+    exit == 0 || findings.contains(PAIRS_FAIL)
 }
 
 /// The full id of the commit <git_ref> names in <repo>, read from the repo's

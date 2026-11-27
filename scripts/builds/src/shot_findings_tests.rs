@@ -29,7 +29,7 @@ fn the_line_that_counts_the_pairs_the_base_never_rendered_is_told_from_the_other
 /// Each line is one a Mac capture prints when the host kept it from taking a
 /// shot, as the harness words it.
 #[test]
-fn a_run_the_host_failed_has_no_findings() {
+fn each_line_that_says_the_host_kept_a_shot_from_being_taken_is_a_host_failure() {
     let harness = [
         include_str!("../../shots/harness/mac/ShotDisplay.swift"),
         include_str!("../../shots/harness/mac/ShotError.swift"),
@@ -43,8 +43,7 @@ fn a_run_the_host_failed_has_no_findings() {
         crate::xcode::CANNOT_START,
         crate::ui_test_settings::AUTOMATION_TIMED_OUT,
     ] {
-        let output = format!("{said} x\nbuilds shots: 1 pair(s) fail the run: mac.a.one\n");
-        assert!(!has_findings(1, &output), "{said}");
+        assert!(is_host_failure(&format!("x {said} x")), "{said}");
         let from_harness = said != crate::xcode::CANNOT_START
             && said != crate::ui_test_settings::AUTOMATION_TIMED_OUT;
         if from_harness {

@@ -1102,12 +1102,15 @@ fn a_shots_run_whose_pairs_fail_lets_the_lane_run_the_rest() {
 }
 
 /// A shot that failed because of the host counts among the pairs that fail
-/// the run, but the run says nothing about the code: the lane stops at it as
-/// at any failed step.
+/// the run, but the run says nothing about the code: builds caches none of it,
+/// and the lane stops at it as at any failed step.
 #[test]
 fn a_shots_run_the_host_failed_stops_the_lane() {
     let scratch = Scratch::new("shots-host-failed");
     let held = held_in(&scratch);
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    let store = shots_cache(&top, &places);
     let said = "echo 'The shot capture could not lease a display. The renderer needs a shot display. CoreGraphics could not save the session mode for display 498 (error 1014)'; echo 'builds shots: 1 pair(s) fail the run: mac.a.one' >&2; exit 1";
     let steps = [
         fake("shots mac.a.", &["sh", "-c", said], None),
@@ -1115,16 +1118,18 @@ fn a_shots_run_the_host_failed_stops_the_lane() {
     ];
     let mut log = Vec::new();
     let ran = run_steps(
-        &scratch.dir,
+        &top,
         &held,
         &steps,
         &mut log,
-        &any_store(&scratch),
+        &store,
         Path::new("no.xcconfig"),
         false,
     );
     assert!(matches!(ran, Err(Fail::Exit(1))), "{ran:?}");
     assert_eq!(log.len(), 1, "no step ran after the run the host failed");
+    let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
+    assert!(shots_cache::lookup(&places, &key).unwrap().is_none());
 }
 
 /// A step that fails keeps its excerpt and the shots its output says fail
