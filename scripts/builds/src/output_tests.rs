@@ -71,3 +71,26 @@ fn a_service_leaves_nothing_out() {
     }
     assert!(ledger.take_totals().is_empty());
 }
+
+#[test]
+fn each_report_counts_its_own_lines_and_ends_with_its_own_total() {
+    for report_of in ["first", "second"] {
+        let mut wrote = Vec::new();
+        {
+            let mut report = Report::to(&mut wrote);
+            for n in 0..=LINES_PER_KIND {
+                report.say(format!("{report_of} {n}"));
+            }
+        }
+        let wrote = String::from_utf8(wrote).unwrap();
+        let lines: Vec<&str> = wrote.lines().collect();
+        assert_eq!(lines.len(), LINES_PER_KIND + 1, "{wrote}");
+        assert_eq!(lines[0], format!("{report_of} 0"));
+        assert_eq!(
+            lines[LINES_PER_KIND],
+            format!(
+                "builds: left out 1 more line of one kind, the last of them: {report_of} {LINES_PER_KIND}"
+            )
+        );
+    }
+}

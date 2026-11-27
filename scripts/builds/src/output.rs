@@ -14,8 +14,8 @@
 //! - What another program prints, which builds passes on as it is
 //!   (`pass_through`, `relayed`, `child_stderr`, `inherit`).
 //!
-//! The caps count one process's lines, so the ledger that counts them is the
-//! process's, as its stderr is. A process that serves until it is stopped,
+//! `note`, `warn` and `say` print on the process's own streams, so the ledger
+//! that counts their lines is the process's, as those streams are. A process that serves until it is stopped,
 //! the dashboard, writes a log that nothing ends with a total, so it keeps
 //! every line (`keep_every_line`).
 
@@ -158,19 +158,24 @@ pub fn say(message: impl AsRef<str>) {
 }
 
 /// The messages of work that writes them to a place its caller picks, as a
-/// landing does, capped like `say`'s.
+/// landing does, capped like `say`'s. A report counts its own lines, and
+/// writes its totals there as it ends.
 pub struct Report<'a> {
     to: &'a mut dyn Write,
+    ledger: Ledger,
 }
 
 impl<'a> Report<'a> {
     pub fn to(to: &'a mut dyn Write) -> Report<'a> {
-        Report { to }
+        Report {
+            to,
+            ledger: Ledger::new(),
+        }
     }
 
     #[track_caller]
     pub fn say(&mut self, message: impl AsRef<str>) {
-        let admitted = ledger().admit(caller(), Stream::Out, message.as_ref());
+        let admitted = self.ledger.admit(caller(), Stream::Out, message.as_ref());
         if let Some(lines) = admitted {
             self.pass_through(lines);
         }
@@ -182,6 +187,14 @@ impl<'a> Report<'a> {
         // A reader that closed the stream wants no more of the report, and
         // the work goes on.
         let _ = writeln!(self.to, "{output}").and_then(|()| self.to.flush());
+    }
+}
+
+impl Drop for Report<'_> {
+    fn drop(&mut self) {
+        for (_, total) in self.ledger.take_totals() {
+            self.pass_through(total);
+        }
     }
 }
 
