@@ -68,11 +68,10 @@ const UNREAD_HEADING: &str = "## Paths no review reads";
 /// section that names no folder.
 pub fn unread_folders(path: &Path, text: &str) -> Result<BTreeMap<String, Vec<String>>> {
     let mut folders: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut lines = text.lines();
-    if !lines.any(|line| line.trim_end() == UNREAD_HEADING) {
+    let Some(lines) = section(text, UNREAD_HEADING) else {
         return Ok(folders);
-    }
-    for line in lines.take_while(|line| !line.starts_with("## ")) {
+    };
+    for line in lines {
         let Some(entry) = line.strip_prefix("- ") else {
             continue;
         };
@@ -124,12 +123,18 @@ fn description(text: &str) -> Option<String> {
     Some(paragraph.join("\n"))
 }
 
-/// The lines between `## Hard limits` and the next `## ` heading, trimmed,
-/// None when the heading or its body is missing.
-fn hard_limits(text: &str) -> Option<String> {
+/// The lines of <text> between the line <heading> and the next `## ` heading,
+/// None when <text> has no such heading.
+fn section<'a>(text: &'a str, heading: &str) -> Option<impl Iterator<Item = &'a str>> {
     let mut lines = text.lines();
-    lines.find(|line| line.trim_end() == LIMITS_HEADING)?;
-    let body: Vec<&str> = lines.take_while(|line| !line.starts_with("## ")).collect();
+    lines.find(|line| line.trim_end() == heading)?;
+    Some(lines.take_while(|line| !line.starts_with("## ")))
+}
+
+/// The lines of the `## Hard limits` section, trimmed, None when the heading
+/// or its body is missing.
+fn hard_limits(text: &str) -> Option<String> {
+    let body: Vec<&str> = section(text, LIMITS_HEADING)?.collect();
     let body = body.join("\n").trim().to_string();
     (!body.is_empty()).then_some(body)
 }
