@@ -215,6 +215,7 @@ mod warm;
 mod whole_file;
 mod window_lock;
 mod worktree;
+mod worktree_removal;
 mod xcode;
 mod xcode_cache;
 

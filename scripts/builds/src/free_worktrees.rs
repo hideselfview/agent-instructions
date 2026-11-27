@@ -6,11 +6,12 @@
 //!
 //! A side worktree is free when it has no claim and nothing keeps it
 //! (kept.rs): no item of any project runs or is kept in it, its tree is
-//! clean, no `git commit` runs there, and neither its HEAD nor a branch it
-//! left since its last claim began holds a commit missing from origin/main.
-//! `builds release` refuses to remove a claim on the same facts. Landing
-//! rebases, so `side_git` compares commits by patch (`git cherry`), not by
-//! hash. main and the repo's app checkouts are no side worktrees, so they are
+//! clean, no `git commit` runs there, origin/main has every commit on its
+//! HEAD, and no branch it left since its last claim began holds work that
+//! only that branch has. `builds release` removes a claim on less: another
+//! branch's copy of a commit on HEAD is enough for it, since the worktree
+//! stays on its branch. Landing rebases, so `side_git` compares commits by
+//! patch (`git cherry`), not by hash. main and the repo's app checkouts are no side worktrees, so they are
 //! never free: the person's builds and the agents' app builds stay warm in
 //! them.
 
@@ -59,7 +60,7 @@ pub fn find_free(tool: &Tool, main: &Path) -> Result<Option<Checkout>> {
 /// Retires each free side worktree among <roots> that no build process
 /// uses: no claim, nothing that keeps it (kept.rs). It never retires main, an
 /// app checkout, side-1 (the repo's long-lived side worktree) or a claimed
-/// worktree, and it keeps the worktrees that hold commits missing from
+/// worktree, and it keeps the worktrees whose HEAD has commits missing from
 /// origin/main (health lists them). It holds the picking lock of the repo
 /// while it checks and removes a worktree, so `builds new` never claims one
 /// that is going.
@@ -91,14 +92,14 @@ pub fn retire_free(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
         // holds from picking a worktree to claiming it. Taking the lock
         // first would create its file in the repo's git dir for every
         // claimed worktree health looks at.
-        let _picking = crate::worktree::lock_picking(&checkout.main)?;
+        let picking = crate::worktree::lock_picking(&checkout.main)?;
         if !is_free(checkout, &every, &commits)? {
             continue;
         }
         if run.dry() {
             note(format!("would retire {} (free)", checkout.top.display()));
         } else {
-            retire_checkout(tool, checkout)?;
+            retire_checkout(tool, checkout, &picking)?;
         }
     }
     Ok(())

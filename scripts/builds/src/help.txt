@@ -620,9 +620,11 @@ WORKTREES AND CLAIMS
 Each repo has a main checkout, the person's, and side worktrees for agents at
 <parent>/<repo>-worktrees/side-N. side-1 is long-lived; `builds new` hands out
 the others. `builds health` and `builds prune` retire each one that is free:
-no claim, a clean tree, every commit on origin/main by patch, no build running
-there. A new worktree costs a few seconds, since `builds new` clones a warm
-checkout's `target` into it, so a free one waits for nothing. The clone then
+no claim, a clean tree, every commit on its HEAD on origin/main by patch (a
+copy on another branch does not count), no build running there. A retire
+removes the worktree whole or fails and leaves it as it was. A new worktree
+costs a few seconds, since `builds new` clones a warm checkout's `target` into
+it, so a free one waits for nothing. The clone then
 deletes cargo's record of each build script run whose `cargo:` lines name a path
 of another checkout of the repo (a link search path such as FFMPEG_DIR's), so
 cargo runs that script again in the new checkout, and no link names a folder of
@@ -789,10 +791,24 @@ times` reads these records.
                               worktree that this check would refuse
   {retire}                    remove a clean, unclaimed side worktree and its
                               build root; refuses every other worktree, a
-                              worktree an item runs in or keeps, and one that
-                              `release` would refuse for its work: commits on
+                              worktree an item runs in or keeps, one that
+                              `release` would refuse for its work (commits on
                               its HEAD or on a branch it left since its last
-                              claim began, or files not committed
+                              claim began, or files not committed), one
+                              whose HEAD has a commit origin/main lacks even
+                              when another branch has a copy of it (`release`
+                              accepts that copy), one git has locked and one
+                              with submodules. `new` hands out no worktree
+                              whose HEAD has such a commit. A retire removes
+                              the folder and git's record of the worktree
+                              with a rename each, into
+                              <main>/.git/builds-retiring, and deletes files
+                              only after both: when it fails before then the
+                              worktree stays as it was, and the next command
+                              that picks or retires a worktree of the repo
+                              moves back the folder of a retire that was
+                              killed between the two, and deletes files an
+                              earlier retire could not
 
 
 CARGO
@@ -3044,8 +3060,9 @@ a toolchain upgrade is fine.
                               minutes, cargo's git checkouts no Cargo.lock
                               pins, and installed tool versions no checkout
                               names. First it retires each free side worktree
-                              (no claim, a clean tree, every commit on
-                              origin/main by patch, no build running there);
+                              (no claim, a clean tree, every commit on its
+                              HEAD on origin/main by patch, no build running
+                              there);
                               never main, side-1, an app checkout, a claimed
                               worktree or one with commits waiting to land,
                               which `health` lists.

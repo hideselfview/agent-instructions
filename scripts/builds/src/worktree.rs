@@ -235,10 +235,7 @@ fn undo_add(tool: &Tool, main: &Path, dir: &Path, start: &Start) -> Result<()> {
         .root
         .join(crate::checkout::file_name(main))
         .join(crate::checkout::file_name(dir));
-    run_checked(
-        git(main).args(["worktree", "remove", "--force"]).arg(dir),
-        "git worktree remove",
-    )?;
+    crate::worktree_removal::remove(&Checkout::find(&dir.display().to_string())?)?;
     delete_made_branch(main, start)?;
     if root.is_dir() && delete(tool, &root, Recreate::No, Removal::Background)? == Evicted::InUse {
         fail!(
@@ -279,12 +276,15 @@ fn require_resumable(main: &Path, branch: &str) -> Result<()> {
     Ok(())
 }
 
-/// An exclusive lock on <main>'s repo for picking a worktree (flock on a file
-/// in the common git dir), held until the returned file is dropped.
+/// An exclusive lock on <main>'s repo for picking or removing a worktree
+/// (flock on a file in the common git dir), held until the returned file is
+/// dropped. Before it returns, it ends each removal an earlier process left
+/// (worktree_removal.rs), so its holder reads no worktree removed in part.
 pub(crate) fn lock_picking(main: &Path) -> Result<std::fs::File> {
     let path = main.join(".git/builds-new.lock");
     let file = crate::flock::open_creating(&path)?;
     crate::flock::lock(&file, libc::LOCK_EX, &path)?;
+    crate::worktree_removal::finish(main)?;
     Ok(file)
 }
 
@@ -372,8 +372,8 @@ pub fn is_executable(path: &Path) -> bool {
         .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
-/// `builds retire <checkout>`: removes a clean, unclaimed side worktree and
-/// its build root.
+/// `builds retire <checkout>`: removes an unclaimed side worktree that holds
+/// nothing origin/main lacks, and its build root.
 pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
     let [arg] = args else {
         fail!("{}", crate::command::Command::Retire.usage_text())
@@ -388,12 +388,15 @@ pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
         };
         fail!("{top} is {what}; only side worktrees retire");
     }
-    retire_checkout(tool, &checkout)
+    let picking = lock_picking(&checkout.main)?;
+    retire_checkout(tool, &checkout, &picking)
 }
 
-/// Removes the unclaimed side worktree <checkout> that nothing keeps
-/// (kept.rs), and its build root.
-pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
+/// Removes the unclaimed side worktree <checkout> that nothing keeps and
+/// whose HEAD origin/main covers (kept.rs), whole (worktree_removal.rs),
+/// and its build root. <_picking> is the repo's picking lock, so no `builds
+/// new` hands the worktree out meanwhile.
+pub fn retire_checkout(tool: &Tool, checkout: &Checkout, _picking: &std::fs::File) -> Result<()> {
     let top = checkout.top.display();
     let root = checkout.build_root(&tool.places);
     if let Some(claim) = Claim::read(&checkout.claim_file())? {
@@ -410,14 +413,8 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
             "{top} holds the work of {keeping}, which keeps it; take the item there (`builds item take`) to work on it"
         );
     }
-    kept.require_leavable("retire", &checkout.top)?;
-    run_checked(
-        git(&checkout.main)
-            .arg("worktree")
-            .arg("remove")
-            .arg(&checkout.top),
-        "git worktree remove",
-    )?;
+    kept.require_removable("retire", &checkout.top)?;
+    crate::worktree_removal::remove(checkout)?;
     if root.is_dir() && delete(tool, &root, Recreate::No, Removal::Background)? == Evicted::InUse {
         fail!(
             "worktree removed, but a process holds files in {}; run builds prune once it exits",

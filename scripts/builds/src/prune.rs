@@ -680,8 +680,8 @@ fn prune_cargo_git(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
 /// The Cargo.lock files git tracks in the checkout of <root>, which was live
 /// when the caller listed the roots. Another builds process may remove the
 /// checkout meanwhile (a retired side worktree, a host's idle app checkout or
-/// job worktree): git deletes the worktree's files, its `.git` among them,
-/// before the remover deletes the build root. A checkout that is no longer
+/// job worktree): the worktree's files, its `.git` among them, go before the
+/// remover deletes the build root. A checkout that is no longer
 /// live pins nothing; git failing in one that still is fails.
 fn lockfiles_of(places: &Places, root: &Root) -> Result<Vec<PathBuf>> {
     let top = &root.top;

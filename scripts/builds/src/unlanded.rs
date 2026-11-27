@@ -1,7 +1,8 @@
 //! Work that origin/main lacks. `builds release` and `builds retire` refuse a
 //! worktree that holds such work which nothing else holds, and `builds new`
 //! hands out no such worktree (`in_worktree`, which kept.rs calls for all
-//! three), so a session can't drop the work by releasing. `builds health`
+//! three; `retire` and `new` also refuse one whose HEAD has such work that
+//! something else holds, `Held::past_main`), so a session can't drop the work by releasing. `builds health`
 //! lists each local branch that holds such work while no worktree checks it
 //! out and no open item names it (`loose_branches`, `unheld`). Work leaves a
 //! worktree only by landing, by an item that holds it (running held on the
@@ -26,6 +27,9 @@ pub struct Held {
     /// Each other branch the worktree had checked out since its claim began,
     /// with its commits, newest first.
     pub left: Vec<(String, Vec<Commit>)>,
+    /// The commits on HEAD origin/main lacks, newest first, those of `head`
+    /// and those another branch has a copy of.
+    pub past_main: Vec<Commit>,
     /// The files not committed.
     pub uncommitted: Vec<String>,
     /// The pids of the `git commit`s that run in it: files git is still
@@ -174,18 +178,18 @@ pub fn in_worktree(
         copied_on.extend(split.copied_on);
         Ok(split.lacking)
     };
-    let head = match known {
-        // The newest commit waiting to land has every other one among its
-        // ancestors, so `git cherry` from it sees them all.
-        Some(read) => match read.ahead.first() {
-            Some(newest) => split(&newest.full, read.ahead.clone())?,
-            None => Vec::new(),
-        },
+    let past_main = match known {
+        Some(read) => read.ahead.clone(),
         None => {
             let tip = crate::app_config::resolve(top, "HEAD")?;
-            let waiting = crate::side_git::waiting_to_land(top, &tip).map_err(unread)?;
-            split(&tip, waiting)?
+            crate::side_git::waiting_to_land(top, &tip).map_err(unread)?
         }
+    };
+    // The newest commit waiting to land has every other one among its
+    // ancestors, so `git cherry` from it sees them all.
+    let head = match past_main.first() {
+        Some(newest) => split(&newest.full, past_main.clone())?,
+        None => Vec::new(),
     };
     let checked_out: Vec<&String> = listed
         .iter()
@@ -208,6 +212,7 @@ pub fn in_worktree(
     Ok(Held {
         head: (branch, head),
         left,
+        past_main,
         uncommitted: if known.is_some_and(|read| read.uncommitted == 0) {
             Vec::new()
         } else {

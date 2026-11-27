@@ -2,10 +2,11 @@
 //! or keep it (lists/kept_work.rs), and the work in it that origin/main lacks and no open item
 //! holds (unlanded.rs). `builds release` and a landing's release refuse to
 //! remove the claim of a worktree where an item runs or that holds such
-//! work. `builds new` hands out, and `builds prune` and `builds retire`
-//! remove, only an unclaimed worktree that nothing keeps. Each of them reads
-//! it here before it changes the worktree, so they agree on what a worktree
-//! holds.
+//! work. `builds new` hands out, and `builds health`, `builds prune` and
+//! `builds retire` remove, only an unclaimed worktree that nothing keeps and
+//! whose HEAD has no commit origin/main lacks, even one another branch has a
+//! copy of. Each of them reads it here before it changes the worktree, so
+//! they agree on what a worktree holds.
 
 use std::path::Path;
 
@@ -33,7 +34,10 @@ impl Kept {
     /// Does nothing keep the worktree, so that `builds new` may hand it out
     /// once it has no claim?
     pub fn is_empty(&self) -> bool {
-        self.running.is_empty() && self.keeping.is_empty() && self.unheld.is_empty()
+        self.running.is_empty()
+            && self.keeping.is_empty()
+            && self.unheld.is_empty()
+            && self.unheld.past_main.is_empty()
     }
 
     /// May the worktree's claim go: does no item run there, and does every
@@ -41,6 +45,23 @@ impl Kept {
     /// An item that keeps the worktree holds its work.
     pub fn is_leavable(&self) -> bool {
         self.running.is_empty() && self.unheld.is_empty()
+    }
+
+    /// Refuses <what>, a command that removes the worktree <top>, when
+    /// `require_leavable` does, and while HEAD has a commit origin/main
+    /// lacks: removing the worktree takes it off its branch.
+    pub fn require_removable(&self, what: &str, top: &Path) -> Result<()> {
+        self.require_leavable(what, top)?;
+        if !self.unheld.past_main.is_empty() {
+            fail!(
+                "{what} refuses {}: its HEAD has commits origin/main lacks{}: {}. Land them first, or take the worktree off them (`git -C {} switch --detach origin/main`)",
+                top.display(),
+                crate::unlanded::copies_words(&self.unheld.copied_on),
+                crate::unlanded::commit_words(&self.unheld.past_main),
+                top.display()
+            );
+        }
+        Ok(())
     }
 
     /// Refuses <what> (a command that removes the claim of <top>, or the

@@ -175,6 +175,171 @@ fn a_worktree_with_an_unlanded_commit_is_kept() {
     );
 }
 
+/// Another branch that has a worktree's commits is not origin/main: the
+/// worktree stays on its branch, though releasing its claim loses nothing.
+#[test]
+fn a_worktree_whose_commit_only_another_branch_has_is_kept() {
+    let scratch = Scratch::new("free-copied");
+    let (tool, main) = demo(&scratch);
+    new(&tool, &main, &["--for", "agent"]);
+    new(&tool, &main, &["-b", "work", "--for", "agent"]);
+    new(&tool, &main, &["-b", "stacked", "--for", "agent"]);
+    let top = side(&scratch, 2);
+    commit(&top, "unlanded");
+    git(&side(&scratch, 3), &["reset", "-q", "--hard", "work"]);
+    release(&scratch, 2);
+
+    retire_free(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
+    assert!(
+        top.join("unlanded").is_file(),
+        "a worktree whose branch is past origin/main was retired"
+    );
+    assert!(
+        find_free(&tool, &main).unwrap().is_none(),
+        "a worktree whose branch is past origin/main counted as free"
+    );
+    let error = crate::worktree::cmd_retire(&tool, &[top.display().to_string()]).unwrap_err();
+    let said = error.text();
+    assert!(said.contains("unlanded"), "{said}");
+    assert!(top.join("unlanded").is_file());
+}
+
+#[test]
+fn a_worktree_with_an_untracked_file_is_kept() {
+    let scratch = Scratch::new("free-untracked");
+    let (tool, main) = demo(&scratch);
+    new(&tool, &main, &["--for", "agent"]);
+    new(&tool, &main, &["--for", "agent"]);
+    release(&scratch, 2);
+    let top = side(&scratch, 2);
+    std::fs::write(top.join("stray"), "x").unwrap();
+
+    retire_free(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
+    assert!(
+        top.join("stray").is_file(),
+        "a worktree with an untracked file was retired"
+    );
+}
+
+/// A free side-2 whose tracked files are `kept/file` and `other`, all on
+/// origin/main.
+fn free_with_files(scratch: &Scratch, tool: &Tool, main: &Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(main.join("kept")).unwrap();
+    commit(main, "kept/file");
+    commit(main, "other");
+    git(main, &["push", "-q", "origin", "main"]);
+    new(tool, main, &["--for", "agent"]);
+    new(tool, main, &["--for", "agent"]);
+    release(scratch, 2);
+    side(scratch, 2)
+}
+
+fn set_mode(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// A retire that cannot unregister the worktree fails and leaves it as it
+/// was.
+#[test]
+fn a_retire_that_fails_leaves_the_worktree_whole() {
+    let scratch = Scratch::new("free-retire-fails");
+    let (tool, main) = demo(&scratch);
+    let top = free_with_files(&scratch, &tool, &main);
+    let registrations = main.join(".git/worktrees");
+    set_mode(&registrations, 0o555);
+
+    let result = retire_free(&tool, &tool.roots().unwrap(), Run::Real);
+    set_mode(&registrations, 0o755);
+    assert!(result.is_err(), "the retire did not fail");
+    assert!(top.join("kept/file").is_file());
+    assert!(top.join("other").is_file());
+    assert!(
+        crate::checkout::worktrees_of(&main)
+            .unwrap()
+            .iter()
+            .any(|listed| listed.ends_with("demo-worktrees/side-2"))
+    );
+    assert_eq!(
+        boards::git_text(boards::git(&top).args(["status", "--porcelain"]), "status").unwrap(),
+        ""
+    );
+}
+
+/// A retire that cannot delete a file still removes the whole worktree from
+/// its path and from git; only unreferenced files stay, which the next
+/// command that picks a worktree deletes.
+#[test]
+fn a_retire_that_cannot_delete_a_file_removes_the_worktree_whole() {
+    let scratch = Scratch::new("free-undeletable");
+    let (tool, main) = demo(&scratch);
+    let top = free_with_files(&scratch, &tool, &main);
+    set_mode(&top.join("kept"), 0o555);
+
+    let result = retire_free(&tool, &tool.roots().unwrap(), Run::Real);
+    let staging = main.join(".git/builds-retiring");
+    let left: Vec<_> = std::fs::read_dir(&staging)
+        .into_iter()
+        .flatten()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    for path in left
+        .iter()
+        .map(|entry| entry.join("files/kept"))
+        .chain([top.join("kept")])
+    {
+        if path.exists() {
+            set_mode(&path, 0o755);
+        }
+    }
+    result.unwrap();
+    assert!(!top.exists(), "part of the worktree stayed at its path");
+    assert_eq!(crate::checkout::worktrees_of(&main).unwrap().len(), 2);
+    assert_eq!(left.len(), 1);
+
+    drop(crate::worktree::lock_picking(&main).unwrap());
+    assert_eq!(std::fs::read_dir(&staging).unwrap().count(), 0);
+}
+
+/// A retire killed after it moved the folder and before git forgot the
+/// worktree is undone by the next command that picks a worktree.
+#[test]
+fn a_retire_stopped_halfway_is_undone_before_the_next_pick() {
+    let scratch = Scratch::new("free-halfway");
+    let (tool, main) = demo(&scratch);
+    let top = free_with_files(&scratch, &tool, &main);
+    let entry = main.join(".git/builds-retiring/side-2.AbCd1234");
+    std::fs::create_dir_all(&entry).unwrap();
+    std::fs::rename(&top, entry.join("files")).unwrap();
+
+    drop(crate::worktree::lock_picking(&main).unwrap());
+    assert!(top.join("kept/file").is_file());
+    assert!(!entry.exists());
+    git(&top, &["status", "--porcelain"]);
+}
+
+#[test]
+fn a_worktree_git_would_not_remove_is_not_retired() {
+    let scratch = Scratch::new("free-git-locked");
+    let (tool, main) = demo(&scratch);
+    let top = free_with_files(&scratch, &tool, &main);
+    git(&main, &["worktree", "lock", &top.display().to_string()]);
+
+    let result = retire_free(&tool, &tool.roots().unwrap(), Run::Real);
+    assert!(result.is_err(), "a locked worktree was retired");
+    assert!(top.join("other").is_file());
+
+    git(&main, &["worktree", "unlock", &top.display().to_string()]);
+    let checkout = Checkout::find(&top.display().to_string()).unwrap();
+    std::fs::create_dir(checkout.git_dir.join("modules")).unwrap();
+    let result = retire_free(&tool, &tool.roots().unwrap(), Run::Real);
+    assert!(
+        result.is_err(),
+        "a worktree with submodule git dirs was retired"
+    );
+    assert!(top.join("other").is_file());
+}
+
 #[test]
 fn a_free_worktree_is_retired_at_once_and_the_rest_stay() {
     let scratch = Scratch::new("free-idle");
