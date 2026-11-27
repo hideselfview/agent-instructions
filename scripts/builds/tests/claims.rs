@@ -5,6 +5,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::Receiver;
@@ -211,9 +212,8 @@ impl Demo {
         ]);
     }
 
-    /// Adds the worktree <name>, sets up its build root and makes it the mac
-    /// app checkout.
-    fn add_app_checkout(&self, name: &str) {
+    /// Adds the detached worktree <name> of demo.
+    fn add_worktree(&self, name: &str) {
         let top = self.dir.join("demo-worktrees").join(name);
         let added = Command::new("git")
             .arg("-C")
@@ -223,6 +223,13 @@ impl Demo {
             .status()
             .unwrap();
         assert!(added.success(), "git worktree add {name}");
+    }
+
+    /// Adds the worktree <name>, sets up its build root and makes it the mac
+    /// app checkout.
+    fn add_app_checkout(&self, name: &str) {
+        self.add_worktree(name);
+        let top = self.dir.join("demo-worktrees").join(name);
         let top = path(&top).to_string();
         self.run(&["setup", &top]);
         self.run(&["app-checkout", "mac", &top]);
@@ -609,6 +616,48 @@ fn prune_keeps_a_claimed_folder_over_its_cap_and_deletes_it_once_released() {
     );
 }
 
+/// Run from a folder in no checkout, each form of app-checkout that changes a
+/// checkout on this Mac tells the dashboard of that checkout's build root, and
+/// adding one measures the root.
+#[test]
+fn app_checkout_reports_the_build_root_of_the_checkout_it_changes() {
+    let demo = Demo::new("appco");
+    demo.add_worktree("xcode-1");
+    let top = path(&demo.dir.join("demo-worktrees/xcode-1")).to_string();
+    let root = demo.volume().join("demo/xcode-1");
+    let dashboard = StandInDashboard::listen(&demo.volume());
+    let told_after = |args: &[&str]| {
+        let output = demo
+            .builds()
+            .current_dir(&demo.dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "builds {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        dashboard.told()
+    };
+
+    told_after(&["app-checkout", "mac", &top]);
+    let record = demo.volume().join(".builds-daemon/sizes/demo/xcode-1.json");
+    assert!(record.is_file(), "adding the checkout measured no sizes");
+    for args in [
+        // The lane holds it already, so nothing sets it up again.
+        &["app-checkout", "mac", &top][..],
+        &["app-checkout", "reset", "demo", "xcode-1"],
+        &["app-checkout", "remove", "mac", &top],
+    ] {
+        let told = told_after(args);
+        assert!(
+            told.contains(&root),
+            "after {args:?} the dashboard was told of {told:?}"
+        );
+    }
+}
+
 /// The daemon follows the scratch volume; status asks it for the sizes, and
 /// says the same as when it measured them itself. A second daemon on the same
 /// volume is refused. It serves the page, the state the page shows, and the
@@ -869,6 +918,43 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
             >= 2048,
         "status after the daemon stopped"
     );
+}
+
+/// A stand-in for the dashboard on its socket: keeps the build roots each
+/// command tells it of.
+struct StandInDashboard {
+    roots: Receiver<PathBuf>,
+}
+
+impl StandInDashboard {
+    fn listen(volume: &Path) -> StandInDashboard {
+        let daemon = volume.join(".builds-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        let socket = UnixListener::bind(daemon.join("socket")).unwrap();
+        let (sender, roots) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for stream in socket.incoming() {
+                let mut stream = stream.unwrap();
+                let mut question = String::new();
+                BufReader::new(&stream).read_line(&mut question).unwrap();
+                let question: Value = serde_json::from_str(&question).unwrap();
+                for root in question["wrote"]["roots"].as_array().unwrap() {
+                    // The send fails only once the test has ended.
+                    if sender.send(PathBuf::from(root.as_str().unwrap())).is_err() {
+                        return;
+                    }
+                }
+                stream.write_all(b"\"done\"\n").unwrap();
+            }
+        });
+        StandInDashboard { roots }
+    }
+
+    /// The roots it was told of since the last call. A command waits for the
+    /// answer to each message, so after it exits they are all here.
+    fn told(&self) -> Vec<PathBuf> {
+        self.roots.try_iter().collect()
+    }
 }
 
 /// The dashboard's events, as a page that watches it gets them.

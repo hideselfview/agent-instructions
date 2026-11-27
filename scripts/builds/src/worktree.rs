@@ -513,7 +513,13 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     };
     if let Some((repo, name, matching)) = reset {
         tool.places.require_volume()?;
-        return crate::app_reset::cmd_reset(&tool.places, ssh, repo, name, matching);
+        let reset = crate::app_reset::cmd_reset(&tool.places, ssh, repo, name, matching);
+        // A checkout on a host has no build root on this Mac.
+        if crate::app_remote::split(name).is_none() {
+            let root = tool.places.root.join(repo).join(name);
+            crate::sizes::record_roots(&tool.places, &[root]);
+        }
+        return reset;
     }
     let (removing, lane, arg) = match args {
         [word, lane, arg] if word == "remove" => (true, lane, arg),
@@ -537,21 +543,49 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     checkout.require_repo_name(&tool.places)?;
     let repo = checkout.repo();
     let lane = crate::repo_lanes::parse_in_source(&checkout.top, lane)?;
-    if removing {
-        let shown = checkout.top.display().to_string();
-        remove_from_lane(tool, &repo, lane, &name, &shown, |_| Ok(()))?;
-        note(format!(
-            "removed {shown} from {repo}'s {} app checkouts; the worktree stays until you remove it with `git worktree remove`, and `builds prune` then deletes its build folders",
-            lane.word()
-        ));
-        return Ok(());
-    }
+    let changed = if removing {
+        remove_local_checkout(tool, &repo, lane, &name, &checkout)
+    } else {
+        add_local_checkout(tool, ssh, &repo, lane, &name, &checkout)
+    };
+    // A change that failed partway may have written the root too.
+    crate::sizes::record_roots(&tool.places, &[checkout.build_root(&tool.places)]);
+    changed
+}
+
+/// Takes <checkout>, the worktree <name>, out of <repo>'s <lane>.
+fn remove_local_checkout(
+    tool: &Tool,
+    repo: &str,
+    lane: Lane,
+    name: &str,
+    checkout: &Checkout,
+) -> Result<()> {
+    let shown = checkout.top.display().to_string();
+    remove_from_lane(tool, repo, lane, name, &shown, |_| Ok(()))?;
+    note(format!(
+        "removed {shown} from {repo}'s {} app checkouts; the worktree stays until you remove it with `git worktree remove`, and `builds prune` then deletes its build folders",
+        lane.word()
+    ));
+    Ok(())
+}
+
+/// Sets up <checkout>, the worktree <name>, unless <repo>'s <lane> holds it
+/// already, and records it in the lane.
+fn add_local_checkout(
+    tool: &Tool,
+    ssh: &Ssh,
+    repo: &str,
+    lane: Lane,
+    name: &str,
+    checkout: &Checkout,
+) -> Result<()> {
     // A folder's name may hold a colon, which an entry reads as a host's.
-    require_app_checkout_name(&name)?;
-    let recorded = AppCheckout::by_person(&name)?;
+    require_app_checkout_name(name)?;
+    let recorded = AppCheckout::by_person(name)?;
     if let Some(other) = tool
         .places
-        .app_lane_of(&repo, &name)?
+        .app_lane_of(repo, name)?
         .filter(|other| *other != lane)
     {
         fail!(
@@ -560,16 +594,21 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
             other.word()
         );
     }
-    if !tool.places.app_checkouts_of(&repo, lane)?.contains(&name) {
-        prepare(tool, ssh, &checkout)?;
-        start_from_warmest(tool, ssh, &repo, lane, &checkout)?;
+    if !tool
+        .places
+        .app_checkouts_of(repo, lane)?
+        .iter()
+        .any(|entry| entry == name)
+    {
+        prepare(tool, ssh, checkout)?;
+        start_from_warmest(tool, ssh, repo, lane, checkout)?;
     }
-    let count = record_in_lane(tool, &repo, lane, recorded)?;
+    let count = record_in_lane(tool, repo, lane, recorded)?;
     note(format!(
         "{} is one of {repo}'s {} app checkouts ({count} in all, in {}); the free-space floor keeps the folders its lane builds into",
         checkout.top.display(),
         lane.word(),
-        tool.places.app_checkouts_file(&repo, lane).display()
+        tool.places.app_checkouts_file(repo, lane).display()
     ));
     Ok(())
 }

@@ -256,7 +256,7 @@ fn written_by(places: &Places, command: &str, args: &[String]) -> Result<Vec<Pat
     };
     match command {
         "cargo" | "lake" | "new" | "release" | "retire" => here(),
-        "app-build" | "build-app" | "app-checkout" => {
+        "app-build" | "build-app" => {
             let mut roots = here()?;
             if let Some(repo) = args.iter().find(|arg| !arg.starts_with('-')) {
                 for entry in places.app_checkout_entries(repo)? {
