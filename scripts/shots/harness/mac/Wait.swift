@@ -4,14 +4,13 @@ import Foundation
 /// Waiting in a test for something that happens later: a value landing in a
 /// store, a recorder receiving a call, a hosted view finishing its layout.
 ///
-/// A wait ends on the event it waits for, never on a clock. A store's value is
-/// `@Observable`, so the condition is read under observation tracking and the
-/// wait resumes when anything the condition read changes. A recorder or a fake
-/// is test code: it calls `Wait.happened()` after each change it records, which
-/// resumes every wait to read its condition again. A hosted view tree is read
-/// each time the main run loop goes idle, about to sleep. The only timer is
-/// the hang guard ([`HangGuard`]), which fails the wait loudly when the event
-/// never comes.
+/// A wait ends on the event it waits for, never on a clock. A condition is
+/// read under observation tracking, so the wait resumes when anything
+/// observable the condition read changes: a store's value, or what a test's
+/// recorder or fake records. What AppKit changes without observation is
+/// named as notices. A hosted view tree is read each time the main run loop
+/// goes idle, about to sleep. The only timer is the hang guard
+/// ([`HangGuard`]), which fails the wait loudly when the event never comes.
 enum Wait {
     /// What a wait was given did not happen in time.
     struct TimedOut: LocalizedError, CustomStringConvertible {
@@ -25,9 +24,11 @@ enum Wait {
         var errorDescription: String? { description }
     }
 
-    /// Return once `condition` holds. It is read under observation tracking
-    /// and again after every `happened()`, so it holds only things a store
-    /// publishes or a recorder announces.
+    /// Return once `condition` holds. It is read under observation tracking,
+    /// so it holds only what is observable or what `notices` tell of.
+    /// Observation starts tracking what a condition read only once the whole
+    /// condition has run, so what changes off the main thread tells of each
+    /// change on the main thread.
     ///
     /// What AppKit changes without observation, such as a clip view's bounds,
     /// is named in `notices`: each posting of one reads the condition again.
@@ -38,13 +39,11 @@ enum Wait {
         line: UInt = #line,
         _ condition: @MainActor () throws -> Bool
     ) async throws {
-        let listening = Listening(notices)
-        defer { listening.stop() }
+        let wake = Wake()
+        let listeners = notices.map { $0.listen { wake.fire() } }
+        defer { for listener in listeners { listener.stop() } }
         let end = ContinuousClock.now.advanced(by: HangGuard.duration)
         while true {
-            let wake = Wake()
-            let registration = Wake.register(wake)
-            defer { Wake.unregister(registration) }
             var holds = false
             var failure: (any Error)?
             withObservationTracking {
@@ -61,13 +60,6 @@ enum Wait {
                 line: line
             )
         }
-    }
-
-    /// Something a test waits on changed: a recorder took a call, a fake
-    /// was asked. Call it after the change is visible to a reader, from any
-    /// thread.
-    static func happened() {
-        Wake.fireAll()
     }
 
     /// Something AppKit changes without observation, which a wait reads its
@@ -99,51 +91,22 @@ enum Wait {
         func stop() { stopping() }
     }
 
-    /// The observers of a wait's notices, for as long as it runs.
-    final class Listening: @unchecked Sendable {
-        private var listeners: [Listener]
-
-        init(_ notices: [Notice]) {
-            listeners = notices.map { $0.listen { Wait.happened() } }
-        }
-
-        func stop() {
-            for listener in listeners { listener.stop() }
-            listeners = []
-        }
-    }
-
-    /// One wait's wake-up: fired by the observation of what it read or by
-    /// `happened()`. A fire before the wait began is kept.
-    final class Wake: @unchecked Sendable {
+    /// One wait's wake-up, fired by the observation of what its condition
+    /// read and by its notices. A fire while nothing waits is kept for the
+    /// next wait for it, which takes it.
+    private final class Wake: @unchecked Sendable {
         private let lock = NSLock()
         private var isFired = false
         private var waiter: CheckedContinuation<Void, Never>?
 
-        private static let registryLock = NSLock()
-        nonisolated(unsafe) private static var registry:
-            [ObjectIdentifier: Wake] = [:]
-
-        static func register(_ wake: Wake) -> ObjectIdentifier {
-            let id = ObjectIdentifier(wake)
-            registryLock.withLock { registry[id] = wake }
-            return id
-        }
-
-        static func unregister(_ id: ObjectIdentifier) {
-            registryLock.withLock { _ = registry.removeValue(forKey: id) }
-        }
-
-        static func fireAll() {
-            let all = registryLock.withLock { Array(registry.values) }
-            for wake in all { wake.fire() }
-        }
-
         func fire() {
             let resume: CheckedContinuation<Void, Never>? = lock.withLock {
-                isFired = true
-                defer { waiter = nil }
-                return waiter
+                guard let waiting = waiter else {
+                    isFired = true
+                    return nil
+                }
+                waiter = nil
+                return waiting
             }
             resume?.resume()
         }
@@ -151,7 +114,10 @@ enum Wait {
         private func wait() async {
             await withCheckedContinuation { continuation in
                 let resumeNow = lock.withLock {
-                    if isFired { return true }
+                    if isFired {
+                        isFired = false
+                        return true
+                    }
                     waiter = continuation
                     return false
                 }

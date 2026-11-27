@@ -41,8 +41,8 @@ struct ShotStage {
     /// each layout, for what a view builds from a read it makes itself and
     /// no store publishes, such as a text field holding a loaded value.
     let isDrawn: @MainActor (NSView) -> Bool
-    /// Read under observation tracking, so it holds only what a store
-    /// publishes, or what a fake announces with `Wait.happened()`.
+    /// Read under observation tracking, so it holds only what is
+    /// observable: what a store publishes, or a fake records.
     let isReady: @MainActor () -> Bool
 
     init(
