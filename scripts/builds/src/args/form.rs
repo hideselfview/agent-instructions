@@ -106,7 +106,7 @@ impl Form {
         })?;
         let mut flags: Vec<Flag> = Vec::new();
         collect_flags(&top, true, false, &mut flags);
-        let pattern = elements(&top);
+        let pattern = elements(&top, true);
         let keeps_double_dash = top.iter().any(|(node, _)| matches!(node, Node::Word("--")));
         Ok(Form {
             flags,
@@ -304,14 +304,7 @@ fn collect_flags(nodes: &[(Node, bool)], top: bool, repeating: bool, flags: &mut
     for (at, (node, repeats)) in nodes.iter().enumerate() {
         match node {
             Node::Flag(name) => {
-                let following = nodes[at + 1..]
-                    .iter()
-                    .take_while(|(node, _)| matches!(node, Node::Word(word) if *word != "--"));
-                let taken: Vec<&(Node, bool)> = if top {
-                    following.take(1).collect()
-                } else {
-                    following.collect()
-                };
+                let taken = &nodes[at + 1..at + 1 + flag_values(nodes, at, top)];
                 let flag = Flag {
                     name,
                     values: taken.len(),
@@ -333,14 +326,15 @@ fn collect_flags(nodes: &[(Node, bool)], top: bool, repeating: bool, flags: &mut
     }
 }
 
-/// The positional pattern of <nodes>: without the flags and their values.
-fn elements(nodes: &[(Node, bool)]) -> Vec<Element> {
-    let mut elements = Vec::new();
+/// The positional pattern of <nodes>, a sequence at the top level of the line
+/// when <top>: without the flags and their values.
+fn elements(nodes: &[(Node, bool)], top: bool) -> Vec<Element> {
+    let mut pattern = Vec::new();
     let mut values_left = 0;
     for (at, (node, repeats)) in nodes.iter().enumerate() {
         let part = match node {
             Node::Flag(_) => {
-                values_left = flag_values_at(nodes, at);
+                values_left = flag_values(nodes, at, top);
                 continue;
             }
             Node::Word(_) if values_left > 0 => {
@@ -357,66 +351,27 @@ fn elements(nodes: &[(Node, bool)]) -> Vec<Element> {
                 optional: *optional,
                 alternatives: alternatives
                     .iter()
-                    .map(|nodes| inner_elements(nodes))
+                    .map(|nodes| elements(nodes, false))
                     .collect(),
             },
         };
-        elements.push(Element {
+        pattern.push(Element {
             part,
             repeats: *repeats,
         });
     }
-    elements
+    pattern
 }
 
-/// `elements` of a sequence inside a group, where a flag takes every value
-/// word up to the next flag.
-fn inner_elements(nodes: &[(Node, bool)]) -> Vec<Element> {
-    let mut kept: Vec<Element> = Vec::new();
-    let mut in_flag = false;
-    for (node, repeats) in nodes {
-        match node {
-            Node::Flag(_) => in_flag = true,
-            Node::Word(word) if in_flag && *word != "--" => {}
-            Node::Word("--") => {
-                in_flag = false;
-                kept.push(Element {
-                    part: Part::DoubleDash,
-                    repeats: *repeats,
-                });
-            }
-            Node::Word(word) => kept.push(Element {
-                part: if is_placeholder(word) {
-                    Part::Placeholder
-                } else {
-                    Part::Literal(word.split('|').collect())
-                },
-                repeats: *repeats,
-            }),
-            Node::Group {
-                optional,
-                alternatives,
-            } => {
-                in_flag = false;
-                kept.push(Element {
-                    part: Part::Group {
-                        optional: *optional,
-                        alternatives: alternatives
-                            .iter()
-                            .map(|nodes| inner_elements(nodes))
-                            .collect(),
-                    },
-                    repeats: *repeats,
-                });
-            }
-        }
-    }
-    kept
-}
-
-/// How many words follow the top-level flag at <at> of <nodes> as its value.
-fn flag_values_at(nodes: &[(Node, bool)], at: usize) -> usize {
-    usize::from(matches!(nodes.get(at + 1), Some((Node::Word(word), _)) if *word != "--"))
+/// How many words follow the flag at <at> of <nodes> as its values: the one
+/// value word after it at the top level of the line (<top>), and every value
+/// word up to the next flag, `--` or group inside a group.
+fn flag_values(nodes: &[(Node, bool)], at: usize, top: bool) -> usize {
+    let following = nodes[at + 1..]
+        .iter()
+        .take_while(|(node, _)| matches!(node, Node::Word(word) if *word != "--"))
+        .count();
+    if top { following.min(1) } else { following }
 }
 
 /// Whether <word> stands for any one word.
@@ -436,7 +391,7 @@ fn passes_on_after(nodes: &[(Node, bool)]) -> Option<usize> {
     let mut values_left = 0;
     for (at, (node, repeats)) in nodes.iter().enumerate() {
         match node {
-            Node::Flag(_) => values_left = flag_values_at(nodes, at),
+            Node::Flag(_) => values_left = flag_values(nodes, at, true),
             Node::Word(_) if values_left > 0 => values_left -= 1,
             Node::Word(word) if *word == PASSED_ON => return Some(count),
             Node::Word(word) if *word == "--" || *repeats => return None,
