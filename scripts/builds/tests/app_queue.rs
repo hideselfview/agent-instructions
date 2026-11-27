@@ -1874,6 +1874,85 @@ fn cached_shots_do_not_skip_a_changed_lane_without_coverage() {
     assert_landing_coverage(&volume, &top);
 }
 
+/// A stand-in shots run whose report checks the scenes `--only` names, or
+/// else those of the two declared that its prefix starts.
+fn scene_report_hook() -> String {
+    format!(
+        r#"only=""; select=""; flag=""
+for word in "$@"; do
+case "$flag" in --only) only="$only $word" ;; --select) select="$word" ;; esac
+flag="$word"
+done
+if [ -z "$only" ]; then
+for scene in mac.a.one mac.a.two; do
+case "$scene" in "$select"*) only="$only $scene" ;; esac
+done
+fi
+list=""; for scene in $only; do list="$list${{list:+,}}\"$scene\""; done
+report="$QUEUE_TEST_DIR/report-$$"
+mkdir -p "$report"
+echo '<html></html>' > "$report/index.html"
+echo "{{\"version\": \"{comparison}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"scenes\": [$list], \"boards\": {{}}, \"seen\": {{}}, \"sizes\": {{}}, \"components\": [], \"findings\": [], \"failed\": [], \"problems\": 0}}" > "$report/findings.json"
+echo "builds shots: report at $report/index.html" >&2
+exit 0"#,
+        comparison = env!("COMPARISON_SOURCE"),
+        capture = env!("CAPTURE_MAC_SOURCE"),
+    )
+}
+
+#[test]
+fn a_base_build_shoots_only_the_boards_the_saved_runs_lack() {
+    let volume = Volume::new("base-lacking-boards");
+    volume.app_repo_with(SHOTS_CONFIG);
+    let top = volume.dir.join("checkout");
+    write_reporting_shots(&top, &scene_report_hook());
+    declare_scenes(
+        &top,
+        "declared-mac",
+        "Shots.swift",
+        "let scenes = [\"mac.a.one\", \"mac.a.two\"]\n",
+    );
+    git_in(&top, &["add", "shot.sh", "declared-mac"]);
+    git_in(&top, &["commit", "-q", "-m", "Add the shots program"]);
+    git_in(&top, &["push", "-q", "origin", "main"]);
+    let base = git_in(&top, &["rev-parse", "HEAD"]);
+    branch_from_main(&top, "work", "mac/Foo.txt");
+    volume.open_gate("one");
+    let build = |prefix: &str| {
+        let built = volume.run(&["app-build", "demo", "work", "--shots", prefix]);
+        let said = String::from_utf8_lossy(&built.stderr).into_owned();
+        assert!(built.status.success(), "{said}");
+        said
+    };
+    let base_runs = |volume: &Volume| -> Vec<String> {
+        volume
+            .log()
+            .into_iter()
+            .filter(|line| line.starts_with("shots ") && line.ends_with(" --base"))
+            .collect()
+    };
+    build("mac.a.one");
+    assert_eq!(base_runs(&volume).len(), 1);
+
+    let said = build("mac.a.");
+    let runs = base_runs(&volume);
+    assert_eq!(runs.len(), 2, "{runs:?}\n{said}");
+    assert!(runs[1].contains("--only mac.a.two"), "{runs:?}");
+    assert!(!runs[1].contains("--only mac.a.one"), "{runs:?}");
+    // The base's run of the prefix holds the saved board and the new one.
+    let saved = volume.dir.join(format!(
+        "volume/shots/demo/runs/{base}/mac/26B131-17C529/mac.a./{}/{}/report/findings.json",
+        env!("CAPTURE_MAC_SOURCE"),
+        env!("COMPARISON_SOURCE")
+    ));
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&saved).unwrap()).unwrap();
+    assert_eq!(
+        file["scenes"],
+        serde_json::json!(["mac.a.one", "mac.a.two"])
+    );
+}
+
 #[test]
 fn a_cached_only_request_does_not_rebuild_for_an_unrequested_failed_prefix() {
     let (volume, _) = cached_coverage_repo(

@@ -1705,7 +1705,8 @@ display, another app kept the focus, or Xcode or UI automation did not start.
 The lane stops at that run's step.
 The cache is build output on the build volume: builds holds each repo's folder
 in shots under its cap, deletes the runs and pictures that agents used least
-recently first (DISK), and makes a deleted run again when an agent asks for it.
+recently first (DISK), except a run that a build of a merge base is making
+another run from, and makes a deleted run again when an agent asks for it.
 
 Beside the runs, builds caches each repo's board pictures in
 /Volumes/Builds/shots/<repo>/pictures/boards/, as <board hash>.png with its
@@ -1815,7 +1816,12 @@ that merge base (the file base-run-<lane>-<commit>.lock in the repo's folder
 on the build volume), checks out the merge base, runs the lane's `needs`
 steps there (none when the picture folder caches every shot the runs take for
 the merge base's app tree), runs the prefixes it lacks with `--base`, caches
-their findings, and then checks out the branch and builds it as usual. A build
+their findings, and then checks out the branch and builds it as usual. When
+runs of narrower prefixes hold some of a lacking prefix's shots, its run at
+the merge base takes only the others, which builds names with one `--only
+<name>` for each (the capture step names those and every shot of its other
+prefixes), and builds saves what the run found with what those runs hold as
+the run of the prefix. The cap deletes none of those runs until then. A build
 that finds the run being made waits for the lock, then finds the run cached
 and builds none. A prefix that starts no shot declared at the merge base needs
 no run there: the branch's run compares it with an empty run
@@ -2206,7 +2212,12 @@ built again.
                               picture with `builds shots picture`. `builds shots <command>
                               --help` lists a
                               command's arguments. `run` takes the selected
-                              shots into shots/ and checks them; with
+                              shots into shots/ and checks them; `--only
+                              <name>`, which `run` and `scenes` take once for
+                              each name, takes among the shots --select
+                              selects only the ones of exactly those names,
+                              and a `run` with it marks no prefix taken in
+                              the picture folder; with
                               --before <findings.json>, the findings.json of
                               a run by the same comparison version of the checker, it
                               fails only on the pairs worse against
@@ -2428,8 +2439,10 @@ built again.
                               capture command from the repo's top with
                               BUILDS_SHOTS_OUT (the folder to write each
                               <name>@<platform>.png and .json into),
-                              BUILDS_SHOTS_SELECT (the name prefixes, comma
-                              separated, unset for every shot),
+                              BUILDS_SHOTS_SELECT (the shots to take, comma
+                              separated, each a name prefix, or =<name> for
+                              the shot of exactly that name, as a run with
+                              --only gives them; unset for every shot),
                               BUILDS_SHOTS_BOARD_SIZES (the path of
                               board-sizes.json in that folder: one JSON object
                               that maps each selected component scene's name to

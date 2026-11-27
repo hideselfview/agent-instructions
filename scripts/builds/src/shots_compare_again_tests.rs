@@ -554,3 +554,26 @@ fn saved_runs_that_lack_a_declared_board_of_a_prefix_are_no_before_run_of_it() {
 fn mac_versions() -> &'static crate::shots_program::Versions {
     crate::shots_program::versions(boards::app_build::Platform::Mac)
 }
+
+/// A base build makes its run from saved runs long after it read them, so
+/// the cap must keep them until then.
+#[test]
+fn the_saved_runs_a_base_build_will_make_its_run_from_stay_through_a_prune() {
+    let scratch = Scratch::new("compose-kept");
+    let places = scratch.places();
+    cache_scene(&places, "mac.a.one", "mac.a.one", 1);
+    let key = |prefix: &str| Key {
+        prefix: prefix.to_string(),
+        ..key(&mac_versions().capture, &mac_versions().comparison)
+    };
+    let part = shots_cache::run_folder(&places, &key("mac.a.one"));
+    let saved = crate::shots_compose::Saved::of(&places, &key("mac.a."), &mut || {
+        Ok(vec!["mac.a.one".to_string(), "mac.a.two".to_string()])
+    })
+    .unwrap()
+    .expect("the run of mac.a.one gives a board of mac.a.");
+    assert_eq!(saved.lacking().iter().collect::<Vec<_>>(), ["mac.a.two"]);
+    assert!(crate::flock::is_held(&part).unwrap());
+    drop(saved);
+    assert!(!crate::flock::is_held(&part).unwrap());
+}

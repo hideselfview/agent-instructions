@@ -8,6 +8,10 @@
 //! builds saves it as that run: every reader of a covering run
 //! (shots_cache.rs `covering_run`) then finds it.
 //!
+//! When such runs tried some of a prefix's scenes only, the build of the
+//! commit shoots the others, and builds saves what it found with what the
+//! cache held as the run of the prefix (`Saved`).
+//!
 //! The run takes each scene from the newest run that tried it: its findings,
 //! board hash, elements, sizes and capture failure. Its report links the
 //! pictures of those runs, and it has no report page. Its verdict fails when
@@ -65,6 +69,18 @@ impl Part {
         }
     }
 
+    /// The scenes of <wanted> the run tried, which it removes from <wanted>.
+    fn gives(&self, wanted: &mut BTreeSet<String>) -> Result<BTreeSet<String>> {
+        let tried = self.tried()?;
+        let gives: BTreeSet<String> = wanted
+            .iter()
+            .filter(|name| tried.contains(name.as_str()))
+            .cloned()
+            .collect();
+        wanted.retain(|name| !gives.contains(name));
+        Ok(gives)
+    }
+
     /// The scenes the run tried: the ones it checked and the ones its capture
     /// wrote no usable shot of.
     fn tried(&self) -> Result<BTreeSet<&str>> {
@@ -80,6 +96,89 @@ impl Part {
     }
 }
 
+/// The part of a run of a prefix that the cached runs of narrower prefixes
+/// hold. While it lives, it holds a shared lock on each of those runs' folders,
+/// so the cap deletes none of them (shots_cache.rs `group`).
+pub struct Saved {
+    /// Each run that gives a scene, newest first, with the scenes it gives.
+    chosen: Vec<(Part, BTreeSet<String>)>,
+    /// The shots the commit declares under the prefix that no run tried.
+    lacking: BTreeSet<String>,
+    _kept: Vec<std::fs::File>,
+}
+
+impl Saved {
+    /// What the cached runs of prefixes narrower than <key>'s hold of the
+    /// shots under it that <declared> lists, taking each shot from the newest
+    /// run that tried it; None when no such run tried one of them.
+    pub fn of(
+        places: &Places,
+        key: &Key,
+        declared: &mut dyn FnMut() -> Result<Vec<String>>,
+    ) -> Result<Option<Saved>> {
+        // The cap deletes no run before this locks it.
+        let _reading = shots_cache::writing(places)?;
+        let mut parts = Vec::new();
+        for part in shots_cache::narrower_keys(places, key)? {
+            if let Some(run) = shots_cache::lookup(places, &part)?
+                && run.findings_json().is_file()
+            {
+                parts.push(Part::read(run)?);
+            }
+        }
+        if parts.is_empty() {
+            return Ok(None);
+        }
+        parts.sort_by_key(|part| std::cmp::Reverse(part.run.recorded_at()));
+        let mut lacking: BTreeSet<String> = declared()?
+            .into_iter()
+            .filter(|name| name.starts_with(&key.prefix))
+            .collect();
+        let mut chosen = Vec::new();
+        let mut kept = Vec::new();
+        for part in parts {
+            let gives = part.gives(&mut lacking)?;
+            if !gives.is_empty() {
+                kept.push(shots_cache::keep(&part.run)?);
+                chosen.push((part, gives));
+            }
+        }
+        Ok((!chosen.is_empty()).then_some(Saved {
+            chosen,
+            lacking,
+            _kept: kept,
+        }))
+    }
+
+    /// The shots under the prefix that the saved runs lack.
+    pub fn lacking(&self) -> &BTreeSet<String> {
+        &self.lacking
+    }
+
+    /// Caches as the run of <key> what the saved runs hold with what <fresh>,
+    /// a run of the shots they lack, found of those.
+    pub fn save_with(&self, places: &Places, key: &Key, fresh: Cached) -> Result<Cached> {
+        let fresh = Part::read(fresh)?;
+        let gives = fresh.gives(&mut self.lacking.clone())?;
+        let mut chosen = vec![(&fresh, &gives)];
+        chosen.extend(self.chosen.iter().map(|(part, gives)| (part, gives)));
+        let header = format!(
+            "builds shots: put together from a run of the shots that no saved run held and the saved runs of {}; it has no report page",
+            self.prefixes()
+        );
+        publish(places, key, &chosen, &header)
+    }
+
+    /// The prefixes of the saved runs, as a list.
+    fn prefixes(&self) -> String {
+        self.chosen
+            .iter()
+            .map(|(part, _)| part.run.key.prefix.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
 /// Makes the run <key> from the cached runs of narrower prefixes, when they
 /// tried every shot under <key>'s prefix that <declared> lists, caches it and
 /// returns it; None when no such runs tried them all, or when <declared>
@@ -89,68 +188,22 @@ pub fn compose(
     key: &Key,
     declared: &mut dyn FnMut() -> Result<Vec<String>>,
 ) -> Result<Option<Cached>> {
-    // The cap deletes no run while this reads them.
-    let _reading = shots_cache::writing(places)?;
-    let mut parts = Vec::new();
-    for part in shots_cache::narrower_keys(places, key)? {
-        if let Some(run) = shots_cache::lookup(places, &part)?
-            && run.findings_json().is_file()
-        {
-            parts.push(Part::read(run)?);
-        }
-    }
-    if parts.is_empty() {
+    let Some(saved) = Saved::of(places, key, declared)? else {
+        return Ok(None);
+    };
+    if !saved.lacking.is_empty() {
         return Ok(None);
     }
-    parts.sort_by_key(|part| std::cmp::Reverse(part.run.recorded_at()));
-    let mut wanted: BTreeSet<String> = declared()?
-        .into_iter()
-        .filter(|name| name.starts_with(&key.prefix))
+    let chosen: Vec<_> = saved
+        .chosen
+        .iter()
+        .map(|(part, gives)| (part, gives))
         .collect();
-    if wanted.is_empty() {
-        return Ok(None);
-    }
-    // Each part that gives a scene, with the scenes it gives.
-    let mut chosen: Vec<(&Part, BTreeSet<String>)> = Vec::new();
-    for part in &parts {
-        let tried = part.tried()?;
-        let gives: BTreeSet<String> = wanted
-            .iter()
-            .filter(|name| tried.contains(name.as_str()))
-            .cloned()
-            .collect();
-        wanted.retain(|name| !gives.contains(name));
-        if !gives.is_empty() {
-            chosen.push((part, gives));
-        }
-    }
-    if !wanted.is_empty() {
-        return Ok(None);
-    }
-    let findings = findings_of(&chosen)?.to_string();
-    let sources: Vec<&Cached> = chosen.iter().map(|(part, _)| &part.run).collect();
     let header = format!(
         "builds shots: put together from the saved runs of {}; it has no report page",
-        sources
-            .iter()
-            .map(|source| source.key.prefix.as_str())
-            .collect::<Vec<_>>()
-            .join(", "),
+        saved.prefixes()
     );
-    let failed = chosen.iter().any(|(part, _)| part.run.app_exit_code() != 0);
-    let ended = chosen
-        .iter()
-        .map(|(part, _)| part.run.recorded_at())
-        .max()
-        .expect("a wanted scene has a part that gives it");
-    let cached = cache_made_run(
-        places,
-        key,
-        &sources,
-        &findings,
-        &header,
-        |staging, text| staging.finish_at(i64::from(failed), text, ended),
-    )?;
+    let cached = publish(places, key, &chosen, &header)?;
     note(format!(
         "the saved runs of {} {} under {} tried every shot it selects, so builds saved them as its run: no app build and no shot",
         short(&key.commit),
@@ -160,10 +213,31 @@ pub fn compose(
     Ok(Some(cached))
 }
 
+/// Caches as the run of <key> the run that takes from each of <chosen>,
+/// newest first, the scenes it gives, under the text <header>.
+fn publish(
+    places: &Places,
+    key: &Key,
+    chosen: &[(&Part, &BTreeSet<String>)],
+    header: &str,
+) -> Result<Cached> {
+    let findings = findings_of(chosen)?.to_string();
+    let sources: Vec<&Cached> = chosen.iter().map(|(part, _)| &part.run).collect();
+    let failed = sources.iter().any(|source| source.app_exit_code() != 0);
+    let ended = sources
+        .iter()
+        .map(|source| source.recorded_at())
+        .max()
+        .expect("a run is made from at least one run");
+    cache_made_run(places, key, &sources, &findings, header, |staging, text| {
+        staging.finish_at(i64::from(failed), text, ended)
+    })
+}
+
 /// The findings.json of the run that takes from each of <chosen>, newest
 /// first, the scenes it gives. What the file says of no one scene comes from
 /// the newest.
-fn findings_of(chosen: &[(&Part, BTreeSet<String>)]) -> Result<Value> {
+fn findings_of(chosen: &[(&Part, &BTreeSet<String>)]) -> Result<Value> {
     let mut file = chosen[0].0.file.clone();
     let mut scenes = BTreeSet::new();
     let mut failed = Vec::new();
@@ -192,7 +266,7 @@ fn findings_of(chosen: &[(&Part, BTreeSet<String>)]) -> Result<Value> {
         );
         for name in BY_SCENE {
             let entries = by_scene.entry(name).or_default();
-            for scene in gives {
+            for scene in gives.iter() {
                 if let Some(entry) = part.file[name].get(scene) {
                     entries.insert(scene.clone(), entry.clone());
                 }

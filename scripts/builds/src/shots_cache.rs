@@ -62,6 +62,9 @@
 //! `shots/.writing` is held by each run that caches its output, and by
 //! app-build while a shots step reads a before run or the picture folder or
 //! writes to it, so the prune deletes nothing a run reads or writes.
+//! A build that shoots only the boards of a merge base that cached runs lack
+//! keeps those runs from the prune until it has made its run from them
+//! (`keep`, shots_compose.rs).
 //! A lane holds its app tree separately from before it checks its taken
 //! marks through its last comparison of that tree (`AppPictures`), so
 //! pruning other pictures between its steps leaves the ones it needs.
@@ -525,6 +528,29 @@ impl Staging {
     }
 
     fn finish_run(self, ending: Ending, findings: &str) -> Result<Cached> {
+        let cached = self.write(ending, findings, self.folder.clone())?;
+        self.inner.place()?;
+        Ok(cached)
+    }
+
+    /// The run as the staging folder holds it, ending with exit status
+    /// <exit_code> after printing <findings>, for a run that another is made
+    /// from: it is cached under no key, and ends with the folder
+    /// (`discard`).
+    pub fn unplaced(&self, exit_code: i64, findings: &str) -> Result<Cached> {
+        let exit_code = u8::try_from(exit_code)
+            .context(|| "recording the shots comparison's exit status".to_string())?;
+        let ending = Ending {
+            recorded_at: now(),
+            exit_code,
+            kind: RunKind::Comparison,
+        };
+        self.write(ending, findings, self.inner.dir().to_path_buf())
+    }
+
+    /// Writes how the run ended and what it printed into the staging folder,
+    /// and returns the run as <folder> will hold it.
+    fn write(&self, ending: Ending, findings: &str, folder: PathBuf) -> Result<Cached> {
         let run_file = self.inner.dir().join(RUN_FILE);
         std::fs::write(
             &run_file,
@@ -533,12 +559,11 @@ impl Staging {
         .context(|| format!("writing {}", run_file.display()))?;
         let output = self.inner.dir().join(OUTPUT_FILE);
         std::fs::write(&output, findings).context(|| format!("writing {}", output.display()))?;
-        self.inner.place()?;
         Ok(Cached {
-            key: self.key,
+            key: self.key.clone(),
             ending,
             findings: findings.to_string(),
-            folder: self.folder,
+            folder,
         })
     }
 
@@ -574,6 +599,15 @@ fn read(folder: &Path, key: &Key) -> Result<Option<Cached>> {
         findings,
         folder: folder.to_path_buf(),
     }))
+}
+
+/// Keeps <cached> from the cap while the file this returns is open: a shared
+/// lock on its folder, which the caller takes while it holds `writing`.
+pub fn keep(cached: &Cached) -> Result<std::fs::File> {
+    let folder = &cached.folder;
+    let reader = std::fs::File::open(folder).context(|| format!("opening {}", folder.display()))?;
+    crate::flock::lock(&reader, libc::LOCK_SH, folder)?;
+    Ok(reader)
 }
 
 /// Marks <cached> used now, so the cap deletes it later.
@@ -941,7 +975,12 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
                                     folder,
                                 },
                                 None => Kept::Folder {
-                                    folder: capped_store::Folder::unpinned(folder),
+                                    // A build that makes a run from this
+                                    // one locks it (`keep`).
+                                    folder: capped_store::Folder {
+                                        reader_lock: Some(folder.clone()),
+                                        path: folder,
+                                    },
                                     last_use: Use::At(last_use),
                                     what: "a shots run",
                                 },

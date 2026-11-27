@@ -1467,6 +1467,7 @@ fn a_store(places: &Places) -> ShotsCache {
         ]
         .map(|prefix| (prefix.to_string(), BaseRun::Saved))
         .to_vec(),
+        held: BaseHeld::default(),
     }
 }
 

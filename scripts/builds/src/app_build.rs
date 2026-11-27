@@ -101,6 +101,7 @@
 //! The lane runs again from its place in the queue, in a checkout on another
 //! host, because the lane's lock skips checkouts on hosts recorded this way.
 
+use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::num::NonZeroU8;
 use std::path::Path;
@@ -140,6 +141,7 @@ use crate::run_end::RunEnd;
 use crate::shot_findings;
 use crate::shots_cache;
 use crate::shots_cache::MissCause;
+use crate::shots_compose::Saved;
 use crate::shots_declared::ShotDeclarations;
 use crate::system::System;
 use crate::tool::Tool;
@@ -1328,6 +1330,60 @@ struct ShotsCache {
     /// Whether the run each shots prefix compares with was saved, built in
     /// this build's turn, or not needed.
     bases: Vec<(String, BaseRun)>,
+    /// In a run of a merge base, what cached runs already hold of its
+    /// prefixes.
+    held: BaseHeld,
+}
+
+/// What cached runs hold of the shots prefixes a run of a merge base takes:
+/// the run shoots only what they lack, and builds saves what it finds with
+/// what they hold (shots_compose.rs).
+#[derive(Default)]
+struct BaseHeld {
+    /// Each prefix that cached runs hold a part of, with that part.
+    saved: Vec<(String, Saved)>,
+    /// The shots the merge base declares in the lane.
+    declared: Vec<String>,
+}
+
+impl BaseHeld {
+    fn of_prefix(&self, prefix: &str) -> Option<&Saved> {
+        self.saved
+            .iter()
+            .find(|(own, _)| own == prefix)
+            .map(|(_, saved)| saved)
+    }
+
+    /// The names `--only` gives <step>, a shots run or the lane's capture
+    /// step: none when cached runs hold no part of its prefixes, so that it
+    /// takes every shot they select. Otherwise they are, of each of its
+    /// prefixes, the shots that cached runs lack, or every declared shot of a
+    /// prefix they hold no part of.
+    fn only(&self, step: &Step) -> Vec<String> {
+        let prefixes: Vec<&str> = match step.name.strip_prefix(CAPTURE_STEP) {
+            Some(prefixes) => prefixes.split(' ').collect(),
+            None => vec![shots_prefix(step)],
+        };
+        if prefixes
+            .iter()
+            .all(|prefix| self.of_prefix(prefix).is_none())
+        {
+            return Vec::new();
+        }
+        let mut only = BTreeSet::new();
+        for prefix in prefixes {
+            match self.of_prefix(prefix) {
+                Some(saved) => only.extend(saved.lacking().iter().cloned()),
+                None => only.extend(
+                    self.declared
+                        .iter()
+                        .filter(|name| name.starts_with(prefix))
+                        .cloned(),
+                ),
+            }
+        }
+        only.into_iter().collect()
+    }
 }
 
 /// The names of the shots <lane> declares at <base> in <source>, read once
@@ -1443,6 +1499,7 @@ impl ShotsCache {
             retake,
             base_run,
             bases,
+            held: BaseHeld::default(),
         })
     }
 
@@ -1508,6 +1565,9 @@ impl ShotsCache {
         }
         if self.retake && !after_capture {
             command.push("--retake".to_string());
+        }
+        for name in self.held.only(step) {
+            command.extend(["--only".to_string(), name]);
         }
         if self.base_run && !is_capture(&step.name) {
             command.push("--base".to_string());
@@ -1592,9 +1652,9 @@ impl ShotsCache {
                 prefix,
                 &self.versions,
             );
-            shots_cache::stage(&self.places, &key)
+            Ok((shots_cache::stage(&self.places, &key)?, key))
         });
-        let staging = match staged {
+        let (staging, key) = match staged {
             Ok(staging) => staging,
             Err(error) => {
                 note(format!("the shots run was not cached: {}", error.text()));
@@ -1622,7 +1682,18 @@ impl ShotsCache {
                 "the shots run of {prefix} printed no report path, so no report was cached"
             )),
         }
-        match staging.finish(exit, findings) {
+        let finished = match self.held.of_prefix(prefix) {
+            // The run took only the shots that cached runs lack, so it is no
+            // run of the prefix without them.
+            Some(saved) => {
+                let made = staging
+                    .unplaced(exit, findings)
+                    .and_then(|fresh| saved.save_with(&self.places, &key, fresh));
+                crate::fail::with_cleanup(made, staging.discard())
+            }
+            None => staging.finish(exit, findings),
+        };
+        match finished {
             Ok(cached) => shot_findings::note_report(&cached),
             Err(error) => note(format!("the shots run was not cached: {}", error.text())),
         }
@@ -2138,6 +2209,8 @@ struct CommitRun<'a> {
     base_run: bool,
     /// The prefixes whose merge-base run this build made in its own turn.
     built: &'a [(shots::Prefix, MissCause)],
+    /// In a run of the merge base, what cached runs hold of its prefixes.
+    held: BaseHeld,
 }
 
 impl<'a> LaneBuild<'a> {
@@ -2250,6 +2323,7 @@ impl<'a> LaneBuild<'a> {
                 retake: fresh,
                 base_run: false,
                 built: &built,
+                held: BaseHeld::default(),
             };
             Ok(self.run_commit(site, held, built_file, timing, run)?)
         };
@@ -2294,6 +2368,7 @@ impl<'a> LaneBuild<'a> {
             retake,
             base_run,
             built,
+            held: base_held,
         } = run;
         let names: &[String] = if cached_shots { &[] } else { names };
         let program_of = |class: &str| {
@@ -2318,7 +2393,7 @@ impl<'a> LaneBuild<'a> {
         if steps.is_empty() {
             return Err(no_lane_steps(lane));
         }
-        let shots = ShotsCache::of(
+        let mut shots = ShotsCache::of(
             places,
             &self.source,
             repo,
@@ -2333,6 +2408,7 @@ impl<'a> LaneBuild<'a> {
             built,
             &programs.builds(),
         )?;
+        shots.held = base_held;
         let from = timing.steps.len();
         let ended = self.run_steps_in(site, held, built_file, timing, steps, &shots, config);
         for step in &mut timing.steps[from..] {
@@ -2384,12 +2460,47 @@ impl<'a> LaneBuild<'a> {
         left_unchanged(site, built_file, ran)
     }
 
+    /// What cached runs hold of <wanted>, the prefixes whose run at the merge
+    /// base <base> in <environment> the lane is about to make, which it says.
+    fn base_held(
+        &self,
+        base: &MergeBase,
+        environment: &str,
+        wanted: &[shots::Prefix],
+    ) -> Result<BaseHeld> {
+        let declared =
+            crate::shots_declared::declared_names_in_lane(&self.source, &base.commit, self.lane)?;
+        let mut saved = Vec::new();
+        for prefix in wanted {
+            let key = shots_cache::Key::new(
+                self.repo,
+                &base.commit,
+                self.lane,
+                environment,
+                prefix.as_str(),
+                crate::shots_program::versions(self.lane.platform()),
+            );
+            if let Some(part) = Saved::of(self.places, &key, &mut || Ok(declared.clone()))? {
+                note(format!(
+                    "cached runs hold part of {} at the merge base {}, so its run there shoots only the {} they lack: {}",
+                    prefix.as_str(),
+                    short(&base.commit),
+                    crate::text::counted(part.lacking().len(), "shot", "shots"),
+                    part.lacking().iter().cloned().collect::<Vec<_>>().join(" ")
+                ));
+                saved.push((prefix.as_str().to_string(), part));
+            }
+        }
+        Ok(BaseHeld { saved, declared })
+    }
+
     /// Makes the cache hold the run of each shots pick of the lane at the
     /// merge base <base>, which the commit's shots compare with, in <site>:
     /// the picks of <base> that have no cached run. The lane checks the merge
     /// base out, runs the lane's `needs` steps there (none when the picture
     /// folder caches every shot the runs take), runs the missing prefixes
-    /// with `--base`, and caches their findings, holding the lock on the merge base's runs, so another
+    /// with `--base`, taking only the shots of each that no cached run holds
+    /// (`base_held`), and caches their findings, holding the lock on the merge base's runs, so another
     /// lane's process that needs the same runs waits for them and reads them
     /// from the cache. The lane then goes on with the commit in the same
     /// turn. A run of the merge base compares with nothing, so the findings
@@ -2482,6 +2593,7 @@ impl<'a> LaneBuild<'a> {
             versions.comparison,
             versions.capture
         ));
+        let base_held = self.base_held(base, environment, &wanted)?;
         Built::clear(built_file)?;
         let CheckedOut { sha, config } = site.check_out(places, repo, &base.commit)?;
         let tree = picture_tree(&self.source, &sha, &config, lane, environment)?;
@@ -2501,6 +2613,7 @@ impl<'a> LaneBuild<'a> {
                 retake: false,
                 base_run: true,
                 built: &[],
+                held: base_held,
             };
             self.run_commit(site, held, built_file, timing, run)
         })?;
