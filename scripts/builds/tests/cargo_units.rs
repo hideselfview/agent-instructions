@@ -23,6 +23,7 @@ fn run(toolchain: &str, layout: &str, older: Option<&str>) {
         .env("TOOLCHAIN", toolchain)
         .env("LAYOUT", layout)
         .env_remove("CLAUDE_CODE_SESSION_ID")
+        .env_remove("BUILDS_AGENT")
         .env_remove("CODEX_SESSION_ID")
         .env_remove("CODEX_THREAD_ID");
     if let Some(older) = older {

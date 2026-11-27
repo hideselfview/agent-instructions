@@ -57,6 +57,7 @@ test "$?" -ne 0
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .env_remove("CODEX_SESSION_ID")
         .env_remove("CODEX_THREAD_ID")
+        .env_remove("BUILDS_AGENT")
         .output()
         .unwrap();
     let said = String::from_utf8_lossy(&ran.stderr).into_owned();

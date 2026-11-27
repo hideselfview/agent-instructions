@@ -17,7 +17,7 @@ use fake_launchctl::FakeLaunchctl;
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 const PATIENCE: Duration = Duration::from_secs(30);
 
-/// A repo `demo` with origin/main, its app checkout side-1, and side-2,
+/// A repo `demo` with origin/main, its app checkout mac-1, and side-2,
 /// claimed three hours ago, where agent B made one commit three hours ago and
 /// none since. The demo has a build volume of its own.
 struct Demo {
@@ -52,7 +52,7 @@ impl Demo {
         let dir = PathBuf::from(format!("/private/tmp/bl-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let main = dir.join("demo");
-        let app = dir.join("demo-worktrees/side-1");
+        let app = dir.join("demo-worktrees/mac-1");
         let side = dir.join("demo-worktrees/side-2");
         let three_hours_ago = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -108,7 +108,7 @@ impl Demo {
         git(&side, &["add", "file"], None);
         git(&side, &["commit", "-q", "-m", "Work"], Some(&old));
         let work = git(&side, &["rev-parse", "HEAD"], None);
-        for (name, top) in [("main", &main), ("side-1", &app), ("side-2", &side)] {
+        for (name, top) in [("main", &main), ("mac-1", &app), ("side-2", &side)] {
             let root = dir.join("volume/demo").join(name);
             std::fs::create_dir_all(&root).unwrap();
             std::fs::write(root.join(".checkout"), format!("{}\n", top.display())).unwrap();
@@ -168,6 +168,7 @@ impl Demo {
             .env_remove("CLAUDE_CODE_SESSION_ID")
             .env_remove("CODEX_SESSION_ID")
             .env_remove("CODEX_THREAD_ID")
+            .env_remove("BUILDS_AGENT")
             .env("BUILDS_LISTS", self.dir.join("lists"))
             .env("BUILDS_SSH", self.dir.join("bin/ssh"))
             .env("PATH", self.launchctl.path());
@@ -177,7 +178,9 @@ impl Demo {
     /// Records host m1, whose home is <dir>/m1 with a clone of demo and
     /// <builds> as its `builds`, behind a fake ssh that runs each command on
     /// this Mac in that home. The ssh stays the command's parent, as a real
-    /// one does, so its arguments still name the host.
+    /// one does, so its arguments still name the host. BUILDS_VOLUME names no
+    /// folder, so the host's builds root is in its own home, not on this Mac's
+    /// build volume.
     fn host_m1(&self, builds: &str) {
         let home = self.dir.join("m1");
         let origin = self.dir.join("origin.git");
@@ -193,6 +196,8 @@ impl Demo {
             None,
         );
         script(&home.join(".local/bin/builds"), builds);
+        // A host takes a `cargo test` only with the node builds installs.
+        script(&home.join(".cargo/bin/node"), "#!/bin/sh\necho v22.17.0\n");
         script(
             &self.dir.join("bin/ssh"),
             &format!(
@@ -204,7 +209,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 shift
-cd '{home}' && HOME='{home}' sh -c "$*"
+cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/no-volume' sh -c "$*"
 "#,
                 home = home.display()
             ),
@@ -219,13 +224,13 @@ cd '{home}' && HOME='{home}' sh -c "$*"
         self.builds().args(args).output().unwrap()
     }
 
-    /// Starts `builds lock demo <script>` in <cwd>, <script> run by sh with
-    /// the arguments <args> after its name.
+    /// Starts `builds lock demo --lane mac <script>` in <cwd>, <script> run
+    /// by sh with the arguments <args> after its name.
     fn lock(&mut self, cwd: &Path, script: &str, args: &[String]) -> i32 {
         let child = self
             .builds()
             .current_dir(cwd)
-            .args(["lock", "demo", "sh", "-c", script, "sh"])
+            .args(["lock", "demo", "--lane", "mac", "sh", "-c", script, "sh"])
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -237,13 +242,15 @@ cd '{home}' && HOME='{home}' sh -c "$*"
         pid
     }
 
-    /// Starts a `builds lock demo` that records in <out> whether <flag>
-    /// existed when it started: `during` or `after`.
+    /// Starts a `builds lock demo --lane mac` that records in <out> whether
+    /// <flag> existed when it started: `during` or `after`.
     fn waiter(&mut self, flag: &Path, out: &Path) -> Child {
         self.builds()
             .args([
                 "lock",
                 "demo",
+                "--lane",
+                "mac",
                 "sh",
                 "-c",
                 r#"if [ -f "$1" ]; then echo after; else echo during; fi > "$2""#,
@@ -350,7 +357,7 @@ fn child_of(pid: i32) -> i32 {
 #[test]
 fn a_repo_without_an_app_checkout_has_no_app_lock_to_take() {
     let demo = Demo::new("noapp");
-    let output = demo.run(&["lock", "other", "true"]);
+    let output = demo.run(&["lock", "other", "--lane", "mac", "true"]);
     assert!(!output.status.success());
 }
 

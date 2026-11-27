@@ -115,7 +115,8 @@ impl Demo {
             .env("HOME", self.dir.join("home"))
             .env_remove("CLAUDE_CODE_SESSION_ID")
             .env_remove("CODEX_SESSION_ID")
-            .env_remove("CODEX_THREAD_ID");
+            .env_remove("CODEX_THREAD_ID")
+            .env_remove("BUILDS_AGENT");
         command
     }
 
@@ -148,6 +149,82 @@ impl Demo {
     /// `builds <args>`, with the paths as arguments.
     fn run(&self, args: &[&str]) {
         self.ok(args);
+    }
+
+    /// Makes demo a project with one item, which runs in the claimed
+    /// worktree <top> on <branch> and waits on a condition.
+    fn wait_on_a_condition(&self, top: &str, branch: &str) {
+        let details = self.dir.join("item.md");
+        std::fs::write(&details, "Keep the worktree until step 8 lands.\n").unwrap();
+        let details = path(&details);
+        // `item take` reads the projects' files and the rules here.
+        for folder in ["projects", "rules"] {
+            let rules_root = self.dir.join("home/.codex/agent-instructions");
+            std::fs::create_dir_all(rules_root.join(folder)).unwrap();
+        }
+        self.run(&["lists", "init", "demo", "--repos", "demo", "--by", "test"]);
+        self.run(&["area", "add", "work", "--project", "demo", "--by", "test"]);
+        self.run(&[
+            "item",
+            "add",
+            "--title",
+            "Keep the worktree until step eight",
+            "--area",
+            "work",
+            "--details-file",
+            details,
+            "--project",
+            "demo",
+            "--by",
+            "test",
+        ]);
+        self.run(&[
+            "item",
+            "take",
+            "1",
+            "--worktree",
+            top,
+            "--branch",
+            branch,
+            "--brief",
+            details,
+            "--tier",
+            "implementation",
+            "--project",
+            "demo",
+            "--by",
+            "test",
+        ]);
+        self.run(&[
+            "item",
+            "wait",
+            "1",
+            "--on",
+            "condition:step 8 lands",
+            "--until",
+            "ci",
+            "--project",
+            "demo",
+            "--by",
+            "test",
+        ]);
+    }
+
+    /// Adds the worktree <name>, sets up its build root and makes it the mac
+    /// app checkout.
+    fn add_app_checkout(&self, name: &str) {
+        let top = self.dir.join("demo-worktrees").join(name);
+        let added = Command::new("git")
+            .arg("-C")
+            .arg(self.main())
+            .args(["worktree", "add", "-q", "--detach"])
+            .arg(&top)
+            .status()
+            .unwrap();
+        assert!(added.success(), "git worktree add {name}");
+        let top = path(&top).to_string();
+        self.run(&["setup", &top]);
+        self.run(&["app-checkout", "mac", &top]);
     }
 
     fn status_json(&self, folders: bool) -> Value {
@@ -543,6 +620,8 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
     let mut demo = Demo::new("daemon");
     let side = path(&demo.side(1)).to_string();
     let side2 = path(&demo.side(2)).to_string();
+    // Its name sorts after the side worktrees'.
+    demo.add_app_checkout("xcode-1");
     demo.run(&["claim", &side, "agent A"]);
     demo.run(&["note", &side, "waiting", "on", "Linux", "CI"]);
     let measured = demo.status_json(true);
@@ -709,10 +788,11 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
     demo.run(&["note", &side]);
 
     // The state the dashboard derives for each side worktree: <side-1>
-    // <side-2>, with main None and side-3 free until health retires it.
+    // <side-2>, with side-3 free until health retires it. Main and the app
+    // checkout have no card, so no state.
     let free_side_3 = std::cell::Cell::new(" free");
     let states = |side_1: &str, side_2: &str| {
-        let wanted = format!("None {side_1} {side_2}{}", free_side_3.get());
+        let wanted = format!("None {side_1} {side_2}{} None", free_side_3.get());
         let deadline = Instant::now() + PATIENCE;
         loop {
             let (_, body) = get(port, "/api/state", None);
@@ -758,10 +838,9 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
     demo.run(&["release", &side2]);
     demo.run(&["claim", &side2, "agent B"]);
     states("waiting-on-you", "working");
-    // A held claim shows as held, commits waiting to land or not.
-    // An app checkout is a standing role that a hold never has to justify
-    // with a running item.
-    demo.run(&["app-checkout", "mac", &side]);
+    // A held claim shows as held, commits waiting to land or not. A hold
+    // needs an item that runs in the worktree and waits on something open.
+    demo.wait_on_a_condition(&side, "work");
     demo.run(&["note", &side, "--state", "held", "kept until step 8 lands"]);
     let block = status_block(&demo.ok(&["status"]), "demo/side-1");
     assert_eq!(block[1], "    note (held): kept until step 8 lands");
@@ -786,13 +865,13 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
     // Health retires the free side-3, so the daemon lists it no more.
     assert!(!demo.side(3).exists(), "health left the free side-3");
     free_side_3.set("");
-    // An app checkout has no card, so the daemon derives no state for it.
-    states("None", "working");
-    // Release refuses side-1's work, so the test deletes the claim file, as
-    // if something outside builds had deleted it.
-    demo.refuses("it holds work origin/main lacks", &["release", &side]);
+    states("held", "working");
+    // Release refuses side-1, which still runs the item, so the test deletes
+    // the claim file, as if something outside builds had deleted it.
+    demo.refuses("the worktree still runs #1", &["release", &side]);
     std::fs::remove_file(demo.claim_file(1)).unwrap();
-    states("None", "working");
+    // The hold went with the claim, and the commits wait to land again.
+    states("ready-to-land", "working");
 
     // Once the daemon is gone, status measures again.
     unsafe { libc::kill(server_pid, libc::SIGTERM) };

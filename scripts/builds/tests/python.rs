@@ -61,6 +61,7 @@ fn a_step_run_by_programs_hold_finds_python_3_11_or_later_before_macos_3_9() {
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .env_remove("CODEX_SESSION_ID")
         .env_remove("CODEX_THREAD_ID")
+        .env_remove("BUILDS_AGENT")
         .args([
             "programs",
             "hold",

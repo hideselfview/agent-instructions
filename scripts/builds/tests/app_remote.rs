@@ -15,7 +15,10 @@ mod programs;
 
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 
-const APP_BUILD: &str = "step mac xcode ./xcode.sh\nstep mac quick ./hello.sh\nstep android hello ./hello.sh\nstep android hang ./hang.sh\nstep android signed ./hello.sh\nhere signed\nlimit hang 1s\ntest android ./t.sh {class}\ntest mac ./t.sh {class}\nopens-windows mac\nresults android out\nmac build ./t.sh Sleepy\nmac app out.app\nmac bundle demo.test\n";
+/// The hang step's limit counts from before the host's builds starts, so it
+/// covers that start on a loaded Mac too: the step has to be running when the
+/// limit passes.
+const APP_BUILD: &str = "step mac xcode ./xcode.sh\nstep mac quick ./hello.sh\nstep android hello ./hello.sh\nstep android hang ./hang.sh\nstep android signed ./hello.sh\nhere signed\nlimit hang 10s\ntest android ./t.sh {class}\ntest mac ./t.sh {class}\nopens-windows mac\nresults android out\nmac build ./t.sh Sleepy\nmac app out.app\nmac bundle demo.test\n";
 
 struct World {
     dir: PathBuf,
@@ -123,6 +126,14 @@ impl World {
                 second_home.join("dev/demo").to_str().unwrap(),
             ],
         );
+        // The hosts run on this Mac, so each reads its screen lock from this
+        // ioreg: whether this Mac's screen is locked never holds a window
+        // step. BUILDS_VOLUME names no folder, so each host's builds root is
+        // in its own home, not on this Mac's build volume.
+        script(
+            &dir.join("bin/ioreg"),
+            "#!/bin/sh\necho '\"IOConsoleLocked\" = No'\n",
+        );
         script(
             &dir.join("bin/ssh"),
             &format!(
@@ -139,8 +150,9 @@ case "$1" in
   *) home='{home}';;
 esac
 shift
-cd "$home" && HOME="$home" exec sh -c "$*"
+cd "$home" && HOME="$home" BUILDS_VOLUME="$home/no-volume" PATH='{bin}':"$PATH" exec sh -c "$*"
 "#,
+                bin = dir.join("bin").display(),
                 home = remote_home.display(),
                 second = second_home.display()
             ),
@@ -162,6 +174,7 @@ cd "$home" && HOME="$home" exec sh -c "$*"
             .env_remove("CLAUDE_CODE_SESSION_ID")
             .env_remove("CODEX_SESSION_ID")
             .env_remove("CODEX_THREAD_ID")
+            .env_remove("BUILDS_AGENT")
             .env("BUILDS_LISTS", self.dir.join("lists"))
             .env("BUILDS_SSH", self.dir.join("bin/ssh"));
         command
@@ -217,7 +230,7 @@ cd "$home" && HOME="$home" exec sh -c "$*"
             .output()
             .unwrap();
         assert!(made.status.success(), "{made:?}");
-        std::fs::write(self.dir.join("volume/demo/app-checkouts"), "m1:mac-1\n").unwrap();
+        std::fs::write(self.dir.join("volume/demo/app-mac-checkouts"), "m1:mac-1\n").unwrap();
     }
 
     /// The outcome of each recorded app build run, and the result of each of
@@ -397,7 +410,7 @@ fn a_step_past_its_limit_is_stopped_on_the_host() {
     let output = world.app_build(&["main", "hang"]);
     let err = text(&output.stderr);
     assert!(!output.status.success(), "{err}");
-    assert!(err.contains("ran past its limit of 1s"), "{err}");
+    assert!(err.contains("ran past its limit of 10s"), "{err}");
     let pid = std::fs::read_to_string(world.dir.join("remote-home/hang.pid"))
         .unwrap()
         .trim()
@@ -435,7 +448,7 @@ fn a_build_skips_and_records_a_host_whose_xcode_cannot_start() {
     let world = World::new("xcode");
     std::fs::write(world.dir.join("hosts"), "m1 user@m1 10\nm2 user@m2 10\n").unwrap();
     std::fs::write(
-        world.dir.join("volume/demo/app-checkouts"),
+        world.dir.join("volume/demo/app-mac-checkouts"),
         "m1:mac-1\nm2:mac-1\n",
     )
     .unwrap();
@@ -492,7 +505,7 @@ fn a_stop_signal_ends_an_app_build_that_waits_for_its_hosts_display() {
         .unwrap_or_else(|| panic!("the build ignored SIGTERM: {}", build.said()));
     assert!(!status.success(), "{}", build.said());
     assert!(
-        try_lock(&world.dir.join("volume/demo/app.locks/m1:mac-1")).is_some(),
+        try_lock(&world.dir.join("volume/demo/app-mac.locks/m1:mac-1")).is_some(),
         "the lane's lock is free"
     );
     drop(display);
@@ -532,7 +545,7 @@ fn a_stop_signal_ends_an_app_builds_step_on_the_host_and_frees_its_locks() {
     assert!(!status.success(), "{}", build.said());
     assert!(!alive(pid), "the step's process on the host is gone");
     assert!(
-        try_lock(&world.dir.join("volume/demo/app.locks/m1:mac-1")).is_some(),
+        try_lock(&world.dir.join("volume/demo/app-mac.locks/m1:mac-1")).is_some(),
         "the lane's lock is free"
     );
     assert!(
@@ -582,7 +595,7 @@ fn a_stop_signal_ends_a_build_apps_build_on_the_host_and_frees_its_lock() {
     );
     assert!(!alive(pid), "the build's process on the host is gone");
     assert!(
-        try_lock(&world.dir.join("volume/demo/app.locks/m1:mac-1")).is_some(),
+        try_lock(&world.dir.join("volume/demo/app-mac.locks/m1:mac-1")).is_some(),
         "the lane's lock is free"
     );
 }
@@ -593,7 +606,7 @@ fn a_stop_signal_ends_a_build_apps_build_on_the_host_and_frees_its_lock() {
 fn a_stop_signal_ends_a_build_app_that_waits_for_its_turn() {
     let world = World::new("stop-build-app-wait");
     world.with_store_and_mac_checkout();
-    let lane = try_lock(&world.dir.join("volume/demo/app.locks/m1:mac-1")).unwrap();
+    let lane = try_lock(&world.dir.join("volume/demo/app-mac.locks/m1:mac-1")).unwrap();
     let mut build = world.start(&["build-app", "demo", "mac", "main"]);
     build.until_said("waiting for demo's mac app lock");
     build.signal(libc::SIGTERM);

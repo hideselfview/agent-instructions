@@ -9,6 +9,7 @@ use std::process::{Command, Stdio};
 const FIXTURE: &str = r##"{
   "capture": { "ready": "#x", "steps": [] },
   "stage": {
+    "now": 1700000000,
     "state": {
       "version": 1, "generated_at": 1700000000, "root": "/v",
       "volume": { "free_kib": 10, "floor_kib": 5, "hard_floor_kib": 2, "size_kib": 3 },

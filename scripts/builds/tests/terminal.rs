@@ -17,7 +17,7 @@ fn a_build_that_sets_terminal_modes_finishes_when_builds_runs_on_a_terminal() {
     let dir = PathBuf::from(format!("/private/tmp/bt-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("volume/demo")).unwrap();
-    std::fs::write(dir.join("volume/demo/app-checkouts"), "side-1\n").unwrap();
+    std::fs::write(dir.join("volume/demo/app-mac-checkouts"), "mac-1\n").unwrap();
 
     let (mut master, mut slave) = (0, 0);
     assert_eq!(
@@ -40,9 +40,12 @@ fn a_build_that_sets_terminal_modes_finishes_when_builds_runs_on_a_terminal() {
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .env_remove("CODEX_SESSION_ID")
         .env_remove("CODEX_THREAD_ID")
+        .env_remove("BUILDS_AGENT")
         .args([
             "lock",
             "demo",
+            "--lane",
+            "mac",
             "sh",
             "-c",
             "echo $$ > \"$0/pid\"; stty -echo; stty echo",

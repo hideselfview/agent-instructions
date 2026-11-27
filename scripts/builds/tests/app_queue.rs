@@ -50,6 +50,19 @@ fn fake_apple_tools(bin: &Path) {
     }
 }
 
+/// Links the folder the volume at <volume> keeps pinned Chrome in to the one
+/// the shots crate's tests keep it in, `~/.cache/builds-shots/chrome`. An app
+/// build with shots starts Chrome, which downloads it into an empty folder, so
+/// each such test would download it again.
+fn share_chrome(volume: &Path) {
+    let home = PathBuf::from(std::env::var_os("HOME").expect("HOME is set"));
+    let shared = home.join(".cache/builds-shots/chrome");
+    std::fs::create_dir_all(&shared).unwrap();
+    let cache = volume.join("caches/builds-shots");
+    std::fs::create_dir_all(&cache).unwrap();
+    std::os::unix::fs::symlink(shared, cache.join("chrome")).unwrap();
+}
+
 /// This process's PATH with <bin> in front.
 fn path_with(bin: &Path) -> std::ffi::OsString {
     let mut paths = vec![bin.to_path_buf()];
@@ -88,9 +101,10 @@ impl Volume {
         let dir = PathBuf::from(format!("/private/tmp/bq-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("volume/demo")).unwrap();
-        std::fs::write(dir.join("volume/demo/app-checkouts"), "side-1\n").unwrap();
+        std::fs::write(dir.join("volume/demo/app-mac-checkouts"), "mac-1\n").unwrap();
         let pinned_builds = programs_folder(&dir.join("home"));
         fake_apple_tools(&dir.join("bin"));
+        share_chrome(&dir.join("volume"));
         Volume {
             dir,
             pinned_builds,
@@ -107,16 +121,17 @@ impl Volume {
             .env_remove("CLAUDE_CODE_SESSION_ID")
             .env_remove("CODEX_SESSION_ID")
             .env_remove("CODEX_THREAD_ID")
+            .env_remove("BUILDS_AGENT")
             .env("QUEUE_TEST_DIR", &self.dir);
         command
     }
 
     /// Starts `builds lock demo` running the build as <label>; its pid.
     fn lock(&mut self, label: &str) -> i32 {
-        self.lock_in(&[], label)
+        self.lock_in(&["--lane", "mac"], label)
     }
 
-    /// `lock` with <lane_args> (`--lane android`) after the repo.
+    /// `lock` in the lane that <lane_args> (`--lane android`) names.
     fn lock_in(&mut self, lane_args: &[&str], label: &str) -> i32 {
         let child = self
             .builds()
@@ -161,7 +176,7 @@ impl Volume {
     /// `two.sh`, `droid.sh` (a script like them), `bad.sh` (which logs and
     /// exits 3) and `dirty.sh` (which changes itself, a file the commit holds,
     /// adds the file `made` and exits 0), for the steps of <config> to name. The android lane's app
-    /// checkout is recorded too, a clone of the same origin.
+    /// checkout is recorded too, a worktree of the same repo.
     fn app_repo_with(&self, config: &str) {
         self.app_repo_at(&self.dir.join("checkout"), config);
     }
@@ -220,39 +235,35 @@ impl Volume {
         assert!(made.status.success());
         git(&["remote", "add", "origin", origin.to_str().unwrap()]);
         git(&["push", "-q", "origin", "main"]);
-        std::fs::create_dir_all(self.dir.join("volume/demo/side-1")).unwrap();
+        std::fs::create_dir_all(self.dir.join("volume/demo/mac-1")).unwrap();
         std::fs::write(
-            self.dir.join("volume/demo/side-1/.checkout"),
+            self.dir.join("volume/demo/mac-1/.checkout"),
             top.to_str().unwrap(),
         )
         .unwrap();
         let android = self.dir.join("checkout-android");
-        let cloned = Command::new("git")
-            .args(["clone", "-q"])
-            .arg(&origin)
-            .arg(&android)
-            .output()
-            .unwrap();
-        assert!(
-            cloned.status.success(),
-            "{}",
-            String::from_utf8_lossy(&cloned.stderr)
-        );
-        std::fs::create_dir_all(self.dir.join("volume/demo/side-2")).unwrap();
+        git(&[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            android.to_str().unwrap(),
+        ]);
+        std::fs::create_dir_all(self.dir.join("volume/demo/droid-1")).unwrap();
         std::fs::write(
-            self.dir.join("volume/demo/side-2/.checkout"),
+            self.dir.join("volume/demo/droid-1/.checkout"),
             android.to_str().unwrap(),
         )
         .unwrap();
         std::fs::write(
             self.dir.join("volume/demo/app-android-checkouts"),
-            "side-2\n",
+            "droid-1\n",
         )
         .unwrap();
     }
 
     fn order(&self) -> Vec<String> {
-        std::fs::read_to_string(self.dir.join("volume/demo/app.queue/order"))
+        std::fs::read_to_string(self.dir.join("volume/demo/app-mac.queue/order"))
             .map(|text| text.lines().map(str::to_string).collect())
             .unwrap_or_default()
     }
@@ -938,7 +949,7 @@ fn a_killed_android_lane_keeps_its_checkout_until_the_running_step_ends() {
     volume.until_logged("end droid");
     let said = String::from_utf8(during.stdout).unwrap();
     assert!(
-        during.status.success() && said.contains("android side-2: held"),
+        during.status.success() && said.contains("android droid-1: held"),
         "{said}"
     );
     let next = volume.run(&["lock", "demo", "--lane", "android", "true"]);
@@ -1001,8 +1012,8 @@ fn an_app_build_runs_the_lanes_at_the_same_time_each_in_its_own_checkout() {
         "the lanes ran at once: {log:?}"
     );
     assert!(
-        said.contains("[mac side-1] builds: step one")
-            && said.contains("[android side-2] builds: step droid"),
+        said.contains("[mac mac-1] builds: step one")
+            && said.contains("[android droid-1] builds: step droid"),
         "{said}"
     );
     // Each lane's steps ran in its own checkout.
@@ -1118,7 +1129,7 @@ fn a_pid_names_its_lane_for_a_takeover_and_queue_shows_both_lanes() {
     volume.open_gate("A");
     let shown = String::from_utf8(volume.run(&["queue", "demo"]).stdout).unwrap();
     assert!(
-        shown.contains("android side-2: holder")
+        shown.contains("android droid-1: holder")
             && shown.contains(&format!("android: 1. {waiter}")),
         "{shown}"
     );
@@ -1146,7 +1157,7 @@ fn a_lane_with_two_checkouts_builds_in_both_at_once_and_the_next_in_line_waits_f
     volume.app_repo();
     std::fs::write(
         volume.dir.join("volume/demo/app-android-checkouts"),
-        "side-2\nside-3\n",
+        "droid-1\ndroid-2\n",
     )
     .unwrap();
     volume.lock_in(&["--lane", "android"], "A");
@@ -1168,7 +1179,7 @@ fn a_lane_with_two_checkouts_builds_in_both_at_once_and_the_next_in_line_waits_f
     let shown =
         String::from_utf8(volume.run(&["queue", "demo", "--lane", "android"]).stdout).unwrap();
     assert!(
-        shown.contains("android side-2: holder") && shown.contains("android side-3: holder"),
+        shown.contains("android droid-1: holder") && shown.contains("android droid-2: holder"),
         "{shown}"
     );
     assert!(
@@ -1192,7 +1203,7 @@ fn a_takeover_with_every_lock_held_stops_the_last_holder_and_a_free_lock_just_mo
     volume.app_repo();
     std::fs::write(
         volume.dir.join("volume/demo/app-android-checkouts"),
-        "side-2\nside-3\n",
+        "droid-1\ndroid-2\n",
     )
     .unwrap();
     volume.lock_in(&["--lane", "android"], "A");
@@ -1317,7 +1328,8 @@ fn a_class_only_run_tests_the_commit_the_checkout_last_built() {
 #[test]
 fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
     let volume = Volume::new("shots-built");
-    volume.app_repo_with(SHOTS_CONFIG);
+    // The android lane has a step and no shots line.
+    volume.app_repo_with(&format!("{SHOTS_CONFIG}step android droid ./droid.sh\n"));
     commit_shots(&volume.dir.join("checkout"), "");
     let said = |output: &std::process::Output| String::from_utf8_lossy(&output.stderr).into_owned();
     let none = volume.run(&[
@@ -1359,7 +1371,7 @@ fn a_shots_only_run_tests_the_commit_the_checkout_last_built() {
     assert_eq!(log[..2], lines(&["start one", "end one"]));
     assert_eq!(shots_runs(&volume, "mac.a.").len(), 1, "{log:?}");
     let kept =
-        std::fs::read_to_string(volume.dir.join("volume/demo/side-1/.last-app-build")).unwrap();
+        std::fs::read_to_string(volume.dir.join("volume/demo/mac-1/.last-app-build")).unwrap();
     assert_eq!(
         kept.lines().nth(1),
         Some("one"),
@@ -1548,18 +1560,18 @@ echo written > "$TMPDIR/profile""#,
 fn queue_shows_every_checkout_and_why_builds_added_or_removed_one() {
     let volume = Volume::new("lane-why");
     std::fs::write(
-        volume.dir.join("volume/demo/app-checkouts"),
-        "side-1\nm1:builds-mac-1 builds 1763337600 2 builds waited for the mac lane's 1 checkout\n",
+        volume.dir.join("volume/demo/app-mac-checkouts"),
+        "mac-1\nm1:builds-mac-1 builds 1763337600 2 builds waited for the mac lane's 1 checkout\n",
     )
     .unwrap();
     std::fs::write(
-        volume.dir.join("volume/demo/app-checkouts-removed"),
+        volume.dir.join("volume/demo/app-mac-checkouts-removed"),
         "1763341200 m1:builds-mac-2 no build used it for 61 minutes\n",
     )
     .unwrap();
     let shown = String::from_utf8(volume.run(&["queue", "demo"]).stdout).unwrap();
     assert!(
-        shown.contains("mac side-1: free\n") && shown.contains("mac m1:builds-mac-1: free\n"),
+        shown.contains("mac mac-1: free\n") && shown.contains("mac m1:builds-mac-1: free\n"),
         "{shown}"
     );
     assert!(
@@ -1648,7 +1660,7 @@ echo \"shots $*\" >> \"$QUEUE_TEST_DIR/log\"
 report=\"$QUEUE_TEST_DIR/report-$$\"
 mkdir -p \"$report\"
 echo '<html></html>' > \"$report/index.html\"
-echo '{{\"version\": \"{}\", \"capture_version\": \"{}\", \"commit\": \"c\", \"scenes\": [], \"findings\": [], \"failed\": [], \"problems\": 0}}' > \"$report/findings.json\"
+echo '{{\"version\": \"{}\", \"capture_version\": \"{}\", \"commit\": \"c\", \"scenes\": [], \"boards\": {{}}, \"findings\": [], \"failed\": [], \"problems\": 0}}' > \"$report/findings.json\"
 echo \"builds shots: report at $report/index.html\" >&2
 ",
             env!("COMPARISON_SOURCE"),
@@ -2141,22 +2153,25 @@ fn two_builds_with_one_merge_base_build_its_run_once_and_the_other_waits_for_it(
     branch_from_main(&top, "work-a", "mac/A.txt");
     branch_from_main(&top, "work-b", "mac/B.txt");
     let second = volume.dir.join("checkout-mac-2");
-    let cloned = Command::new("git")
-        .args(["clone", "-q"])
-        .arg(volume.dir.join("origin.git"))
-        .arg(&second)
-        .output()
-        .unwrap();
-    assert!(cloned.status.success());
-    std::fs::create_dir_all(volume.dir.join("volume/demo/side-4")).unwrap();
+    git_in(
+        &top,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            second.to_str().unwrap(),
+        ],
+    );
+    std::fs::create_dir_all(volume.dir.join("volume/demo/mac-2")).unwrap();
     std::fs::write(
-        volume.dir.join("volume/demo/side-4/.checkout"),
+        volume.dir.join("volume/demo/mac-2/.checkout"),
         second.to_str().unwrap(),
     )
     .unwrap();
     std::fs::write(
-        volume.dir.join("volume/demo/app-checkouts"),
-        "side-1\nside-4\n",
+        volume.dir.join("volume/demo/app-mac-checkouts"),
+        "mac-1\nmac-2\n",
     )
     .unwrap();
     let start = |branch: &str, errors: &Path| {
