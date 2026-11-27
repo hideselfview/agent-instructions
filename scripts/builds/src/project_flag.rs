@@ -102,6 +102,155 @@ fn own_words(command: Command, args: &[String]) -> usize {
         .unwrap_or(args.len())
 }
 
+impl<S: AsRef<str>> crate::command::Parsed<'_, S> {
+    /// Whether the command reads `--project` itself (project_flag.rs). Every
+    /// word of `cargo` and `lake` is the tool's.
+    pub fn reads_project(&self) -> bool {
+        use crate::command::Command::*;
+        use crate::command::*;
+        let word = |at: usize| self.rest.get(at).map(AsRef::as_ref);
+        match self.command {
+            Ack
+            | Brief
+            | Cargo
+            | Claim
+            | Lake
+            | Land
+            | New
+            | Next
+            | RulesOnEdit
+            | Waits
+            | Agent(agent::Start | agent::Run | agent::Resume | agent::List | agent::Show)
+            | Area(area::Add | area::Rename | area::Move | area::Remove)
+            | Decision(
+                decision::Add | decision::Edit | decision::Find | decision::Show | decision::List,
+            )
+            | Design(
+                design::Places
+                | design::Only
+                | design::Record
+                | design::Amend
+                | design::Approve
+                | design::Check
+                | design::Landed
+                | design::Title
+                | design::Drop
+                | design::Show
+                | design::List
+                | design::Render
+                | design::TokensCss
+                | design::PublishFind
+                | design::PublishFiles
+                | design::PublishLast
+                | design::Listen
+                | design::PublishTake
+                | design::PublishDone
+                | design::PublishFailed,
+            )
+            | Item(
+                item::Add
+                | item::Edit
+                | item::Note
+                | item::Changes
+                | item::Wait
+                | item::Backlog
+                | item::Start
+                | item::Take
+                | item::CheckBrief
+                | item::Handoff
+                | item::Stop
+                | item::Finished
+                | item::Drop
+                | item::Place
+                | item::CheckLanding
+                | item::Landed
+                | item::Show
+                | item::List
+                | item::Times,
+            )
+            | Judge(judge::Listen)
+            | Lists(
+                lists::Init | lists::DesignGlobs | lists::AddRepo | lists::Show | lists::ProjectOf,
+            )
+            | Question(
+                question::Ask
+                | question::Answer
+                | question::Settle
+                | question::Done
+                | question::Drop
+                | question::Place
+                | question::Edit
+                | question::Show
+                | question::List,
+            )
+            | Review(
+                review::Run
+                | review::Copy
+                | review::Settle
+                | review::Wait
+                | review::Dispute
+                | review::Keep
+                | review::Show
+                | review::Key
+                | review::CheckLanding
+                | review::Landed
+                | review::Groups
+                | review::Replay
+                | review::Audit
+                | review::Misses
+                | review::Rates
+                | review::Scores
+                | review::CasePropose
+                | review::CaseAdd,
+            )
+            | Checks(checks::Stats)
+            | Shots(shots::Picture) => true,
+            AppBuild => {
+                word(0) != Some(crate::app_landing::FLAG)
+                    && word(0) != Some(crate::handed_runs::FLAG)
+                    && word(1) != Some("--list")
+            }
+            Help
+            | Setup
+            | Tool
+            | Note
+            | Release
+            | Retire
+            | BuildApp
+            | Lock
+            | Programs
+            | Queue
+            | Takeover
+            | AppClone
+            | SccacheTmpdir
+            | Prune
+            | Du
+            | Status
+            | Health
+            | InstallHook
+            | Install
+            | Version
+            | Shots(shots::Findings | shots::CheckProgram | shots::Checker)
+            | AppCheckout(app_checkout::Add | app_checkout::Remove | app_checkout::Reset)
+            | Host(
+                host::Add
+                | host::Setup
+                | host::SetupHere
+                | host::SpeedHere
+                | host::Band
+                | host::List
+                | host::Cache
+                | host::Remove
+                | host::ClearXcode,
+            )
+            | Remote(remote::Run | remote::Step)
+            | Units(units::Prune | units::GitCheckouts | units::AfterBuild)
+            | Dashboard(dashboard::Stage | dashboard::Serve)
+            | Checks(checks::Run | checks::Whole | checks::List | checks::Tests) => false,
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "project_flag_tests.rs"]
 mod tests;

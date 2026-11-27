@@ -12,7 +12,7 @@
 //! its own in its kind's folder that says which process runs what and since
 //! when.
 //! - A command that writes a store after long work, with what it measured
-//!   since it started (`Stores::ForLife` in command.rs names them: a hook
+//!   since it started (`Command::stores` gives `Stores::ForLife` for them: a hook
 //!   run and a review that asks reviewers), holds a command use for its life.
 //! - A landing (`builds land`) holds a command use (`hold`) from its start
 //!   until it has written the record of its run, then ends it before it
@@ -805,6 +805,165 @@ pub fn waiting(places: &Places) -> Result<InstallRead> {
         held,
         blocked,
     }))
+}
+
+/// How a command uses the stores (install_gate.rs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stores {
+    /// It takes no use of the stores: install, which migrates them, and the
+    /// commands that read none.
+    Storeless,
+    /// It takes a use for each store connection it opens.
+    PerConnection,
+    /// It holds one use from its start to its end: it writes a store after
+    /// long work, with what it measured since it started.
+    ForLife,
+}
+
+impl crate::command::Command {
+    /// How the command uses the stores.
+    pub fn stores(self) -> Stores {
+        use crate::command::Command::*;
+        use crate::command::*;
+        match self {
+            Help
+            | Brief
+            | Version
+            | Install
+            | Programs
+            | SccacheTmpdir
+            | Agent(agent::Start)
+            | Dashboard(dashboard::Serve | dashboard::Stage)
+            | Shots(shots::Checker) => Stores::Storeless,
+            // A hook run records its run once its checks end (hook_stats.rs).
+            // A review records what the reviewers answered once they answer
+            // (review/mod.rs).
+            Checks(checks::Run)
+            | Review(review::Run | review::Copy | review::Replay | review::Audit) => {
+                Stores::ForLife
+            }
+            Ack
+            | RulesOnEdit
+            | Setup
+            | Lake
+            | Tool
+            | New
+            | Claim
+            | Note
+            | Release
+            | Retire
+            | Cargo
+            | AppBuild
+            | BuildApp
+            | Lock
+            | Queue
+            | Takeover
+            | AppClone
+            | Prune
+            | Du
+            | Status
+            | Health
+            | InstallHook
+            | Waits
+            | Land
+            | Next
+            | Agent(agent::Run | agent::Resume | agent::List | agent::Show)
+            | Shots(shots::Findings | shots::Picture | shots::CheckProgram)
+            | AppCheckout(app_checkout::Add | app_checkout::Remove | app_checkout::Reset)
+            | Host(
+                host::Add
+                | host::Setup
+                | host::SetupHere
+                | host::SpeedHere
+                | host::Band
+                | host::List
+                | host::Cache
+                | host::Remove
+                | host::ClearXcode,
+            )
+            | Remote(remote::Run | remote::Step)
+            | Units(units::Prune | units::GitCheckouts | units::AfterBuild)
+            | Checks(checks::Whole | checks::Stats | checks::List | checks::Tests)
+            | Review(
+                review::Settle
+                | review::Wait
+                | review::Dispute
+                | review::Keep
+                | review::Show
+                | review::Key
+                | review::CheckLanding
+                | review::Landed
+                | review::Groups
+                | review::Misses
+                | review::Rates
+                | review::Scores
+                | review::CasePropose
+                | review::CaseAdd,
+            )
+            | Judge(judge::Listen)
+            | Question(
+                question::Ask
+                | question::Answer
+                | question::Settle
+                | question::Done
+                | question::Drop
+                | question::Place
+                | question::Edit
+                | question::Show
+                | question::List,
+            )
+            | Item(
+                item::Add
+                | item::Edit
+                | item::Note
+                | item::Changes
+                | item::Wait
+                | item::Backlog
+                | item::Start
+                | item::Take
+                | item::CheckBrief
+                | item::Handoff
+                | item::Stop
+                | item::Finished
+                | item::Drop
+                | item::Place
+                | item::CheckLanding
+                | item::Landed
+                | item::Show
+                | item::List
+                | item::Times,
+            )
+            | Area(area::Add | area::Rename | area::Move | area::Remove)
+            | Decision(
+                decision::Add | decision::Edit | decision::Find | decision::Show | decision::List,
+            )
+            | Design(
+                design::Places
+                | design::Only
+                | design::Record
+                | design::Amend
+                | design::Approve
+                | design::Check
+                | design::Landed
+                | design::Title
+                | design::Drop
+                | design::Show
+                | design::List
+                | design::Render
+                | design::TokensCss
+                | design::PublishFind
+                | design::PublishFiles
+                | design::PublishLast
+                | design::Listen
+                | design::PublishTake
+                | design::PublishDone
+                | design::PublishFailed,
+            )
+            | Lists(
+                lists::Init | lists::DesignGlobs | lists::AddRepo | lists::Show | lists::ProjectOf,
+            ) => Stores::PerConnection,
+        }
+    }
 }
 
 #[cfg(test)]

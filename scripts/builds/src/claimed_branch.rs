@@ -107,6 +107,148 @@ fn refusal(path: &str, claim: &Claim, claimed: &[String], current: Option<&str>)
     ))
 }
 
+impl crate::command::Command {
+    /// Whether the claimed-branch check (claimed_branch.rs) covers the
+    /// command: an agent runs it before it builds, reviews or lands.
+    pub fn guards_claimed_branch(self) -> bool {
+        use crate::command::Command::*;
+        use crate::command::*;
+        match self {
+            AppBuild
+            | Land
+            | Cargo
+            | Review(
+                review::Run
+                | review::Copy
+                | review::Settle
+                | review::Wait
+                | review::Dispute
+                | review::Keep
+                | review::Show
+                | review::Key
+                | review::CheckLanding
+                | review::Landed
+                | review::Groups
+                | review::Replay
+                | review::Audit
+                | review::Misses
+                | review::Rates
+                | review::Scores
+                | review::CasePropose
+                | review::CaseAdd,
+            )
+            | Checks(checks::Run | checks::Whole | checks::Stats | checks::List | checks::Tests)
+            | Item(
+                item::Add
+                | item::Edit
+                | item::Note
+                | item::Changes
+                | item::Wait
+                | item::Backlog
+                | item::Start
+                | item::Take
+                | item::CheckBrief
+                | item::Handoff
+                | item::Stop
+                | item::Finished
+                | item::Drop
+                | item::Place
+                | item::CheckLanding
+                | item::Landed
+                | item::Show
+                | item::List
+                | item::Times,
+            ) => true,
+            Help
+            | Ack
+            | RulesOnEdit
+            | Setup
+            | Lake
+            | Tool
+            | New
+            | Claim
+            | Note
+            | Release
+            | Retire
+            | BuildApp
+            | Lock
+            | Programs
+            | Queue
+            | Takeover
+            | AppClone
+            | SccacheTmpdir
+            | Prune
+            | Du
+            | Status
+            | Health
+            | InstallHook
+            | Waits
+            | Brief
+            | Install
+            | Version
+            | Next
+            | Agent(agent::Start | agent::Run | agent::Resume | agent::List | agent::Show)
+            | Shots(shots::Findings | shots::Picture | shots::CheckProgram | shots::Checker)
+            | AppCheckout(app_checkout::Add | app_checkout::Remove | app_checkout::Reset)
+            | Host(
+                host::Add
+                | host::Setup
+                | host::SetupHere
+                | host::SpeedHere
+                | host::Band
+                | host::List
+                | host::Cache
+                | host::Remove
+                | host::ClearXcode,
+            )
+            | Remote(remote::Run | remote::Step)
+            | Units(units::Prune | units::GitCheckouts | units::AfterBuild)
+            | Dashboard(dashboard::Stage | dashboard::Serve)
+            | Judge(judge::Listen)
+            | Question(
+                question::Ask
+                | question::Answer
+                | question::Settle
+                | question::Done
+                | question::Drop
+                | question::Place
+                | question::Edit
+                | question::Show
+                | question::List,
+            )
+            | Area(area::Add | area::Rename | area::Move | area::Remove)
+            | Decision(
+                decision::Add | decision::Edit | decision::Find | decision::Show | decision::List,
+            )
+            | Design(
+                design::Places
+                | design::Only
+                | design::Record
+                | design::Amend
+                | design::Approve
+                | design::Check
+                | design::Landed
+                | design::Title
+                | design::Drop
+                | design::Show
+                | design::List
+                | design::Render
+                | design::TokensCss
+                | design::PublishFind
+                | design::PublishFiles
+                | design::PublishLast
+                | design::Listen
+                | design::PublishTake
+                | design::PublishDone
+                | design::PublishFailed,
+            )
+            | Lists(
+                lists::Init | lists::DesignGlobs | lists::AddRepo | lists::Show | lists::ProjectOf,
+            ) => false,
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "claimed_branch_tests.rs"]
 mod tests;

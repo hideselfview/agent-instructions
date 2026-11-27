@@ -21,7 +21,7 @@
 //! "needs action": a `builds` command such as a landing or an install still
 //! does its work when no one reads it.
 
-use crate::command::{Command, Orphaned};
+use crate::command::Command;
 use crate::health::Advice;
 use crate::host::{Host, place};
 use crate::host_scan::Row;
@@ -236,6 +236,163 @@ pub fn find(scans: &[(Host, std::result::Result<Scan, String>)], holders: &Holde
         }
     }
     found
+}
+
+/// What a builds command does once its caller is gone (`Command::orphaned`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Orphaned {
+    /// It runs on its own on purpose, with no caller.
+    Detached,
+    /// Its only work is what it prints, which nothing reads now.
+    OnlyPrints,
+    /// It does its work to its end.
+    Works,
+}
+
+impl crate::command::Command {
+    /// What the command does once nothing reads it, as the orphan check
+    /// (orphans.rs) judges a builds process whose caller is gone.
+    pub fn orphaned(self) -> Orphaned {
+        use crate::command::Command::*;
+        use crate::command::*;
+        match self {
+            // Started on its own: the dashboard and its stage, the prune
+            // `builds cargo` starts as it exits, an audit, and build-app,
+            // which a person starts from the dashboard.
+            BuildApp
+            | Dashboard(dashboard::Serve | dashboard::Stage)
+            | Units(units::Prune | units::GitCheckouts | units::AfterBuild)
+            | Review(review::Audit) => Orphaned::Detached,
+            Cargo | Remote(remote::Run | remote::Step) | Checks(checks::Run) => {
+                Orphaned::OnlyPrints
+            }
+            Help
+            | Ack
+            | RulesOnEdit
+            | Setup
+            | Lake
+            | Tool
+            | New
+            | Claim
+            | Note
+            | Release
+            | Retire
+            | AppBuild
+            | Lock
+            | Programs
+            | Queue
+            | Takeover
+            | AppClone
+            | SccacheTmpdir
+            | Prune
+            | Du
+            | Status
+            | Health
+            | InstallHook
+            | Waits
+            | Land
+            | Brief
+            | Install
+            | Version
+            | Next
+            | Agent(agent::Start | agent::Run | agent::Resume | agent::List | agent::Show)
+            | Shots(shots::Findings | shots::Picture | shots::CheckProgram | shots::Checker)
+            | AppCheckout(app_checkout::Add | app_checkout::Remove | app_checkout::Reset)
+            | Host(
+                host::Add
+                | host::Setup
+                | host::SetupHere
+                | host::SpeedHere
+                | host::Band
+                | host::List
+                | host::Cache
+                | host::Remove
+                | host::ClearXcode,
+            )
+            | Checks(checks::Whole | checks::Stats | checks::List | checks::Tests)
+            | Review(
+                review::Run
+                | review::Copy
+                | review::Settle
+                | review::Wait
+                | review::Dispute
+                | review::Keep
+                | review::Show
+                | review::Key
+                | review::CheckLanding
+                | review::Landed
+                | review::Groups
+                | review::Replay
+                | review::Misses
+                | review::Rates
+                | review::Scores
+                | review::CasePropose
+                | review::CaseAdd,
+            )
+            | Judge(judge::Listen)
+            | Question(
+                question::Ask
+                | question::Answer
+                | question::Settle
+                | question::Done
+                | question::Drop
+                | question::Place
+                | question::Edit
+                | question::Show
+                | question::List,
+            )
+            | Item(
+                item::Add
+                | item::Edit
+                | item::Note
+                | item::Changes
+                | item::Wait
+                | item::Backlog
+                | item::Start
+                | item::Take
+                | item::CheckBrief
+                | item::Handoff
+                | item::Stop
+                | item::Finished
+                | item::Drop
+                | item::Place
+                | item::CheckLanding
+                | item::Landed
+                | item::Show
+                | item::List
+                | item::Times,
+            )
+            | Area(area::Add | area::Rename | area::Move | area::Remove)
+            | Decision(
+                decision::Add | decision::Edit | decision::Find | decision::Show | decision::List,
+            )
+            | Design(
+                design::Places
+                | design::Only
+                | design::Record
+                | design::Amend
+                | design::Approve
+                | design::Check
+                | design::Landed
+                | design::Title
+                | design::Drop
+                | design::Show
+                | design::List
+                | design::Render
+                | design::TokensCss
+                | design::PublishFind
+                | design::PublishFiles
+                | design::PublishLast
+                | design::Listen
+                | design::PublishTake
+                | design::PublishDone
+                | design::PublishFailed,
+            )
+            | Lists(
+                lists::Init | lists::DesignGlobs | lists::AddRepo | lists::Show | lists::ProjectOf,
+            ) => Orphaned::Works,
+        }
+    }
 }
 
 #[cfg(test)]

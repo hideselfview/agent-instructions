@@ -599,6 +599,161 @@ fn forget_compacted(places: &Places, session: &str, thread: &str) -> Result<()> 
     Ok(())
 }
 
+impl crate::command::Parsed<'_, String> {
+    /// Whether the acknowledgement check (ack/mod.rs `gate`) covers the
+    /// command. It passes `ack` itself; the hook that gives an agent its
+    /// rules; the commands that use no store, since the check reads one and
+    /// install must run while the stores still have an older schema;
+    /// `status --json --no-folders`, which lists the checkouts, their app
+    /// lanes and their locks for the hook that refuses an unlocked move of an
+    /// app checkout, which reads it on every agent's command, including an
+    /// agent's first after a compaction, before it can acknowledge; and the
+    /// pre-commit hook's `checks run` in a repo's main checkout, since no
+    /// agent commits there (`builds help workflow`, WORKTREES), so a commit
+    /// there is the person's.
+    pub fn needs_acknowledgement(&self) -> Result<bool> {
+        use crate::command::Command::*;
+        use crate::command::*;
+        Ok(match self.command {
+            Ack | RulesOnEdit => false,
+            Status => !crate::status::is_folderless_json(self.rest),
+            Checks(checks::Run) => match crate::checks_run::run_worktree(self.rest) {
+                Some(worktree) => !crate::checkout::Checkout::at(worktree)?
+                    .is_some_and(|checkout| checkout.is_main()),
+                None => true,
+            },
+            Help
+            | Setup
+            | Lake
+            | Tool
+            | New
+            | Claim
+            | Note
+            | Release
+            | Retire
+            | Cargo
+            | AppBuild
+            | BuildApp
+            | Lock
+            | Programs
+            | Queue
+            | Takeover
+            | AppClone
+            | SccacheTmpdir
+            | Prune
+            | Du
+            | Health
+            | InstallHook
+            | Waits
+            | Land
+            | Brief
+            | Install
+            | Version
+            | Next
+            | Agent(agent::Start | agent::Run | agent::Resume | agent::List | agent::Show)
+            | Shots(shots::Findings | shots::Picture | shots::CheckProgram | shots::Checker)
+            | AppCheckout(app_checkout::Add | app_checkout::Remove | app_checkout::Reset)
+            | Host(
+                host::Add
+                | host::Setup
+                | host::SetupHere
+                | host::SpeedHere
+                | host::Band
+                | host::List
+                | host::Cache
+                | host::Remove
+                | host::ClearXcode,
+            )
+            | Remote(remote::Run | remote::Step)
+            | Units(units::Prune | units::GitCheckouts | units::AfterBuild)
+            | Dashboard(dashboard::Stage | dashboard::Serve)
+            | Checks(checks::Whole | checks::Stats | checks::List | checks::Tests)
+            | Review(
+                review::Run
+                | review::Copy
+                | review::Settle
+                | review::Wait
+                | review::Dispute
+                | review::Keep
+                | review::Show
+                | review::Key
+                | review::CheckLanding
+                | review::Landed
+                | review::Groups
+                | review::Replay
+                | review::Audit
+                | review::Misses
+                | review::Rates
+                | review::Scores
+                | review::CasePropose
+                | review::CaseAdd,
+            )
+            | Judge(judge::Listen)
+            | Question(
+                question::Ask
+                | question::Answer
+                | question::Settle
+                | question::Done
+                | question::Drop
+                | question::Place
+                | question::Edit
+                | question::Show
+                | question::List,
+            )
+            | Item(
+                item::Add
+                | item::Edit
+                | item::Note
+                | item::Changes
+                | item::Wait
+                | item::Backlog
+                | item::Start
+                | item::Take
+                | item::CheckBrief
+                | item::Handoff
+                | item::Stop
+                | item::Finished
+                | item::Drop
+                | item::Place
+                | item::CheckLanding
+                | item::Landed
+                | item::Show
+                | item::List
+                | item::Times,
+            )
+            | Area(area::Add | area::Rename | area::Move | area::Remove)
+            | Decision(
+                decision::Add | decision::Edit | decision::Find | decision::Show | decision::List,
+            )
+            | Design(
+                design::Places
+                | design::Only
+                | design::Record
+                | design::Amend
+                | design::Approve
+                | design::Check
+                | design::Landed
+                | design::Title
+                | design::Drop
+                | design::Show
+                | design::List
+                | design::Render
+                | design::TokensCss
+                | design::PublishFind
+                | design::PublishFiles
+                | design::PublishLast
+                | design::Listen
+                | design::PublishTake
+                | design::PublishDone
+                | design::PublishFailed,
+            )
+            | Lists(
+                lists::Init | lists::DesignGlobs | lists::AddRepo | lists::Show | lists::ProjectOf,
+            ) => self.command.stores() != crate::install_gate::Stores::Storeless,
+        })
+    }
+}
+
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;

@@ -261,6 +261,149 @@ pub fn sweep(places: &Places, ssh: &Ssh, host: &Host, holders: &Holders) -> Resu
     Ok(swept)
 }
 
+impl crate::command::Command {
+    /// Whether the command makes a run's temporary folder (run_tmp.rs): it
+    /// starts build work.
+    pub fn makes_run_folder(self) -> bool {
+        use crate::command::Command::*;
+        use crate::command::*;
+        match self {
+            Cargo
+            | Lake
+            | AppBuild
+            | BuildApp
+            | Lock
+            | Remote(remote::Run | remote::Step)
+            | Shots(shots::Checker) => true,
+            Help
+            | Ack
+            | RulesOnEdit
+            | Setup
+            | Tool
+            | New
+            | Claim
+            | Note
+            | Release
+            | Retire
+            | Programs
+            | Queue
+            | Takeover
+            | AppClone
+            | SccacheTmpdir
+            | Prune
+            | Du
+            | Status
+            | Health
+            | InstallHook
+            | Waits
+            | Land
+            | Brief
+            | Install
+            | Version
+            | Next
+            | Agent(agent::Start | agent::Run | agent::Resume | agent::List | agent::Show)
+            | Shots(shots::Findings | shots::Picture | shots::CheckProgram)
+            | AppCheckout(app_checkout::Add | app_checkout::Remove | app_checkout::Reset)
+            | Host(
+                host::Add
+                | host::Setup
+                | host::SetupHere
+                | host::SpeedHere
+                | host::Band
+                | host::List
+                | host::Cache
+                | host::Remove
+                | host::ClearXcode,
+            )
+            | Units(units::Prune | units::GitCheckouts | units::AfterBuild)
+            | Dashboard(dashboard::Stage | dashboard::Serve)
+            | Checks(checks::Run | checks::Whole | checks::Stats | checks::List | checks::Tests)
+            | Review(
+                review::Run
+                | review::Copy
+                | review::Settle
+                | review::Wait
+                | review::Dispute
+                | review::Keep
+                | review::Show
+                | review::Key
+                | review::CheckLanding
+                | review::Landed
+                | review::Groups
+                | review::Replay
+                | review::Audit
+                | review::Misses
+                | review::Rates
+                | review::Scores
+                | review::CasePropose
+                | review::CaseAdd,
+            )
+            | Judge(judge::Listen)
+            | Question(
+                question::Ask
+                | question::Answer
+                | question::Settle
+                | question::Done
+                | question::Drop
+                | question::Place
+                | question::Edit
+                | question::Show
+                | question::List,
+            )
+            | Item(
+                item::Add
+                | item::Edit
+                | item::Note
+                | item::Changes
+                | item::Wait
+                | item::Backlog
+                | item::Start
+                | item::Take
+                | item::CheckBrief
+                | item::Handoff
+                | item::Stop
+                | item::Finished
+                | item::Drop
+                | item::Place
+                | item::CheckLanding
+                | item::Landed
+                | item::Show
+                | item::List
+                | item::Times,
+            )
+            | Area(area::Add | area::Rename | area::Move | area::Remove)
+            | Decision(
+                decision::Add | decision::Edit | decision::Find | decision::Show | decision::List,
+            )
+            | Design(
+                design::Places
+                | design::Only
+                | design::Record
+                | design::Amend
+                | design::Approve
+                | design::Check
+                | design::Landed
+                | design::Title
+                | design::Drop
+                | design::Show
+                | design::List
+                | design::Render
+                | design::TokensCss
+                | design::PublishFind
+                | design::PublishFiles
+                | design::PublishLast
+                | design::Listen
+                | design::PublishTake
+                | design::PublishDone
+                | design::PublishFailed,
+            )
+            | Lists(
+                lists::Init | lists::DesignGlobs | lists::AddRepo | lists::Show | lists::ProjectOf,
+            ) => false,
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "run_tmp_tests.rs"]
 mod tests;

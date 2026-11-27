@@ -1,4 +1,6 @@
 use super::*;
+use crate::install_gate::Stores;
+use crate::orphans::Orphaned;
 
 fn words(line: &str) -> Vec<String> {
     line.split_whitespace().map(str::to_string).collect()

@@ -220,8 +220,9 @@ mod xcode_cache;
 
 use std::process::ExitCode;
 
-use command::{Command, Parsed, Stores};
+use command::{Command, Parsed};
 use fail::{Fail, Result};
+use install_gate::Stores;
 use places::{Places, Rules};
 
 fn main() -> ExitCode {

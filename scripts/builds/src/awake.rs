@@ -247,3 +247,152 @@ mod os {
 #[cfg(all(test, target_os = "macos"))]
 #[path = "awake_tests.rs"]
 mod tests;
+
+impl crate::command::Command {
+    /// Whether the command keeps this Mac awake while it runs (awake.rs): it
+    /// runs work. A command that only reads, or only waits for a person or
+    /// another process, runs none, and neither does the dashboard, which runs
+    /// until it is stopped and starts each of its own runs as a builds
+    /// process.
+    pub fn keeps_awake(self) -> bool {
+        use crate::command::Command::*;
+        use crate::command::*;
+        match self {
+            Land
+            | Health
+            | Setup
+            | New
+            | AppClone
+            | Prune
+            | Install
+            | Tool
+            | Agent(agent::Run | agent::Resume)
+            | Review(
+                review::Run
+                | review::Copy
+                | review::Replay
+                | review::Audit
+                | review::CasePropose
+                | review::CaseAdd,
+            )
+            | Checks(checks::Run)
+            | Item(item::Take)
+            | AppCheckout(app_checkout::Add | app_checkout::Remove | app_checkout::Reset)
+            | Host(
+                host::Add
+                | host::Setup
+                | host::SetupHere
+                | host::SpeedHere
+                | host::Band
+                | host::List
+                | host::Cache
+                | host::Remove
+                | host::ClearXcode,
+            ) => true,
+            Help
+            | Ack
+            | RulesOnEdit
+            | Lake
+            | Claim
+            | Note
+            | Release
+            | Retire
+            | Cargo
+            | AppBuild
+            | BuildApp
+            | Lock
+            | Programs
+            | Queue
+            | Takeover
+            | SccacheTmpdir
+            | Du
+            | Status
+            | InstallHook
+            | Waits
+            | Brief
+            | Version
+            | Next
+            | Agent(agent::Start | agent::List | agent::Show)
+            | Shots(shots::Findings | shots::Picture | shots::CheckProgram | shots::Checker)
+            | Remote(remote::Run | remote::Step)
+            | Units(units::Prune | units::GitCheckouts | units::AfterBuild)
+            | Dashboard(dashboard::Stage | dashboard::Serve)
+            | Checks(checks::Whole | checks::Stats | checks::List | checks::Tests)
+            | Review(
+                review::Settle
+                | review::Wait
+                | review::Dispute
+                | review::Keep
+                | review::Show
+                | review::Key
+                | review::CheckLanding
+                | review::Landed
+                | review::Groups
+                | review::Misses
+                | review::Rates
+                | review::Scores,
+            )
+            | Judge(judge::Listen)
+            | Question(
+                question::Ask
+                | question::Answer
+                | question::Settle
+                | question::Done
+                | question::Drop
+                | question::Place
+                | question::Edit
+                | question::Show
+                | question::List,
+            )
+            | Item(
+                item::Add
+                | item::Edit
+                | item::Note
+                | item::Changes
+                | item::Wait
+                | item::Backlog
+                | item::Start
+                | item::CheckBrief
+                | item::Handoff
+                | item::Stop
+                | item::Finished
+                | item::Drop
+                | item::Place
+                | item::CheckLanding
+                | item::Landed
+                | item::Show
+                | item::List
+                | item::Times,
+            )
+            | Area(area::Add | area::Rename | area::Move | area::Remove)
+            | Decision(
+                decision::Add | decision::Edit | decision::Find | decision::Show | decision::List,
+            )
+            | Design(
+                design::Places
+                | design::Only
+                | design::Record
+                | design::Amend
+                | design::Approve
+                | design::Check
+                | design::Landed
+                | design::Title
+                | design::Drop
+                | design::Show
+                | design::List
+                | design::Render
+                | design::TokensCss
+                | design::PublishFind
+                | design::PublishFiles
+                | design::PublishLast
+                | design::Listen
+                | design::PublishTake
+                | design::PublishDone
+                | design::PublishFailed,
+            )
+            | Lists(
+                lists::Init | lists::DesignGlobs | lists::AddRepo | lists::Show | lists::ProjectOf,
+            ) => self.makes_run_folder(),
+        }
+    }
+}
