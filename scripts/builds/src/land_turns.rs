@@ -10,12 +10,13 @@ use crate::fail::Result;
 use crate::land::{WORKTREE_TURN_FILE, read_holder, record_branch, record_pid};
 
 /// Returns the worktree that the command line <argv> of a running `builds
-/// land <worktree> ...` lands in. Returns None for any other command.
-pub fn requested(argv: &[String]) -> Option<String> {
-    crate::args::Args::of_process(Command::Land, argv)?
-        .positional()
-        .first()
-        .cloned()
+/// land <worktree> ...` lands in, or why its words do not fit `builds land`.
+/// Returns None for any other command.
+pub fn requested(argv: &[String]) -> Option<Result<String>> {
+    Some(
+        crate::args::Args::of_process(Command::Land, argv)?
+            .map(|args| args.positional()[0].clone()),
+    )
 }
 
 /// The turn a landing waits for and the landing that holds it, as that
@@ -36,7 +37,15 @@ impl std::fmt::Display for TurnWait {
 /// lands in: None when it is no `builds land`, and the text of what failed
 /// when builds cannot read its working directory.
 pub fn landing_worktree(pid: i32, argv: &[String]) -> Option<std::result::Result<PathBuf, String>> {
-    let worktree = requested(argv)?;
+    let worktree = match requested(argv)? {
+        Ok(worktree) => worktree,
+        Err(fail) => {
+            return Some(Err(format!(
+                "process {pid} runs `builds land` with words this builds does not read ({}), so health cannot tell which worktree it lands in",
+                fail.text().lines().next().unwrap_or("")
+            )));
+        }
+    };
     Some(
         crate::procs::cwd(pid)
             .map(|dir| dir.join(&worktree))

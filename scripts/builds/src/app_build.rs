@@ -2968,7 +2968,7 @@ pub fn run_lanes(
 
 /// The arguments of <argv>, the command line of a process, when it runs
 /// `builds app-build` (`Build`).
-fn build_args(argv: &[String]) -> Option<crate::args::Args> {
+fn build_args(argv: &[String]) -> Option<Result<crate::args::Args>> {
     crate::args::Args::of_process(
         crate::command::Command::AppBuild(crate::command::app_build::Build),
         argv,
@@ -2978,29 +2978,39 @@ fn build_args(argv: &[String]) -> Option<crate::args::Args> {
 /// Returns the commit from the command line <argv> of a lane's process,
 /// `builds app-build <repo> --lane <lane> <commit> ...`, which a request
 /// starts for each lane (`run_lanes`) and which waits in that lane's queue.
-/// Returns None for any other command.
-pub fn lane_requested(argv: &[String]) -> Option<String> {
-    let args = build_args(argv)?;
-    args.value("lane").ok()??;
+/// Returns None for any other command, and why the words do not fit when
+/// they do not.
+pub fn lane_requested(argv: &[String]) -> Option<Result<String>> {
+    let args = match build_args(argv)? {
+        Ok(args) => args,
+        Err(fail) => return Some(Err(fail)),
+    };
+    if !args.switch("lane") {
+        return None;
+    }
     let [_repo, commit, ..] = args.positional() else {
         return None;
     };
-    Some(commit.clone())
+    Some(Ok(commit.clone()))
 }
 
 /// Returns the repo and the ref (the branch or commit to build) from the
 /// command line <argv> of a running `builds app-build <repo> <ref> ...`
 /// request. Returns None for any other command, for `--list`, and for a
-/// lane's process (`--lane`), which the request starts and waits for.
-pub fn requested(argv: &[String]) -> Option<(String, String)> {
-    let args = build_args(argv)?;
+/// lane's process (`--lane`), which the request starts and waits for; why
+/// the words do not fit when they do not.
+pub fn requested(argv: &[String]) -> Option<Result<(String, String)>> {
+    let args = match build_args(argv)? {
+        Ok(args) => args,
+        Err(fail) => return Some(Err(fail)),
+    };
     if args.switch("list") || args.switch("lane") {
         return None;
     }
     let [repo, reference, ..] = args.positional() else {
         return None;
     };
-    Some((repo.clone(), reference.clone()))
+    Some(Ok((repo.clone(), reference.clone())))
 }
 
 /// `builds app-build`. The floor of <tool>'s rules is the free-disk floor a

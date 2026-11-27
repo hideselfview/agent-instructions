@@ -564,13 +564,20 @@ pub fn sample(
                 continue;
             }
         };
-        if let Some((repo, reference)) = crate::app_build::requested(&argv) {
-            app_builds.push(AppBuildRun {
-                pid: process.pid,
-                repo: repo.to_string(),
-                reference: reference.to_string(),
-                started_from: started_from(places, process.pid),
-            });
+        if let Some(requested) = crate::app_build::requested(&argv) {
+            match requested {
+                Ok((repo, reference)) => app_builds.push(AppBuildRun {
+                    pid: process.pid,
+                    repo,
+                    reference,
+                    started_from: started_from(places, process.pid),
+                }),
+                Err(fail) => unread.push(format!(
+                    "process {} runs `builds app-build` with words this builds does not read ({}), so health cannot tell what it builds",
+                    process.pid,
+                    fail.text().lines().next().unwrap_or("")
+                )),
+            }
         } else if let Some(command) = DesignCommand::of(&argv) {
             let started_by_builds = processes
                 .list
@@ -768,7 +775,19 @@ pub fn sample(
                 continue;
             };
             let commit = match live_args(process.pid) {
-                Ok(argv) => argv.and_then(|argv| crate::app_build::lane_requested(&argv)),
+                Ok(argv) => match argv.and_then(|argv| crate::app_build::lane_requested(&argv)) {
+                    Some(Ok(commit)) => Some(commit),
+                    Some(Err(fail)) => {
+                        unread.push(format!(
+                            "process {} waits in {repo}'s {} lane with words this builds does not read ({}), so health cannot tell which commit it waits to build",
+                            process.pid,
+                            lane.word(),
+                            fail.text().lines().next().unwrap_or("")
+                        ));
+                        None
+                    }
+                    None => None,
+                },
                 Err(error) => {
                     unread.push(format!(
                         "{error}, so health cannot tell which commit it waits to build in {repo}'s {} lane",

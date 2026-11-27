@@ -2161,24 +2161,30 @@ fn a_cached_run_made_in_another_environment_is_a_commits_own_run_and_is_printed(
     assert_eq!(cached.key.environment, "25G241-27B52");
 }
 
+/// What a lookup of a process's command line found, with a refusal as its
+/// text.
+fn read<T>(found: Option<Result<T>>) -> Option<std::result::Result<T, String>> {
+    found.map(|found| found.map_err(|fail| fail.text()))
+}
+
 /// A request names its repo and ref; a lane's process, `--list` and other
 /// commands name none.
 #[test]
 fn a_request_names_its_repo_and_ref() {
     let argv = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     assert_eq!(
-        requested(&argv(&[
+        read(requested(&argv(&[
             "/x/builds",
             "app-build",
             "bae",
             "work",
             "--test",
             "A"
-        ])),
-        Some(("bae".to_string(), "work".to_string()))
+        ]))),
+        Some(Ok(("bae".to_string(), "work".to_string())))
     );
     assert_eq!(
-        requested(&argv(&[
+        read(requested(&argv(&[
             "builds",
             "app-build",
             "bae",
@@ -2187,14 +2193,17 @@ fn a_request_names_its_repo_and_ref() {
             "work",
             "--built-ref",
             "work"
-        ])),
+        ]))),
         None
     );
     assert_eq!(
-        requested(&argv(&["builds", "app-build", "bae", "--list"])),
+        read(requested(&argv(&["builds", "app-build", "bae", "--list"]))),
         None
     );
-    assert_eq!(requested(&argv(&["builds", "cargo", "test", "x"])), None);
+    assert_eq!(
+        read(requested(&argv(&["builds", "cargo", "test", "x"]))),
+        None
+    );
 }
 
 /// A lane's process names the commit it builds; a request and other commands
@@ -2203,7 +2212,7 @@ fn a_request_names_its_repo_and_ref() {
 fn a_lanes_process_names_its_repo_and_commit() {
     let argv = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     assert_eq!(
-        lane_requested(&argv(&[
+        read(lane_requested(&argv(&[
             "/x/builds",
             "app-build",
             "bae",
@@ -2213,18 +2222,32 @@ fn a_lanes_process_names_its_repo_and_commit() {
             "--built-ref",
             "work",
             "android-tests"
-        ])),
-        Some("abc123".to_string())
+        ]))),
+        Some(Ok("abc123".to_string()))
     );
     assert_eq!(
-        lane_requested(&argv(&["builds", "app-build", "bae", "work"])),
+        read(lane_requested(&argv(&[
+            "builds",
+            "app-build",
+            "bae",
+            "work"
+        ]))),
         None
+    );
+    assert!(
+        read(lane_requested(&argv(&[
+            "builds",
+            "app-build",
+            "bae",
+            "--lane",
+            "mac"
+        ])))
+        .is_some_and(|read| read.is_err())
     );
     assert_eq!(
-        lane_requested(&argv(&["builds", "app-build", "bae", "--lane", "mac"])),
+        read(lane_requested(&argv(&["builds", "lock", "bae"]))),
         None
     );
-    assert_eq!(lane_requested(&argv(&["builds", "lock", "bae"])), None);
 }
 
 #[test]
@@ -2297,18 +2320,18 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
 fn an_agent_option_does_not_hide_a_build_request_or_lane() {
     let argv = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     assert_eq!(
-        requested(&argv(&[
+        read(requested(&argv(&[
             "builds",
             "--agent",
             "a1",
             "app-build",
             "bae",
             "work"
-        ])),
-        Some(("bae".to_string(), "work".to_string()))
+        ]))),
+        Some(Ok(("bae".to_string(), "work".to_string())))
     );
     assert_eq!(
-        lane_requested(&argv(&[
+        read(lane_requested(&argv(&[
             "builds",
             "--agent",
             "a1",
@@ -2319,8 +2342,8 @@ fn an_agent_option_does_not_hide_a_build_request_or_lane() {
             "abc",
             "--built-ref",
             "work"
-        ])),
-        Some("abc".to_string())
+        ]))),
+        Some(Ok("abc".to_string()))
     );
 }
 

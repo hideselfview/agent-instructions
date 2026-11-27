@@ -100,16 +100,17 @@ impl Args {
     }
 
     /// The arguments of <argv>, the command line of a running builds
-    /// process, when the process runs <command>; None for any other command
-    /// and for words that do not fit it.
-    pub fn of_process(command: Command, argv: &[String]) -> Option<Args> {
+    /// process, when the process runs <command>, or why its words do not fit
+    /// the command, as a builds of another version may have written them;
+    /// None for any other command.
+    pub fn of_process(command: Command, argv: &[String]) -> Option<Result<Args>> {
         let words = crate::ack::agent::without_flag(argv);
         let parsed = Command::of(words.get(1..)?)?;
         if parsed.command != command {
             return None;
         }
         let rest: Vec<String> = parsed.rest.iter().map(|word| word.to_string()).collect();
-        Args::of(command, &rest).ok()
+        Some(Args::of(command, &rest))
     }
 
     /// The command whose words these are.
