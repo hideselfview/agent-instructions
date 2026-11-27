@@ -24,9 +24,9 @@ use std::path::Path;
 pub(crate) const SCALE: f64 = 2.0;
 
 /// The picture folder a comparison takes pages from and keeps the ones it
-/// draws in, with the capture version of the checker that keys them.
+/// draws in, with the checker's boards version, which keys them.
 pub(crate) struct Store<'a> {
-    pub(crate) capture_version: &'a str,
+    pub(crate) boards_version: &'a str,
     pub(crate) pictures: Option<&'a Pictures>,
 }
 
@@ -89,9 +89,9 @@ impl Page<'_> {
         &self,
         root: &Path,
         context: &Context,
-        capture_version: &str,
+        boards_version: &str,
     ) -> Result<String, String> {
-        let common = context.common(capture_version);
+        let common = context.common(boards_version);
         match self {
             Page::Board(name, _) => design::board_hash(root, name, context.runtime.sha256, &common),
             Page::Preview(component) => design::preview_page_hash(root, component, &common),

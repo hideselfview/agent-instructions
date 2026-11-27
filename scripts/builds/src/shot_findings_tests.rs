@@ -255,8 +255,8 @@ fn findings_print_the_newest_run_an_older_shots_program_made_and_say_so() {
     );
     let current = run_key(
         "env",
-        &crate::shots_program::VERSIONS.capture,
-        &crate::shots_program::VERSIONS.comparison,
+        &crate::shots_program::versions(boards::app_build::Platform::Mac).capture,
+        &crate::shots_program::versions(boards::app_build::Platform::Mac).comparison,
     );
     let made = shots_cache::stage(&places, &current)
         .unwrap()

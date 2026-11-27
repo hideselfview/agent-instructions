@@ -70,7 +70,7 @@ impl ProgramRenders {
         use sha2::{Digest, Sha256};
         let key = format!(
             "{}\n{before}\n{after}\n{place}",
-            crate::shots_program::VERSIONS.capture
+            crate::shots_program::CHECKER.boards
         );
         let digest = crate::text::hex(&Sha256::digest(key.as_bytes()));
         self.kept.join(digest)

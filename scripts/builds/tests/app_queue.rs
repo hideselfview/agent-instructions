@@ -1690,14 +1690,19 @@ fn write_reporting_shots(top: &Path, hook: &str) {
             "#!/bin/sh
 echo \"shots $*\" >> \"$QUEUE_TEST_DIR/log\"
 {hook}
+case \"$*\" in
+*android*) capture={} ;;
+*) capture={} ;;
+esac
 report=\"$QUEUE_TEST_DIR/report-$$\"
 mkdir -p \"$report\"
 echo '<html></html>' > \"$report/index.html\"
-echo '{{\"version\": \"{}\", \"capture_version\": \"{}\", \"commit\": \"c\", \"scenes\": [], \"boards\": {{}}, \"findings\": [], \"failed\": [], \"problems\": 0}}' > \"$report/findings.json\"
+echo '{{\"version\": \"{}\", \"capture_version\": \"'\"$capture\"'\", \"commit\": \"c\", \"scenes\": [], \"boards\": {{}}, \"findings\": [], \"failed\": [], \"problems\": 0}}' > \"$report/findings.json\"
 echo \"builds shots: report at $report/index.html\" >&2
 ",
-            env!("COMPARISON_SOURCE"),
-            env!("CAPTURE_SOURCE")
+            env!("CAPTURE_ANDROID_SOURCE"),
+            env!("CAPTURE_MAC_SOURCE"),
+            env!("COMPARISON_SOURCE")
         ),
     )
     .unwrap();
@@ -1908,7 +1913,7 @@ fn a_passing_recheck_reports_the_failed_source_and_runs_the_requested_test() {
     let commit = git_in(&top, &["rev-parse", "main"]);
     let capture = volume.dir.join(format!(
         "volume/shots/demo/runs/{commit}/mac/26B131-17C529/mac.a./{}",
-        env!("CAPTURE_SOURCE")
+        env!("CAPTURE_MAC_SOURCE")
     ));
     std::fs::rename(
         capture.join(env!("COMPARISON_SOURCE")),

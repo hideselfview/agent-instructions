@@ -102,7 +102,7 @@ pub(crate) fn command(checker: &Checker, root: &Path, args: DrawsArgs) -> Result
         .pictures
         .map(|dir| Pictures::new(dir, std::time::SystemTime::now()));
     let store = Store {
-        capture_version: &checker.versions.capture,
+        boards_version: &checker.versions.boards,
         pictures: pictures.as_ref(),
     };
     let lines = lines(
@@ -287,7 +287,7 @@ fn draw_screens(
         &context.previews,
         &context.design,
         context.runtime.sha256,
-        store.capture_version,
+        store.boards_version,
         &context.settings,
     )?;
     let out = tempfile::tempdir_in(&folders.cache).map_err(|e| e.to_string())?;
@@ -332,7 +332,7 @@ fn draw_pages(
             drawn.insert(what, None);
             continue;
         };
-        let hash = page.hash(work, context, store.capture_version)?;
+        let hash = page.hash(work, context, store.boards_version)?;
         let kept = match store.pictures {
             Some(pictures) => pictures.take_board(&hash, &hash, out.path())?,
             None => false,

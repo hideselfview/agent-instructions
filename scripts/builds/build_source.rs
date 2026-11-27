@@ -68,12 +68,36 @@ pub fn files(roots: &[(String, PathBuf)]) -> Vec<(String, PathBuf)> {
     files
 }
 
-/// The side of the shots checker a version covers: the files that take a shot
-/// and draw a board, or the files that compare a shot with its board.
+/// A platform whose shots the checker takes with files of its own.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Taker {
+    Mac,
+    Android,
+    Web,
+}
+
+/// The files and folders of the shots crate that take one platform's shots
+/// and nothing else, so that a change to them keeps what the other platforms'
+/// runs and every board picture depend on.
+const TAKERS: [(&str, Taker); 5] = [
+    ("shots/harness/mac", Taker::Mac),
+    ("shots/src/harness/mac.rs", Taker::Mac),
+    ("shots/harness/android", Taker::Android),
+    ("shots/src/harness/android.rs", Taker::Android),
+    ("shots/src/capture/web.rs", Taker::Web),
+];
+
+/// The side of the shots checker a version covers: the files that draw a
+/// board, those and the files that take one platform's shots, or the files
+/// that compare a shot with its board.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Side {
-    /// What a cached shot and a cached board picture depend on.
-    Capture,
+    /// What a cached board picture depends on: every file of the capture side
+    /// but each platform's own (`TAKERS`).
+    Boards,
+    /// What a platform's cached shots and runs depend on: `Boards` and the
+    /// platform's own files.
+    Capture(Taker),
     /// What a cached run's findings depend on, given its shots and pictures.
     Comparison,
 }
@@ -97,8 +121,9 @@ const SHARED: [&str; 8] = [
 /// side reads: taking shots, drawing boards and keeping their pictures. The
 /// harness sources beside `src` (`shots/harness`) take shots too, inside an
 /// app's tests.
-const CAPTURE_ONLY: [&str; 8] = [
+const CAPTURE_ONLY: [&str; 9] = [
     "capture",
+    "harness",
     "harness.rs",
     "capture_marks.rs",
     "render",
@@ -137,7 +162,11 @@ const UNVERSIONED: [&str; 3] = ["states.rs", "draws.rs", "cli.rs"];
 #[derive(PartialEq, Eq, Debug)]
 enum Readers {
     Both,
-    Only(Side),
+    /// Every platform's capture and the board pictures.
+    Capture,
+    /// One platform's capture.
+    Takes(Taker),
+    Comparison,
     Nobody,
 }
 
@@ -149,22 +178,30 @@ fn readers(shown: &str) -> Readers {
     if shown.starts_with("boards/") || shown == "shots/Cargo.toml" {
         return Readers::Both;
     }
-    if shown.starts_with("shots/canvas/") || shown.starts_with("shots/harness/") {
-        return Readers::Only(Side::Capture);
+    if shown.ends_with("_tests.rs") {
+        return Readers::Nobody;
+    }
+    let is_at = |at: &str| {
+        shown
+            .strip_prefix(at)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    };
+    if let Some((_, taker)) = TAKERS.iter().find(|(at, _)| is_at(at)) {
+        return Readers::Takes(*taker);
+    }
+    if shown.starts_with("shots/canvas/") {
+        return Readers::Capture;
     }
     let Some(inside) = shown.strip_prefix("shots/src/") else {
         panic!("{shown} is no file of the shots checker that build_source.rs knows");
     };
-    if inside.ends_with("_tests.rs") {
-        return Readers::Nobody;
-    }
     let top = inside.split('/').next().unwrap_or(inside);
     if SHARED.contains(&top) {
         Readers::Both
     } else if CAPTURE_ONLY.contains(&top) {
-        Readers::Only(Side::Capture)
+        Readers::Capture
     } else if COMPARISON_ONLY.contains(&top) {
-        Readers::Only(Side::Comparison)
+        Readers::Comparison
     } else if UNVERSIONED.contains(&top) {
         Readers::Nobody
     } else {
@@ -185,7 +222,9 @@ pub fn shots_files(scripts: &Path, side: Side) -> Vec<(String, PathBuf)> {
         .into_iter()
         .filter(|(shown, _)| match readers(shown) {
             Readers::Both => true,
-            Readers::Only(only) => only == side,
+            Readers::Capture => side != Side::Comparison,
+            Readers::Takes(taker) => side == Side::Capture(taker),
+            Readers::Comparison => side == Side::Comparison,
             Readers::Nobody => false,
         })
         .collect()

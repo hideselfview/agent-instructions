@@ -1449,7 +1449,7 @@ fn a_store(places: &Places) -> ShotsCache {
         places: places.clone(),
         repo: "demo".to_string(),
         lane: Lane::MAC,
-        versions: crate::shots_program::VERSIONS.clone(),
+        versions: crate::shots_program::versions(boards::app_build::Platform::Mac).clone(),
         befores: Vec::new(),
         environment: ENVIRONMENT.to_string(),
         app_tree: "0123456789abcdef".to_string(),
@@ -1497,7 +1497,7 @@ fn shots_key(commit: &str, prefix: &str) -> shots_cache::Key {
         Lane::MAC,
         ENVIRONMENT,
         prefix,
-        &crate::shots_program::VERSIONS,
+        crate::shots_program::versions(boards::app_build::Platform::Mac),
     )
 }
 
@@ -1753,7 +1753,9 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
     // land counts as covering the branch.
     record(RunEnd::Passed, StepResult::Passed);
     assert_eq!(serve().pending, vec![pick.clone()]);
-    let report = report_run(&crate::shots_program::VERSIONS);
+    let report = report_run(crate::shots_program::versions(
+        boards::app_build::Platform::Mac,
+    ));
     let step = fake("shots mac.a.", &["sh", "-c", &report], None);
     run_steps(
         &top,
@@ -1817,7 +1819,9 @@ fn a_shots_run_caches_its_report_and_the_pictures_it_shows_under_its_key_in_the_
     let places = scratch.places();
     let top = scratch.dir.join("repo");
     let cached = shots_cache(&top, &places);
-    let run = report_run(&crate::shots_program::VERSIONS);
+    let run = report_run(crate::shots_program::versions(
+        boards::app_build::Platform::Mac,
+    ));
     let step = fake("shots mac.a.", &["sh", "-c", &run], None);
     run_steps(
         &top,
@@ -1862,7 +1866,7 @@ fn a_report_whose_findings_name_another_shots_checker_caches_nothing() {
     let cached = shots_cache(&top, &places);
     let run = report_run(&crate::shots_program::Versions {
         comparison: "another".to_string(),
-        ..crate::shots_program::VERSIONS.clone()
+        ..crate::shots_program::versions(boards::app_build::Platform::Mac).clone()
     });
     let step = fake("shots mac.a.", &["sh", "-c", &run], None);
     run_steps(
@@ -2287,7 +2291,11 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
     let tree = picture_tree(&top, &commit, &config, Lane::MAC, ENVIRONMENT).unwrap();
     assert_eq!(
         tree,
-        crate::app_tree::in_environment(&source_tree, ENVIRONMENT)
+        crate::app_tree::in_environment(
+            &source_tree,
+            ENVIRONMENT,
+            &crate::shots_program::versions(boards::app_build::Platform::Mac).capture,
+        )
     );
     let cached = |tree, prefixes: &[&str]| {
         let pictures = shots_cache::AppPictures::of(&places, "demo", Lane::MAC, tree);
@@ -2309,7 +2317,11 @@ fn the_picture_folder_caches_the_shots_of_the_prefixes_its_marks_cover_for_the_a
         .write(&[shots::Prefix::parse("mac.").unwrap()], false)
         .unwrap();
     assert!(cached(&tree, &["mac.a."]) && cached(&tree, &["mac.a.", "mac.b."]));
-    let other_environment = crate::app_tree::in_environment(&source_tree, "25G241-27B52");
+    let other_environment = crate::app_tree::in_environment(
+        &source_tree,
+        "25G241-27B52",
+        &crate::shots_program::versions(boards::app_build::Platform::Mac).capture,
+    );
     for tree in ["another-tree", &other_environment] {
         assert!(!cached(tree, &["mac.a."]));
     }

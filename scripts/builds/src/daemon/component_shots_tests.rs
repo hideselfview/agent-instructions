@@ -25,9 +25,9 @@ fn cache_run(
             environment: "26B131-17C529".to_string(),
             prefix: prefix.to_string(),
             versions: crate::shots_program::Versions {
-                capture: VERSIONS.capture.clone(),
+                capture: mac_versions().capture.clone(),
 
-                comparison: VERSIONS.comparison.clone(),
+                comparison: mac_versions().comparison.clone(),
             },
         },
     )
@@ -52,8 +52,8 @@ fn cache_run(
 /// row `on`, whose shot no capture file declares.
 fn checkbox_findings() -> Value {
     json!({
-        "version": VERSIONS.comparison,
-        "capture_version": VERSIONS.capture,
+        "version": mac_versions().comparison,
+        "capture_version": mac_versions().capture,
         "commit": COMMIT,
         "scenes": ["mac.component.checkbox.off", "mac.component.row.plain"],
         "sizes": {
@@ -209,7 +209,7 @@ fn pruning_keeps_an_old_run_until_the_dashboard_finishes_reading_it() {
         COMMIT,
         Lane::MAC,
         prefix,
-        &VERSIONS,
+        mac_versions(),
         |cached| {
             prune()?;
             read_run(cached, "MacCheckbox", Lane::MAC, prefix).map(Some)
@@ -344,4 +344,9 @@ fn a_listed_row_whose_shot_is_not_the_component_s_fails_the_read() {
         error.contains("mac.component.row.plain") && error.contains("mac.component.checkbox."),
         "{error}"
     );
+}
+
+/// The versions that make the mac lane's runs.
+fn mac_versions() -> &'static crate::shots_program::Versions {
+    crate::shots_program::versions(boards::app_build::Platform::Mac)
 }

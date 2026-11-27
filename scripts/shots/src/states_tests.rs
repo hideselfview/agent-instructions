@@ -327,7 +327,7 @@ fn the_components_of_each_page_come_from_the_picture_folder_by_its_hash() {
     let folder = tempfile::tempdir().unwrap();
     let pictures = Pictures::new(folder.path().to_path_buf(), std::time::SystemTime::now());
     let store = Store {
-        capture_version: "c0c0c0c0c0c0c0c0",
+        boards_version: "c0c0c0c0c0c0c0c0",
         pictures: Some(&pictures),
     };
     let first = read(repo.path(), None, &folders, &store).unwrap();

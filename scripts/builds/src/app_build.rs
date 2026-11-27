@@ -1242,6 +1242,7 @@ fn picture_tree(
     Ok(crate::app_tree::in_environment(
         &crate::app_tree::of(source, commit, config, lane)?,
         environment,
+        &crate::shots_program::versions(lane.platform()).capture,
     ))
 }
 
@@ -1373,7 +1374,7 @@ impl ShotsCache {
         built: &[(shots::Prefix, MissCause)],
         program: &Path,
     ) -> Result<ShotsCache> {
-        let versions = &crate::shots_program::VERSIONS;
+        let versions = crate::shots_program::versions(lane.platform());
         let mut befores = Vec::new();
         let mut bases = Vec::new();
         let mut base_declared_names = None;
@@ -1434,7 +1435,7 @@ impl ShotsCache {
             places: places.clone(),
             repo: repo.to_string(),
             lane,
-            versions: crate::shots_program::Versions::clone(versions),
+            versions: versions.clone(),
             befores,
             environment: environment.to_string(),
             app_tree,
@@ -2455,7 +2456,7 @@ impl<'a> LaneBuild<'a> {
                     lane,
                     environment,
                     prefix.as_str(),
-                    &crate::shots_program::VERSIONS,
+                    crate::shots_program::versions(lane.platform()),
                 )?;
                 Ok((prefix.clone(), cause))
             })
@@ -2471,7 +2472,7 @@ impl<'a> LaneBuild<'a> {
             ));
             return Ok((Ended::Finished, causes));
         }
-        let versions = &crate::shots_program::VERSIONS;
+        let versions = crate::shots_program::versions(lane.platform());
         note(format!(
             "builds has no cached run of {} on {} at {}, the merge base of {} with origin/main, made in environment {environment} by shots checker {} (comparison) over {} (capture): building the merge base in this turn and running only them there",
             prefixes_of(&wanted),

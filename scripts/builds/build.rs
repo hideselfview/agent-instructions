@@ -5,10 +5,11 @@
 //! builds of the same sources print the same name with `builds version`, on
 //! macOS and on Linux, and `builds host setup` sends a Linux host the copy to
 //! build there, so the host runs the builds this Mac runs, though each OS
-//! builds a program of its own. `CAPTURE_SOURCE` and `COMPARISON_SOURCE` are the
-//! two versions of the shots checker (`shots_version`): the files that take a
-//! shot and draw a board, and the files that compare them. They key the shots
-//! and board pictures builds stores and the findings builds stores.
+//! builds a program of its own. `BOARDS_SOURCE`, a `CAPTURE_<platform>_SOURCE`
+//! for each platform and `COMPARISON_SOURCE` are the versions of the shots
+//! checker (`shots_version`): the files that draw a board, those with the
+//! files that take the platform's shots, and the files that compare them. They
+//! key the board pictures, shots and findings builds stores.
 
 mod build_source;
 
@@ -36,14 +37,19 @@ fn main() {
     std::fs::write(out.join("source.tar"), tar).expect("writing source.tar");
     println!("cargo:rustc-env=BUILDS_SOURCE={}", hex8(hash));
     let lock = here.join("Cargo.lock");
-    println!(
-        "cargo:rustc-env=CAPTURE_SOURCE={}",
-        shots_version(scripts, &lock, build_source::Side::Capture)
-    );
-    println!(
-        "cargo:rustc-env=COMPARISON_SOURCE={}",
-        shots_version(scripts, &lock, build_source::Side::Comparison)
-    );
+    use build_source::{Side, Taker};
+    for (variable, side) in [
+        ("BOARDS_SOURCE", Side::Boards),
+        ("CAPTURE_MAC_SOURCE", Side::Capture(Taker::Mac)),
+        ("CAPTURE_ANDROID_SOURCE", Side::Capture(Taker::Android)),
+        ("CAPTURE_WEB_SOURCE", Side::Capture(Taker::Web)),
+        ("COMPARISON_SOURCE", Side::Comparison),
+    ] {
+        println!(
+            "cargo:rustc-env={variable}={}",
+            shots_version(scripts, &lock, side)
+        );
+    }
 }
 
 /// The version of <side> of the shots checker built from the crates in

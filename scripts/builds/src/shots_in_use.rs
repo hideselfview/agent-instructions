@@ -61,7 +61,6 @@ pub fn named_in(
     let Some(since) = waiting.values().min() else {
         return Ok(named);
     };
-    let versions = &crate::shots_program::VERSIONS;
     let mut bases: HashMap<String, Option<String>> = HashMap::new();
     let lanes = crate::repo_lanes::in_source(source)?;
     for build in crate::app_timing::shots_builds(conn, repo, *since, path)? {
@@ -75,6 +74,7 @@ pub fn named_in(
         }
         let base = bases[&build.commit].as_ref();
         let lane = crate::repo_lanes::parse_among(&lanes, &build.lane)?;
+        let versions = crate::shots_program::versions(lane.platform());
         for commit in std::iter::once(&build.commit).chain(base) {
             for folder in crate::shots_cache::covering_folders(
                 places,

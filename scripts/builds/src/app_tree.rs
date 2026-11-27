@@ -108,15 +108,19 @@ fn is_at(path: &str, input: &str) -> bool {
 }
 
 /// The id that keys <tree>'s shots in the picture folder for a shots run made
-/// in <environment> (app_platform.rs): 16 hex digits of the two together.
-/// builds passes it to the shots program as the app tree, so the one id means
-/// everything that draws the shots, the app's source and the host software,
-/// and a shot cached in one environment is never reused in another.
-pub fn in_environment(tree: &str, environment: &str) -> String {
+/// in <environment> (app_platform.rs) with the capture version <capture> of
+/// the shots checker: 16 hex digits of the three together. builds passes it to
+/// the shots program as the app tree, so the one id means everything that
+/// draws the shots, the app's source, the host software and the harness, and a
+/// shot cached in one environment or taken by one harness is never reused for
+/// another.
+pub fn in_environment(tree: &str, environment: &str, capture: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(tree.as_bytes());
     hasher.update([0]);
     hasher.update(environment.as_bytes());
+    hasher.update([0]);
+    hasher.update(capture.as_bytes());
     crate::text::hex(&hasher.finalize()[..8])
 }
 

@@ -33,17 +33,18 @@ mod verify;
 pub use crate::capture_marks::{CAPTURE_MARKS_DIR, CaptureMarkError, CaptureMarks};
 use crate::cli::{Action, Cli, Selection};
 pub use crate::declared::Declared;
-use crate::names::App;
+use crate::names::{App, Platform};
 pub use crate::names::{ComponentName, Name, NameError, Prefix, ScreenName};
 pub use crate::pictures::app_picture_tree;
 pub use crate::report::{board_picture, shot_picture};
 use crate::settings::Settings;
 use clap::Parser;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// The two versions of the checker. The capture version is a hash of the files
-/// that take a shot and draw a board: it keys the board pictures (design.rs),
-/// and a run's findings.json names it, so that a run compared again
+/// The two versions of the checker that make a platform's runs. The capture
+/// version is a hash of the files that draw a board and take that platform's
+/// shots: a run's findings.json names it, so that a run compared again
 /// (recheck.rs) keeps naming the version that made its pictures. The
 /// comparison version is a hash of the files that compare a shot with its
 /// board: a run's findings.json names it, and a run compares only with a run
@@ -52,6 +53,47 @@ use std::path::{Path, PathBuf};
 pub struct Versions {
     pub capture: String,
     pub comparison: String,
+}
+
+/// Every version of the checker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckerVersions {
+    /// A hash of the files that draw a board, which keys the board pictures
+    /// (design.rs).
+    pub boards: String,
+    /// Each platform's capture version.
+    pub mac: String,
+    pub android: String,
+    pub web: String,
+    pub comparison: String,
+}
+
+impl CheckerVersions {
+    /// The versions that make the runs of <platform>.
+    pub fn of(&self, platform: Platform) -> Versions {
+        Versions {
+            capture: self.capture(platform).to_string(),
+            comparison: self.comparison.clone(),
+        }
+    }
+
+    fn capture(&self, platform: Platform) -> &str {
+        match platform {
+            Platform::Mac => &self.mac,
+            Platform::Android => &self.android,
+            Platform::Web => &self.web,
+        }
+    }
+
+    /// The capture version a run's findings.json names, when the run's scenes
+    /// are those of <platforms>: each platform's, joined by `+`.
+    fn capture_of_run(&self, platforms: BTreeSet<Platform>) -> String {
+        platforms
+            .into_iter()
+            .map(|platform| self.capture(platform))
+            .collect::<Vec<_>>()
+            .join("+")
+    }
 }
 
 /// The CSS selector of a component preview row's state name, from the
@@ -74,7 +116,7 @@ pub const CHROME_SLOTS_FOLDER: &str = ".chrome-slots";
 /// What builds runs the checker with.
 pub struct Checker<'a> {
     /// The checker's versions, which builds computes (builds' build.rs).
-    pub versions: &'a Versions,
+    pub versions: &'a CheckerVersions,
     /// The cache folder, which builds keeps on its build volume (it holds
     /// pinned Chrome and the scratch folders the design system is built in),
     /// and the folder of the SF Mono files the boards' pages load.
@@ -291,12 +333,15 @@ fn repository_root() -> Result<PathBuf, String> {
 
 fn header(
     checker: &Checker,
+    names: &[Name],
     commit: String,
     base: Option<String>,
     outcome: &verify::Outcome,
 ) -> report::Header {
     report::Header {
-        capture_version: checker.versions.capture.clone(),
+        capture_version: checker
+            .versions
+            .capture_of_run(names.iter().map(Name::platform).collect()),
         version: checker.versions.comparison.clone(),
         commit,
         base,
@@ -409,7 +454,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 pictures: pictures.as_ref(),
             })?;
             let base = before.as_ref().map(|b| b.commit().to_string());
-            let header = header(checker, commit(&root)?, base, &outcome);
+            let header = header(checker, &taken.names, commit(&root)?, base, &outcome);
             finish(&outcome, &header, &shots.join("report"))
         }
         Action::Scenes { selection } => {
@@ -464,7 +509,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 comparison: verify::Comparison::Nothing,
                 pictures: None,
             })?;
-            let header = header(checker, sha, None, &outcome);
+            let header = header(checker, &names, sha, None, &outcome);
             finish(&outcome, &header, &out)
         }
         Action::Lint => {
@@ -526,7 +571,14 @@ pub fn main(checker: &Checker, args: &[String]) -> bool {
         Cli::parse_from(std::iter::once("builds shots").chain(args.iter().map(String::as_str)));
     let outcome = match cli.action {
         Action::Version => {
-            println!("capture {}", checker.versions.capture);
+            println!("boards {}", checker.versions.boards);
+            for platform in Platform::ALL {
+                println!(
+                    "capture {} {}",
+                    platform.word(),
+                    checker.versions.capture(platform)
+                );
+            }
             println!("comparison {}", checker.versions.comparison);
             Ok(true)
         }
@@ -650,8 +702,11 @@ mod tests {
         .unwrap();
         let settings =
             Settings::parse(&format!("shots-capture mac sh {}\n", script.display())).unwrap();
-        let versions = Versions {
-            capture: "c".to_string(),
+        let versions = CheckerVersions {
+            boards: "c".to_string(),
+            mac: "c".to_string(),
+            android: "c".to_string(),
+            web: "c".to_string(),
             comparison: "k".to_string(),
         };
         let folders = boards::Folders {

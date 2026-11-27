@@ -35,7 +35,7 @@ use crate::fail::{Context, Fail, Result};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::shots_cache::{self, Cached, Made};
-use crate::shots_program::VERSIONS;
+use crate::shots_program::versions;
 
 const PAGE: &str = include_str!("component_shots.html");
 
@@ -198,10 +198,15 @@ pub fn shots(
     let lanes = lanes(repo_lanes, component)?;
     let mut platforms = Vec::new();
     for (lane, prefix) in lanes {
-        let run =
-            shots_cache::read_covering(places, repo, commit, lane, &prefix, &VERSIONS, |cached| {
-                read_run(cached, component, lane, &prefix).map(Some)
-            })?;
+        let run = shots_cache::read_covering(
+            places,
+            repo,
+            commit,
+            lane,
+            &prefix,
+            versions(lane.platform()),
+            |cached| read_run(cached, component, lane, &prefix).map(Some),
+        )?;
         let capture = capture(lane, &prefix).filter(|run| {
             run.reference.as_deref() == Some(commit)
                 || matches!(run.phase, Phase::Queued | Phase::Running | Phase::Detached)
@@ -280,10 +285,15 @@ pub fn start(
     repo_lanes: &[Lane],
 ) -> Result<()> {
     for (lane, prefix) in lanes(repo_lanes, component)? {
-        let cached =
-            shots_cache::read_covering(places, repo, commit, lane, &prefix, &VERSIONS, |_| {
-                Ok(Some(()))
-            })?;
+        let cached = shots_cache::read_covering(
+            places,
+            repo,
+            commit,
+            lane,
+            &prefix,
+            versions(lane.platform()),
+            |_| Ok(Some(())),
+        )?;
         if cached.is_some() {
             continue;
         }
@@ -338,14 +348,22 @@ pub fn picture_file(
     if !scene.starts_with(&format!("{}.", lane.word())) {
         return Ok(None);
     }
-    shots_cache::read_covering(places, repo, commit, lane, scene, &VERSIONS, |cached| {
-        let file = cached.report().join(side.file(scene));
-        match std::fs::metadata(&file) {
-            Ok(found) => Ok(found.is_file().then_some(file)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => fail!("reading {}: {error}", file.display()),
-        }
-    })
+    shots_cache::read_covering(
+        places,
+        repo,
+        commit,
+        lane,
+        scene,
+        versions(lane.platform()),
+        |cached| {
+            let file = cached.report().join(side.file(scene));
+            match std::fs::metadata(&file) {
+                Ok(found) => Ok(found.is_file().then_some(file)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(error) => fail!("reading {}: {error}", file.display()),
+            }
+        },
+    )
 }
 
 /// The page of <component>'s shots in project <project>, whose design files
@@ -378,7 +396,7 @@ pub fn page(
                 *lane,
                 Made::Anywhere,
                 prefix,
-                &VERSIONS,
+                versions(lane.platform()),
             )?;
         }
     }

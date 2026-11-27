@@ -444,7 +444,7 @@ const VERSION: &str = "c0c0c0c0c0c0c0c0";
 /// No picture folder: every screen board is drawn.
 fn no_store() -> Store<'static> {
     Store {
-        capture_version: VERSION,
+        boards_version: VERSION,
         pictures: None,
     }
 }
@@ -474,7 +474,7 @@ fn a_screen_board_is_drawn_once_and_then_taken_from_the_picture_folder_by_its_ha
     let pictures = Pictures::new(folder.path().to_path_buf(), std::time::SystemTime::now());
     let store = Store {
         pictures: Some(&pictures),
-        capture_version: VERSION,
+        boards_version: VERSION,
     };
     let boards = vec![SHOT_BOARD.to_string()];
     let first = lines(repo.path(), "s1", "s1", &boards, &[], &folders(), &store).unwrap();
@@ -535,7 +535,7 @@ fn a_shared_board_is_drawn_once_and_kept_with_its_instances() {
     let pictures = Pictures::new(folder.path().to_path_buf(), std::time::SystemTime::now());
     let store = Store {
         pictures: Some(&pictures),
-        capture_version: VERSION,
+        boards_version: VERSION,
     };
     let boards = vec![SHARED_BOARD.to_string()];
     let first = lines(repo.path(), "a", "a", &boards, &[], &folders(), &store).unwrap();
@@ -580,7 +580,7 @@ fn a_preview_page_is_drawn_once_and_kept_with_its_instances() {
     let pictures = Pictures::new(folder.path().to_path_buf(), std::time::SystemTime::now());
     let store = Store {
         pictures: Some(&pictures),
-        capture_version: VERSION,
+        boards_version: VERSION,
     };
     let components = vec![component.to_string()];
     let first = lines(

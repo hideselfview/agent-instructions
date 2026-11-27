@@ -8,6 +8,14 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+// Each platform's list of files is a module of its own, so that a change to
+// one platform's harness keeps the other's capture version (builds'
+// build_source.rs).
+mod android;
+mod mac;
+pub(crate) use android::ANDROID;
+pub(crate) use mac::MAC;
+
 /// A file of a harness: its name and its contents.
 pub(crate) type File = (&'static str, &'static str);
 
@@ -30,65 +38,11 @@ macro_rules! file {
     ($folder:literal, $name:literal) => {
         (
             $name,
-            include_str!(concat!("../harness/", $folder, "/", $name)),
+            include_str!(concat!("../../harness/", $folder, "/", $name)),
         )
     };
 }
-
-pub(crate) static MAC: Harness = Harness {
-    bundle: &[
-        file!("mac", "AccessibilityTree.swift"),
-        file!("mac", "FocusHolder.swift"),
-        file!("mac", "HangGuard.swift"),
-        file!("mac", "NSScreen+ShotDisplayNumber.swift"),
-        file!("mac", "ShotBoardSizes.swift"),
-        file!("mac", "ShotDisplay.swift"),
-        file!("mac", "ShotDisplayLease.swift"),
-        file!("mac", "ShotDisplaySerial.swift"),
-        file!("mac", "ShotElementList.swift"),
-        file!("mac", "ShotError.swift"),
-        file!("mac", "ShotImage.swift"),
-        file!("mac", "ShotLog.swift"),
-        file!("mac", "ShotLook.swift"),
-        file!("mac", "ShotRenderer+Window.swift"),
-        file!("mac", "ShotRenderer.swift"),
-        file!("mac", "ShotRequest.swift"),
-        file!("mac", "ShotRunner.swift"),
-        file!("mac", "ShotScene.swift"),
-        file!("mac", "ShotSheetShadow.swift"),
-        file!("mac", "ShotWindowState.swift"),
-        file!("mac", "Wait.swift"),
-        file!("mac", "WindowBackdrop.swift"),
-    ],
-    display: Some(&[
-        file!("mac/display", "shot-display.py"),
-        file!("mac/display", "ShotDisplayKeeper.swift"),
-        file!("mac", "HangGuard.swift"),
-        file!("mac", "NSScreen+ShotDisplayNumber.swift"),
-        file!("mac", "ShotDisplay.swift"),
-        file!("mac", "ShotDisplaySerial.swift"),
-        file!("mac", "ShotLog.swift"),
-        file!("mac", "Wait.swift"),
-    ]),
-};
-
-pub(crate) static ANDROID: Harness = Harness {
-    bundle: &[
-        file!("android", "BoardShot.kt"),
-        file!("android", "ComposeView.kt"),
-        file!("android", "ElementList.kt"),
-        file!("android", "ElementValues.kt"),
-        file!("android", "EmbeddedViews.kt"),
-        file!("android", "ReadingOrder.kt"),
-        file!("android", "ShotBoardSizes.kt"),
-        file!("android", "ShotLook.kt"),
-        file!("android", "ShotRequest.kt"),
-        file!("android", "ShotSettle.kt"),
-        file!("android", "TestAnimatorScale.kt"),
-        file!("android", "WindowOverScreen.kt"),
-    ],
-    display: None,
-};
+use file;
 
 /// The `.gitignore` a written bundle folder holds: it keeps the folder out of
 /// the app's commits, and marks the folder as one this command may replace.

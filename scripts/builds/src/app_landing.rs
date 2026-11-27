@@ -408,7 +408,7 @@ fn unrendered_lines(
             lane,
             crate::shots_cache::Made::Anywhere,
             prefix,
-            &crate::shots_program::VERSIONS,
+            crate::shots_program::versions(lane.platform()),
         )?;
         match found {
             Some(cached) => lines.extend(unrendered_line(

@@ -1531,19 +1531,23 @@ higher: the cap neither reads nor deletes them, so deleting the folder runs in
 the repo's folder in shots once removes them. The cap does delete the old
 pictures, which no build asks for again.
 
-The shots checker that builds is built with has two versions, which `builds
-shots version` prints. The capture version is a hash of the files that take a
-shot and draw a board, the harness sources the checker holds among them, the
-boards library's files, and the versions of the packages they use. The
-comparison version is a hash of the files that compare
-a shot with its board and write the findings and the report, with the boards
-library's files and the same package versions (scripts/builds/build_source.rs
-lists the files each version reads). A change to builds alone keeps both
-versions, and so does a change to a test file or to the shots checker's
-command line (the subcommands and their arguments): every stored shot, board
-picture and run stays valid. builds keys the shots, the
-element lists and the board pictures by the capture version, and the findings
-by the comparison version.
+The shots checker that builds is built with has a boards version, a capture
+version for each platform and a comparison version, which `builds shots
+version` prints. The boards version is a hash of the files that draw a board,
+the boards library's files among them, and the versions of the packages the
+checker uses. A platform's capture version is a hash of those and of the files
+that take only that platform's shots: the harness sources the checker holds
+for mac or for android and the file that lists them, and for web the file that
+takes a page's shots in Chrome. The comparison version is a hash of the files
+that compare a shot with its board and write the findings and the report, with
+the boards library's files and the same package versions
+(scripts/builds/build_source.rs lists the files each version reads). A change
+to builds alone keeps every version, and so does a change to a test file or to
+the shots checker's command line (the subcommands and their arguments): every
+stored shot, board picture and run stays valid. builds keys the board pictures
+by the boards version, the shots and their element lists by their platform's
+capture version, and the findings by that capture version and the comparison
+version.
 
 A board whose mono stack names "SF Mono" (bae's does) draws that family. The
 Mac installs its mono system font only as the hidden family ".SF NS Mono",
@@ -1644,11 +1648,13 @@ the cached text and findings.json. Rechecks publish their findings only in
 those files. Builds uses the source run's verdict when app-build reuses the
 comparison. When a cached recheck exits with a different status from its
 failed source comparison, app-build reports the source failure.
-A change to the capture (a file
-that takes a shot or draws a board), to a file
-both versions read, or to a package the checker builds from changes the
-capture version, and then the run takes its shots, draws its boards and
-builds the app again. Each run's findings.json names both versions, and
+A change to a file that takes only one platform's
+shots changes that platform's capture version alone, so the other platforms'
+shots and runs and every board picture stay valid. A change to another file of
+the capture, to a file the capture and the comparison both read, or to a
+package the checker builds from changes the boards version and every capture
+version, and then a run takes its shots, draws its boards and builds the app
+again. Each run's findings.json names both versions, and
 builds caches no run whose findings.json names other versions. A run that died
 before it made findings caches nothing. A failed run also caches nothing when
 its output says the host kept it from taking a shot: the harness got no shot
@@ -1664,7 +1670,7 @@ element list <board hash>.json. A board hash is the hash of everything the
 board's picture depends on: the board's file and the parts it mounts (for a
 component shot, the preview page and the shot's name), its frame on the
 canvas, the design system's built files, the canvas runtime copy, the copies
-of React, the pinned Chrome, the capture version of the shots checker, and the
+of React, the pinned Chrome, the boards version of the shots checker, and the
 shots-unshot, shots-preview, shots-slot, shots-glyph, shots-window and
 shots-body-class lines. app-build passes the folder to each shots run
 on this Mac (`run --pictures`), and the run draws only the boards whose hash
@@ -1681,7 +1687,8 @@ picture.
 
 The same folder caches the app's shots by the lane's app source tree, in
 pictures/<platform>/<app tree>/, where <app tree> is a hash of the lane's
-environment and of the lane's app source tree: a hash of the git objects, at the commit,
+environment, of its platform's capture version and of the lane's app source
+tree: a hash of the git objects, at the commit,
 of each path the `on` lines name for a step of the lane, of .app-build, and
 of the Rust the app builds from: every file of each crate whose folder an
 `on` line of the lane matches or that a matched script builds with `-p
@@ -2300,8 +2307,9 @@ built again.
                               that draws that element (the nearest component
                               above it in React's tree), its numbers and its
                               sentence. `version` prints the program's
-                              capture version and comparison version: hashes
-                              of the sources each was built from (APP
+                              boards version, each platform's capture version
+                              and the comparison version: hashes of the
+                              sources each was built from (APP
                               BUILDS). The program
                               reads the
                               .app-build `app <name> <platform>` lines,

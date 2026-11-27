@@ -1,4 +1,4 @@
-use super::build_source::{Side, files, roots, shots_files};
+use super::build_source::{Side, Taker, files, roots, shots_files};
 use crate::testing::Scratch;
 use std::path::Path;
 
@@ -78,7 +78,13 @@ fn shots_names(scripts: &Path, side: Side) -> Vec<String> {
 fn the_shots_checker_is_hashed_from_its_own_crates() {
     let scratch = Scratch::new("build-source-shots");
     let scripts = scripts(&scratch, "builds");
-    for side in [Side::Capture, Side::Comparison] {
+    for side in [
+        Side::Boards,
+        Side::Capture(Taker::Mac),
+        Side::Capture(Taker::Android),
+        Side::Capture(Taker::Web),
+        Side::Comparison,
+    ] {
         assert_eq!(
             shots_names(&scripts, side),
             [
@@ -117,7 +123,9 @@ fn a_file_only_the_comparison_reads_is_not_in_the_capture_version_and_the_revers
     write(&scripts, "shots/canvas/runtime.js", "// 1\n");
     write(&scripts, "shots/harness/mac/ShotScene.swift", "// 1\n");
     write(&scripts, "shots/harness/android/BoardShot.kt", "// 1\n");
-    let capture = shots_names(&scripts, Side::Capture);
+    let mac = shots_names(&scripts, Side::Capture(Taker::Mac));
+    let android = shots_names(&scripts, Side::Capture(Taker::Android));
+    let capture: Vec<String> = mac.iter().chain(&android).cloned().collect();
     let comparison = shots_names(&scripts, Side::Comparison);
     for read in [
         "shots/src/render.rs",
@@ -159,6 +167,50 @@ fn a_file_only_the_comparison_reads_is_not_in_the_capture_version_and_the_revers
     }
 }
 
+/// A platform's own capture files are in its capture version alone, so a
+/// change to one platform's harness keeps the other platforms' runs and every
+/// board picture.
+#[test]
+fn a_platform_s_harness_is_in_no_other_platform_s_capture_version() {
+    let scratch = Scratch::new("build-source-takers");
+    let scripts = scripts(&scratch, "builds");
+    let own = [
+        (Taker::Mac, "harness/mac/ShotScene.swift"),
+        (Taker::Mac, "harness/mac/display/shot-display.py"),
+        (Taker::Mac, "src/harness/mac.rs"),
+        (Taker::Android, "harness/android/BoardShot.kt"),
+        (Taker::Android, "src/harness/android.rs"),
+        (Taker::Web, "src/capture/web.rs"),
+    ];
+    let shared = ["src/harness.rs", "src/capture/mod.rs", "src/design.rs"];
+    for file in own.iter().map(|(_, file)| *file).chain(shared) {
+        write(&scripts, &format!("shots/{file}"), "// 1\n");
+    }
+    for side in [Taker::Mac, Taker::Android, Taker::Web] {
+        let names = shots_names(&scripts, Side::Capture(side));
+        for (taker, file) in own {
+            assert_eq!(
+                names.contains(&format!("shots/{file}")),
+                taker == side,
+                "{side:?} and {file}: {names:?}"
+            );
+        }
+        for file in shared {
+            assert!(
+                names.contains(&format!("shots/{file}")),
+                "{file}: {names:?}"
+            );
+        }
+    }
+    let boards = shots_names(&scripts, Side::Boards);
+    for (_, file) in own {
+        assert!(
+            !boards.contains(&format!("shots/{file}")),
+            "{file}: {boards:?}"
+        );
+    }
+}
+
 /// A file of the shots crate that no list names makes build.rs fail, so a new
 /// file says which side reads it.
 #[test]
@@ -167,7 +219,7 @@ fn a_shots_file_no_list_names_stops_the_build() {
     let scratch = Scratch::new("build-source-unlisted");
     let scripts = scripts(&scratch, "builds");
     write(&scripts, "shots/src/brand_new.rs", "// 1\n");
-    shots_files(&scripts, Side::Capture);
+    shots_files(&scripts, Side::Boards);
 }
 
 /// Every file of the real shots crate is in a list.
@@ -176,7 +228,13 @@ fn every_file_of_the_shots_crate_is_in_a_list() {
     let scripts = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("the crate is in the scripts folder");
-    for side in [Side::Capture, Side::Comparison] {
+    for side in [
+        Side::Boards,
+        Side::Capture(Taker::Mac),
+        Side::Capture(Taker::Android),
+        Side::Capture(Taker::Web),
+        Side::Comparison,
+    ] {
         assert!(!shots_names(scripts, side).is_empty());
     }
 }

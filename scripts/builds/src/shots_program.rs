@@ -12,22 +12,39 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::LazyLock;
 
-pub use shots::Versions;
+use boards::app_build::Platform;
+pub use shots::{CheckerVersions, Versions};
 
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::Places;
 use crate::tool::Tool;
 
-/// The two versions of the shots checker this program is built with
-/// (build.rs): the ones `builds shots version` prints and each run's
-/// findings.json names. builds caches shots and board pictures by the capture
-/// version and findings by the comparison version, so a change to the
-/// comparison alone makes no run take its shots again (shots_cache.rs).
-pub static VERSIONS: LazyLock<Versions> = LazyLock::new(|| Versions {
-    capture: env!("CAPTURE_SOURCE").to_string(),
+/// The versions of the shots checker this program is built with (build.rs):
+/// the ones `builds shots version` prints. builds caches board pictures by the
+/// boards version, shots by their platform's capture version and findings by
+/// the comparison version, so a change to the comparison alone makes no run
+/// take its shots again, and a change to one platform's harness keeps the
+/// other platforms' shots and runs (shots_cache.rs).
+pub static CHECKER: LazyLock<CheckerVersions> = LazyLock::new(|| CheckerVersions {
+    boards: env!("BOARDS_SOURCE").to_string(),
+    mac: env!("CAPTURE_MAC_SOURCE").to_string(),
+    android: env!("CAPTURE_ANDROID_SOURCE").to_string(),
+    web: env!("CAPTURE_WEB_SOURCE").to_string(),
     comparison: env!("COMPARISON_SOURCE").to_string(),
 });
+
+/// The versions that make the runs of <platform>, which each run's
+/// findings.json names and builds keys them on.
+pub fn versions(platform: Platform) -> &'static Versions {
+    static EACH: LazyLock<[Versions; 3]> =
+        LazyLock::new(|| Platform::ALL.map(|platform| CHECKER.of(platform)));
+    let at = Platform::ALL
+        .iter()
+        .position(|one| *one == platform)
+        .expect("ALL lists every platform");
+    &EACH[at]
+}
 
 /// The cache folder builds gives the checker.
 fn cache(places: &Places) -> PathBuf {
@@ -89,7 +106,7 @@ fn with_board_store(args: &[String], store: Option<PathBuf>) -> Vec<String> {
 pub fn cmd_checker(places: &Places, args: &crate::args::Args) -> Result<()> {
     places.require_volume()?;
     let checker = shots::Checker {
-        versions: &VERSIONS,
+        versions: &CHECKER,
         folders: &boards::Folders {
             cache: cache(places),
             fonts: places.fonts.clone(),

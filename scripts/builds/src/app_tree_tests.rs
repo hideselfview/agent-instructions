@@ -183,15 +183,20 @@ fn a_crate_the_bridge_does_not_use_leaves_the_app_tree_alone() {
 #[test]
 fn the_picture_folder_id_differs_between_environments_for_one_app_tree() {
     let tree = "0123456789abcdef";
-    let one = in_environment(tree, "26B131-17C529");
-    let other = in_environment(tree, "25G241-27B52");
+    let one = in_environment(tree, "26B131-17C529", "capture");
+    let other = in_environment(tree, "25G241-27B52", "capture");
     assert_eq!(one.len(), 16);
     assert!(one.chars().all(|c| c.is_ascii_hexdigit()));
     assert_ne!(one, other);
     assert_ne!(one, tree);
-    assert_eq!(one, in_environment(tree, "26B131-17C529"));
+    assert_eq!(one, in_environment(tree, "26B131-17C529", "capture"));
     assert_ne!(
-        in_environment("fedcba9876543210", "26B131-17C529"),
+        one,
+        in_environment(tree, "26B131-17C529", "another harness"),
+        "shots another harness took are not reused"
+    );
+    assert_ne!(
+        in_environment("fedcba9876543210", "26B131-17C529", "capture"),
         one,
         "another app tree has another id in the same environment"
     );

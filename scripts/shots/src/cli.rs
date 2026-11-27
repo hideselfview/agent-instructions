@@ -24,8 +24,8 @@ pub(crate) enum Action {
     /// its deadline) or `chrome=failed <why>`, so that builds can tell before
     /// a build whether its shots can draw boards on this host.
     Chrome,
-    /// Print the checker's capture version and comparison version, which each
-    /// run's findings.json names.
+    /// Print the checker's boards version, each platform's capture version
+    /// and its comparison version.
     Version,
     /// Take the shots into shots/, a folder for each app, and check them.
     /// With --before, only pairs worse against that run fail the run,

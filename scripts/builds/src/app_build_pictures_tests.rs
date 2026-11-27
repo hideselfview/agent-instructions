@@ -65,7 +65,9 @@ PY
     *) exit 2 ;;
 esac"#,
             anchor = crate::host::sh_quote(&taken.display().to_string()),
-            report = report_run(&crate::shots_program::VERSIONS)
+            report = report_run(crate::shots_program::versions(
+                boards::app_build::Platform::Mac
+            ))
         ),
     );
     let programs = crate::testing::pinned_programs(&scratch.dir, &places.home);

@@ -1,5 +1,5 @@
 use super::*;
-use crate::shots_program::{VERSIONS, Versions};
+use crate::shots_program::Versions;
 use crate::testing::Scratch;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::PathBuf;
@@ -85,10 +85,10 @@ fn calls(scratch: &Scratch) -> String {
 fn a_change_to_the_comparison_alone_compares_the_cached_pictures_again_and_takes_no_shot() {
     let scratch = Scratch::new("compare-again");
     let places = scratch.places();
-    let capture = VERSIONS.capture.as_str();
+    let capture = mac_versions().capture.as_str();
     let old = cache_run(&places, &key(capture, "old-comparison"));
-    let program = recheck_program(&scratch, capture, &VERSIONS.comparison, false);
-    let new = key(capture, &VERSIONS.comparison);
+    let program = recheck_program(&scratch, capture, &mac_versions().comparison, false);
+    let new = key(capture, &mac_versions().comparison);
     assert!(shots_cache::lookup(&places, &new).unwrap().is_none());
     let again = lookup(&places, &new, &program)
         .unwrap()
@@ -122,7 +122,7 @@ fn a_change_to_the_comparison_alone_compares_the_cached_pictures_again_and_takes
     // pictures.
     let file: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(again.findings_json()).unwrap()).unwrap();
-    assert_eq!(file["version"], VERSIONS.comparison.as_str());
+    assert_eq!(file["version"], mac_versions().comparison.as_str());
     assert_eq!(file["capture_version"], capture);
     assert_eq!(file["findings"][0]["sentence"], "new sentence");
     assert_eq!(file["findings"].as_array().unwrap().len(), 1);
@@ -148,9 +148,9 @@ fn a_change_to_the_comparison_alone_compares_the_cached_pictures_again_and_takes
 fn the_run_a_branch_compares_with_is_made_by_comparing_the_base_s_cached_run_again() {
     let scratch = Scratch::new("compare-again-before");
     let places = scratch.places();
-    let capture = VERSIONS.capture.as_str();
+    let capture = mac_versions().capture.as_str();
     let old = cache_run(&places, &key(capture, "old-comparison"));
-    let program = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
+    let program = recheck_program(&scratch, capture, &mac_versions().comparison, true);
     let made = before_run(
         &places,
         "demo",
@@ -163,7 +163,7 @@ fn the_run_a_branch_compares_with_is_made_by_comparing_the_base_s_cached_run_aga
     )
     .unwrap()
     .expect("the base's run of another comparison version is compared again");
-    assert_eq!(made.key.versions, *VERSIONS);
+    assert_eq!(made.key.versions, *mac_versions());
     assert_eq!(made.key.prefix, old.key.prefix);
     assert_eq!(made.exit_code(), 0);
     assert!(made.findings_json().is_file());
@@ -177,14 +177,14 @@ fn the_run_a_branch_compares_with_is_made_by_comparing_the_base_s_cached_run_aga
 #[test]
 fn an_app_build_reuses_only_a_recheck_whose_source_and_build_record_passed() {
     use crate::app_timing::{self, BuildRecords, RunRecord, StepKind, StepResult, Timer};
-    let old = key(&VERSIONS.capture, "old-comparison");
+    let old = key(&mac_versions().capture, "old-comparison");
     for exit_code in [0, 1] {
         let scratch = Scratch::new("reuse-recheck");
         let places = scratch.places();
         let program = recheck_program(
             &scratch,
-            &VERSIONS.capture,
-            &VERSIONS.comparison,
+            &mac_versions().capture,
+            &mac_versions().comparison,
             exit_code != 0,
         );
         cache_run_at(&places, &old, app_timing::now(), exit_code);
@@ -234,19 +234,19 @@ fn an_app_build_reuses_only_a_recheck_whose_source_and_build_record_passed() {
 fn a_comparison_that_prints_no_elements_read_makes_no_run() {
     let scratch = Scratch::new("compare-again-no-seen");
     let places = scratch.places();
-    let capture = VERSIONS.capture.as_str();
+    let capture = mac_versions().capture.as_str();
     cache_run(&places, &key(capture, "old-comparison"));
     let program = scratch.dir.join("program.sh");
     std::fs::write(
         &program,
         format!(
             "#!/bin/sh\necho '{{\"version\": \"{}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"passed\": true, \"scenes\": [\"mac.a\"], \"boards\": {{\"mac.a\": \"h\"}}, \"findings\": []}}'\n",
-            VERSIONS.comparison
+            mac_versions().comparison
         ),
     )
     .unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let new = key(capture, &VERSIONS.comparison);
+    let new = key(capture, &mac_versions().comparison);
     let error = lookup(&places, &new, &program).unwrap_err().text();
     assert!(error.contains("`seen`"), "{error}");
     assert!(shots_cache::lookup(&places, &new).unwrap().is_none());
@@ -280,13 +280,13 @@ fn a_run_whose_findings_a_program_of_other_versions_made_is_refused() {
 fn only_a_run_of_the_same_environment_is_compared_again() {
     let scratch = Scratch::new("compare-again-environment");
     let places = scratch.places();
-    let capture = VERSIONS.capture.as_str();
+    let capture = mac_versions().capture.as_str();
     cache_run(
         &places,
         &in_environment("25G241-27B52", capture, "old-comparison"),
     );
-    let program = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
-    let new = key(capture, &VERSIONS.comparison);
+    let program = recheck_program(&scratch, capture, &mac_versions().comparison, true);
+    let new = key(capture, &mac_versions().comparison);
     assert!(
         compare_again(&places, &new, &program).unwrap().is_none(),
         "the run of another environment is no source"
@@ -330,12 +330,12 @@ fn before_run_considers_a_covering_run_published_during_recheck() {
 
     let scratch = Scratch::new("compare-again-concurrent");
     let places = scratch.places();
-    let capture = VERSIONS.capture.as_str();
+    let capture = mac_versions().capture.as_str();
     cache_run(&places, &key(capture, "old-comparison"));
-    let recheck = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
+    let recheck = recheck_program(&scratch, capture, &mac_versions().comparison, true);
     let concurrent_key = Key {
         prefix: "mac.a.".into(),
-        ..key(capture, &VERSIONS.comparison)
+        ..key(capture, &mac_versions().comparison)
     };
     let started = scratch.dir.join("started");
     let resume = scratch.dir.join("resume");
@@ -400,12 +400,12 @@ fn before_run_considers_a_covering_run_published_during_recheck() {
 fn the_newest_run_of_a_commit_and_prefix_is_found_in_any_environment() {
     let scratch = Scratch::new("compare-again-newest");
     let places = scratch.places();
-    let capture = VERSIONS.capture.as_str();
+    let capture = mac_versions().capture.as_str();
     cache_run(
         &places,
-        &in_environment("25G241-27B52", capture, &VERSIONS.comparison),
+        &in_environment("25G241-27B52", capture, &mac_versions().comparison),
     );
-    let program = recheck_program(&scratch, capture, &VERSIONS.comparison, true);
+    let program = recheck_program(&scratch, capture, &mac_versions().comparison, true);
     let found = lookup_newest(&places, "demo", COMMIT, Lane::MAC, "mac.", &program)
         .unwrap()
         .expect("a run of another environment is a commit's own run");
@@ -421,7 +421,7 @@ fn the_newest_run_of_a_commit_and_prefix_is_found_in_any_environment() {
 fn cache_scene(places: &Places, prefix: &str, scene: &str, recorded_at: i64) {
     let key = Key {
         prefix: prefix.to_string(),
-        ..key(&VERSIONS.capture, &VERSIONS.comparison)
+        ..key(&mac_versions().capture, &mac_versions().comparison)
     };
     let staging = shots_cache::stage(places, &key).unwrap();
     let report = staging.report();
@@ -517,4 +517,9 @@ fn saved_runs_that_lack_a_declared_board_of_a_prefix_are_no_before_run_of_it() {
     cache_scene(&places, "mac.a.one", "mac.a.one", crate::app_timing::now());
     let declared = ["mac.a.one", "mac.a.two"];
     assert!(before_of(&places, &scratch, "mac.a.", &declared).is_none());
+}
+
+/// The versions that make the mac lane's runs.
+fn mac_versions() -> &'static crate::shots_program::Versions {
+    crate::shots_program::versions(boards::app_build::Platform::Mac)
 }

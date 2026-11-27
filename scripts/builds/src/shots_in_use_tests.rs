@@ -39,7 +39,7 @@ fn cache(places: &Places, commit: &str, prefix: &str, comparison: &str) -> PathB
         places,
         commit,
         prefix,
-        &crate::shots_program::VERSIONS.capture,
+        &crate::shots_program::versions(boards::app_build::Platform::Mac).capture,
         comparison,
     )
 }
@@ -96,7 +96,9 @@ fn a_waiting_branchs_builds_name_their_covering_runs_and_their_base_runs() {
     let landed = git_out(&source, &["rev-parse", "HEAD"]);
     git(&source, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
 
-    let version = crate::shots_program::VERSIONS.comparison.as_str();
+    let version = crate::shots_program::versions(boards::app_build::Platform::Mac)
+        .comparison
+        .as_str();
     let covering = cache(&places, &waiting, "mac.", version);
     let before = cache(&places, &base, "mac.welcome.", version);
     let other_comparison = cache(&places, &waiting, "mac.welcome.", "0000");
@@ -105,7 +107,7 @@ fn a_waiting_branchs_builds_name_their_covering_runs_and_their_base_runs() {
         &waiting,
         "mac.welcome.",
         "0000",
-        &crate::shots_program::VERSIONS.comparison,
+        &crate::shots_program::versions(boards::app_build::Platform::Mac).comparison,
     );
     let other_prefix = cache(&places, &waiting, "mac.seek.", version);
     let other_environment = {
@@ -116,7 +118,9 @@ fn a_waiting_branchs_builds_name_their_covering_runs_and_their_base_runs() {
             environment: "25G241-27B52".to_string(),
             prefix: "mac.".to_string(),
             versions: crate::shots_program::Versions {
-                capture: crate::shots_program::VERSIONS.capture.clone(),
+                capture: crate::shots_program::versions(boards::app_build::Platform::Mac)
+                    .capture
+                    .clone(),
                 comparison: version.to_string(),
             },
         };
@@ -169,7 +173,9 @@ fn a_repo_two_projects_hold_names_the_runs_of_each_projects_builds() {
     git(&source, &["add", "waits"]);
     git(&source, &["commit", "-q", "-m", "Waits"]);
     let waiting = git_out(&source, &["rev-parse", "HEAD"]);
-    let version = crate::shots_program::VERSIONS.comparison.as_str();
+    let version = crate::shots_program::versions(boards::app_build::Platform::Mac)
+        .comparison
+        .as_str();
     let covering = cache(&places, &waiting, "mac.", version);
 
     make_store_named(&places, "first", &[BAE]);

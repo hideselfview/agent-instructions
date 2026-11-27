@@ -296,7 +296,7 @@ pub(crate) fn command(checker: &Checker, root: &Path, args: StatesArgs) -> Resul
         .pictures
         .map(|dir| Pictures::new(dir, std::time::SystemTime::now()));
     let store = Store {
-        capture_version: &checker.versions.capture,
+        boards_version: &checker.versions.boards,
         pictures: pictures.as_ref(),
     };
     let now = read(root, args.at.as_deref(), checker.folders, &store)?;
@@ -351,7 +351,7 @@ fn draw(root: &Path, folders: &boards::Folders, store: &Store) -> Result<Drawn, 
                 .map(|(name, _)| (Page::Preview(name), false)),
         )
         .map(|(page, is_board)| {
-            let hash = page.hash(root, &context, store.capture_version)?;
+            let hash = page.hash(root, &context, store.boards_version)?;
             Ok((page, is_board, hash))
         })
         .collect::<Result<_, String>>()?;

@@ -11,7 +11,7 @@ fn key(prefix: &str, commit: &str) -> Key {
         lane: Lane::MAC,
         environment: "26B131-17C529".to_string(),
         prefix: prefix.to_string(),
-        versions: crate::shots_program::VERSIONS.clone(),
+        versions: crate::shots_program::versions(boards::app_build::Platform::Mac).clone(),
     }
 }
 

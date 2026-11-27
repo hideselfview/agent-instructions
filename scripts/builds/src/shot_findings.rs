@@ -7,8 +7,9 @@
 //!
 //! A run is cached under the repo, the full commit id, the platform, the
 //! environment it was made in (app_platform.rs), the prefix the run was
-//! given and the two versions of the shots checker (`VERSIONS` in
-//! shots_program.rs: hashes of its capture and comparison sources, which each
+//! given and the two versions of the shots checker (`versions` in
+//! shots_program.rs: hashes of the platform's capture sources and of the
+//! comparison sources, which each
 //! run's findings.json names). A run by another capture version has another
 //! key. A run of the same capture version and another comparison version is
 //! compared again with this builds' comparison instead of taken again
@@ -332,7 +333,7 @@ pub fn how_to_make(repo: &str, git_ref: &str, lane: Lane, prefix: &str) -> Strin
 /// The error for a commit that has no cached run of <prefix> on <lane> by this
 /// builds' shots checker, naming the app-build command that makes one.
 fn no_run(repo: &str, git_ref: &str, commit: &str, lane: Lane, prefix: &str) -> Fail {
-    let versions = &crate::shots_program::VERSIONS;
+    let versions = crate::shots_program::versions(lane.platform());
     Fail::Message(format!(
         "no run of {prefix} on {} is cached for {repo} at {} (shots program capture version {}, comparison version {}); `{}` makes one",
         lane.word(),
@@ -391,7 +392,7 @@ fn printable_run(
 /// builds' made it: which versions made its findings.
 fn older_program_note(cached: &Cached) -> Option<String> {
     let versions = &cached.key.versions;
-    let mine = &*crate::shots_program::VERSIONS;
+    let mine = crate::shots_program::versions(cached.key.lane.platform());
     (versions != mine).then(|| {
         format!(
             "no run of this builds' shots program (capture version {}, comparison version {}) is cached, so these are the findings the older shots program stored: capture version {}, comparison version {}",

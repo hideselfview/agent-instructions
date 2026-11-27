@@ -29,7 +29,7 @@ use crate::places::Places;
 use crate::shot_causes;
 use crate::shots_cache::{self, Cached, Key};
 use crate::shots_check_program;
-use crate::shots_program::VERSIONS;
+use crate::shots_program::versions;
 
 /// The files of a report that hold findings, which the comparison makes again
 /// and so a run made from another run does not take over.
@@ -59,7 +59,8 @@ pub fn lookup_newest(
 ) -> Result<Option<Cached>> {
     let mut newest: Option<Cached> = None;
     for environment in shots_cache::environments(places, repo, commit, lane)? {
-        let key = Key::new(repo, commit, lane, &environment, prefix, &VERSIONS);
+        let versions = versions(lane.platform());
+        let key = Key::new(repo, commit, lane, &environment, prefix, versions);
         if let Some(cached) = lookup(places, &key, program)?
             && newest
                 .as_ref()
@@ -91,22 +92,22 @@ pub fn before_run(
     declared: &mut dyn FnMut() -> Result<Vec<String>>,
 ) -> Result<Option<Cached>> {
     let made = shots_cache::Made::In(environment);
-    let found =
-        shots_cache::covering_run_used(places, repo, commit, lane, made, prefix, &VERSIONS)?;
+    let versions = versions(lane.platform());
+    let found = shots_cache::covering_run_used(places, repo, commit, lane, made, prefix, versions)?;
     if found.is_some() {
         return Ok(found);
     }
-    for key in shots_cache::covering_keys(places, repo, commit, lane, made, prefix, &VERSIONS)? {
+    for key in shots_cache::covering_keys(places, repo, commit, lane, made, prefix, versions)? {
         compare_again(places, &key, program)?;
     }
     // Another writer can publish while these comparisons run. Choose from
     // the current cache, including runs that writer placed.
     if let Some(found) =
-        shots_cache::covering_run_used(places, repo, commit, lane, made, prefix, &VERSIONS)?
+        shots_cache::covering_run_used(places, repo, commit, lane, made, prefix, versions)?
     {
         return Ok(Some(found));
     }
-    let key = Key::new(repo, commit, lane, environment, prefix, &VERSIONS);
+    let key = Key::new(repo, commit, lane, environment, prefix, versions);
     for part in shots_cache::narrower_keys(places, &key)? {
         lookup(places, &part, program)?;
     }
