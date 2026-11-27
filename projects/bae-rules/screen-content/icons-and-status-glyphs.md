@@ -11,9 +11,9 @@ design: true
 
 ## Icons and status glyphs
 
-Icons appear only when they are the control (copy, a chevron, a disclosure mark)
-or carry meaning the words beside them don't (a status glyph), as
-`rules/screen-content/no-decorative-icons-or-emoji.md` says.
+The board decides which icons a screen shows
+(`rules/screen-content/icons-only-where-they-help.md`). This rule covers how
+they are drawn.
 
 - Android uses Material Symbols (Rounded, weight 400). Apple platforms use SF
   Symbols; the boards draw stand-ins, since a web page can't load SF Symbols.
