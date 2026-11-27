@@ -88,9 +88,20 @@ pub fn parse(file: &str, text: &str) -> std::result::Result<Option<Toolchain>, S
         let table = text
             .parse::<toml::Table>()
             .map_err(|error| format!("is not TOML: {error}"))?;
-        let section = table.get("toolchain");
+        let section = match table.get("toolchain") {
+            Some(value) => Some(value.as_table().ok_or("toolchain is not a table")?),
+            None => None,
+        };
         let field = |name: &str| section.and_then(|section| section.get(name));
-        let word = |name: &str| field(name).and_then(toml::Value::as_str);
+        let word = |name: &str| -> std::result::Result<Option<String>, String> {
+            let Some(value) = field(name) else {
+                return Ok(None);
+            };
+            match value.as_str() {
+                Some(word) => Ok(Some(word.to_string())),
+                None => Err(format!("{name} is not a name")),
+            }
+        };
         let words = |name: &str| -> std::result::Result<Vec<String>, String> {
             let Some(value) = field(name) else {
                 return Ok(Vec::new());
@@ -104,10 +115,10 @@ pub fn parse(file: &str, text: &str) -> std::result::Result<Option<Toolchain>, S
                 })
                 .ok_or_else(|| format!("{name} is not a list of names"))
         };
-        match word("channel") {
+        match word("channel")? {
             Some(channel) => Some(Toolchain {
-                channel: channel.to_string(),
-                profile: word("profile").map(str::to_string),
+                channel,
+                profile: word("profile")?,
                 components: words("components")?,
                 targets: words("targets")?,
             }),
@@ -202,14 +213,6 @@ fn last_attempt(path: &Path) -> Result<Option<Attempt>> {
     }
 }
 
-/// Writes <attempt> whole, through a file it then renames.
-fn record_attempt(path: &Path, attempt: &Attempt) -> Result<()> {
-    let what = || format!("writing {}", path.display());
-    let staged = path.with_extension(format!("last.{}", crate::text::staged_suffix()));
-    std::fs::write(&staged, serde_json::to_vec(attempt).context(what)?).context(what)?;
-    std::fs::rename(&staged, path).context(what)
-}
-
 /// Takes <how> on the lock at <path>. When another process holds it, first
 /// tells <say> that builds waits while another job <what>.
 fn wait_for(path: &Path, how: libc::c_int, what: &str, say: &dyn Fn(String)) -> Result<File> {
@@ -220,19 +223,41 @@ fn wait_for(path: &Path, how: libc::c_int, what: &str, say: &dyn Fn(String)) -> 
     lock_creating(path, how)
 }
 
-/// The hold on a channel's prepare lock, by this process or by the `builds`
-/// that started it.
-pub struct Preparing {
-    channel: Option<String>,
+/// The hold on the prepare lock of the channel a checkout pins; none for a
+/// checkout that pins no toolchain.
+pub struct Preparing(Option<Hold>);
+
+/// A held prepare lock.
+struct Hold {
+    channel: String,
+    /// The lock this process took; None when the `builds` that started it
+    /// holds the lock.
     lock: Option<File>,
 }
 
 impl Preparing {
     /// Tells <command>, which runs under the hold, that its channel is held.
     pub fn pass_to(&self, command: &mut Command) {
-        if let Some(channel) = &self.channel {
-            command.env(PREPARING_VARIABLE, channel);
+        if let Some(hold) = &self.0 {
+            command.env(PREPARING_VARIABLE, &hold.channel);
         }
+    }
+
+    /// The lock this process took.
+    fn lock(&self) -> Option<&File> {
+        self.0.as_ref().and_then(|hold| hold.lock.as_ref())
+    }
+}
+
+/// The channel that <setting>, the value of `PREPARING_VARIABLE`, names as
+/// held.
+pub fn held_channel(setting: Option<&std::ffi::OsStr>) -> Result<Option<String>> {
+    let Some(setting) = setting else {
+        return Ok(None);
+    };
+    match setting.to_str() {
+        Some(channel) => Ok(Some(channel.to_string())),
+        None => fail!("{PREPARING_VARIABLE} is not UTF-8: {setting:?}"),
     }
 }
 
@@ -253,10 +278,7 @@ fn preparing_saying(
     say: &dyn Fn(String),
 ) -> Result<Preparing> {
     let Some(toolchain) = toolchain else {
-        return Ok(Preparing {
-            channel: None,
-            lock: None,
-        });
+        return Ok(Preparing(None));
     };
     let channel = &toolchain.channel;
     let lock = match places.preparing.as_deref() == Some(channel.as_str()) {
@@ -268,10 +290,10 @@ fn preparing_saying(
             say,
         )?),
     };
-    Ok(Preparing {
-        channel: Some(channel.clone()),
+    Ok(Preparing(Some(Hold {
+        channel: channel.clone(),
         lock,
-    })
+    })))
 }
 
 /// Makes sure this machine has <toolchain> with its components, its targets
@@ -318,16 +340,16 @@ fn ensure_saying(
     note(format!(
         "builds installs Rust toolchain {channel}, since this machine's is incomplete: {why}"
     ));
-    let held: Vec<&File> = preparing.lock.iter().chain([&installing]).collect();
+    let held: Vec<&File> = preparing.lock().into_iter().chain([&installing]).collect();
     let installed = install(system, toolchain, &held);
-    let recorded = record_attempt(
-        &record,
-        &Attempt {
-            id: format!("{}-{}", crate::job_claim::now_nanos(), std::process::id()),
-            request: toolchain.clone(),
-            failed: installed.as_ref().err().map(ToString::to_string),
-        },
-    );
+    let attempt = Attempt {
+        id: format!("{}-{}", crate::job_claim::now_nanos(), std::process::id()),
+        request: toolchain.clone(),
+        failed: installed.as_ref().err().map(ToString::to_string),
+    };
+    let recorded = serde_json::to_vec(&attempt)
+        .context(|| format!("writing {}", record.display()))
+        .and_then(|bytes| crate::whole_file::write(&record, bytes));
     crate::fail::with_cleanup(installed, recorded)?;
     note(format!("builds installed Rust toolchain {channel}"));
     Ok(())

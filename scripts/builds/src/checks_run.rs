@@ -35,7 +35,7 @@ use std::time::Duration;
 
 use crate::args::Args;
 use crate::checkout::{Checkout, git_local_env_vars};
-use crate::checks::{CONFIG, Kind, Line, Planned, parse, plan};
+use crate::checks::{CONFIG, Kind, Line, Machine, Planned, parse, plan};
 use crate::clock::Moment;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -57,21 +57,21 @@ pub fn run_worktree(args: &Args) -> Option<&Path> {
 
 /// `builds checks run`: the hook's checks, or with `--since` the checks of
 /// every file changed since a commit.
-pub fn cmd_run(args: &Args) -> Result<()> {
+pub fn cmd_run(machine: Machine, args: &Args) -> Result<()> {
     match args.value("since")? {
-        None => hook(&top_of(worktree_of(args))?),
-        Some(since) => run_range(&top_of(worktree_of(args))?, since),
+        None => hook(machine, &top_of(worktree_of(args))?),
+        Some(since) => run_range(machine, &top_of(worktree_of(args))?, since),
     }
 }
 
 /// `builds checks whole`.
-pub fn cmd_whole(args: &Args) -> Result<()> {
-    whole(&top_of(worktree_of(args))?)
+pub fn cmd_whole(machine: Machine, args: &Args) -> Result<()> {
+    whole(machine, &top_of(worktree_of(args))?)
 }
 
 /// `builds checks list`.
-pub fn cmd_list(args: &Args) -> Result<()> {
-    crate::output::answer(list_staged(&top_of(worktree_of(args))?)?);
+pub fn cmd_list(machine: Machine, args: &Args) -> Result<()> {
+    crate::output::answer(list_staged(machine, &top_of(worktree_of(args))?)?);
     Ok(())
 }
 
@@ -84,8 +84,9 @@ fn worktree_of(args: &Args) -> &Path {
 }
 
 /// `builds checks tests`.
-pub fn cmd_tests(args: &Args) -> Result<()> {
+pub fn cmd_tests(machine: Machine, args: &Args) -> Result<()> {
     tests(
+        machine,
         &top_of(Path::new("."))?,
         args.require("since")?,
         args.switch("run"),
@@ -94,9 +95,9 @@ pub fn cmd_tests(args: &Args) -> Result<()> {
 
 /// `whole`: the checks `builds land` runs on a landing's result, run on the
 /// tree at <top> as it is now.
-fn whole(top: &Path) -> Result<()> {
+fn whole(machine: Machine, top: &Path) -> Result<()> {
     let mut out = crate::output::answer_handle();
-    let failed = run_whole(top, &mut crate::output::Report::to(&mut out))?;
+    let failed = run_whole(machine, top, &mut crate::output::Report::to(&mut out))?;
     for f in &failed {
         crate::output::pass_through(format!("--- {}\n{}\n", f.name, f.output.trim_end()));
     }
@@ -115,25 +116,24 @@ fn whole(top: &Path) -> Result<()> {
 }
 
 /// `run`, recorded in the project's hook database when the repo is in a project.
-fn hook(top: &Path) -> Result<()> {
-    let log = match hook_database(top) {
+fn hook(machine: Machine, top: &Path) -> Result<()> {
+    let log = match hook_database(machine.places, top) {
         Ok(log) => log,
         Err(error) => {
             note(format!("this run will not be recorded: {}", error.text()));
             None
         }
     };
-    run_staged(top, log.as_deref())
+    run_staged(machine, top, log.as_deref())
 }
 
 /// The hook database of the project <top>'s repo belongs to; None for a repo in no
 /// project, which has nowhere to record.
-fn hook_database(top: &Path) -> Result<Option<PathBuf>> {
-    let places = Places::from_env()?;
+fn hook_database(places: &Places, top: &Path) -> Result<Option<PathBuf>> {
     let Some(checkout) = Checkout::at_keeping_env(top)? else {
         return Ok(None);
     };
-    database_of(&places, &checkout, None)
+    database_of(places, &checkout, None)
 }
 
 /// `builds checks stats [--project P] [--repo R] [--since DATE] [--change REV]`.
@@ -375,7 +375,7 @@ fn millis(took: Duration) -> u64 {
 /// Runs the checks and fixes the staged files pick. With <log>, the run is
 /// recorded there; a record that can't be made or written is a warning and
 /// changes nothing about the result.
-pub fn run_staged(top: &Path, log: Option<&Path>) -> Result<()> {
+pub fn run_staged(machine: Machine, top: &Path, log: Option<&Path>) -> Result<()> {
     let started = Moment::now();
     let mut run = match log {
         Some(_) => match begin(top) {
@@ -387,7 +387,7 @@ pub fn run_staged(top: &Path, log: Option<&Path>) -> Result<()> {
         },
         None => None,
     };
-    let result = run_checks(top, started, run.as_mut());
+    let result = run_checks(machine, top, started, run.as_mut());
     if let (Some(mut run), Some(log)) = (run, log) {
         run.passed = result.is_ok();
         run.total_ms = millis(started.elapsed());
@@ -398,7 +398,12 @@ pub fn run_staged(top: &Path, log: Option<&Path>) -> Result<()> {
     result
 }
 
-fn run_checks(top: &Path, started: Moment, mut run: Option<&mut Run>) -> Result<()> {
+fn run_checks(
+    machine: Machine,
+    top: &Path,
+    started: Moment,
+    mut run: Option<&mut Run>,
+) -> Result<()> {
     let lines = load(top)?;
     let staged = staged(top)?;
     let partly = unstaged_among(top, &staged)?;
@@ -414,6 +419,7 @@ fn run_checks(top: &Path, started: Moment, mut run: Option<&mut Run>) -> Result<
         );
     }
     let picked = plan(
+        machine,
         top,
         &lines,
         &[Kind::Check, Kind::Fix],
@@ -589,7 +595,7 @@ fn contents(top: &Path, file: &str) -> Result<Option<Vec<u8>>> {
 /// Refuses, before any line runs, a <since> that is no commit and a changed
 /// file whose working tree differs from HEAD. A fix that would change a file
 /// fails, and the run puts the file back (`Fixes::PutBack`).
-pub fn run_range(top: &Path, since: &str) -> Result<()> {
+pub fn run_range(machine: Machine, top: &Path, since: &str) -> Result<()> {
     let started = Moment::now();
     let lines = load(top)?;
     let output = git(top)
@@ -637,6 +643,7 @@ pub fn run_range(top: &Path, since: &str) -> Result<()> {
         );
     }
     let picked = plan(
+        machine,
         top,
         &lines,
         &[Kind::Check, Kind::Fix],
@@ -710,13 +717,17 @@ pub struct WholeFailure {
 /// Runs every `whole` line of the repo's `.checks` on the tree at <top>,
 /// whatever changed, all at the same time, printing each one's name, result and
 /// time to <out>. Every line runs even after one fails. A repo with no `.checks` has none to run.
-pub fn run_whole(top: &Path, out: &mut crate::output::Report) -> Result<Vec<WholeFailure>> {
+pub fn run_whole(
+    machine: Machine,
+    top: &Path,
+    out: &mut crate::output::Report,
+) -> Result<Vec<WholeFailure>> {
     if !top.join(CONFIG).is_file() {
         return Ok(Vec::new());
     }
     let started = Moment::now();
     let lines = load(top)?;
-    let picked: Vec<Planned> = plan(top, &lines, &[Kind::Check], &[], true, None)?
+    let picked: Vec<Planned> = plan(machine, top, &lines, &[Kind::Check], &[], true, None)?
         .into_iter()
         .filter(|planned| planned.line.whole)
         .collect();
@@ -757,9 +768,10 @@ pub fn run_whole(top: &Path, out: &mut crate::output::Report) -> Result<Vec<Whol
     Ok(failed)
 }
 
-pub fn list_staged(top: &Path) -> Result<String> {
+pub fn list_staged(machine: Machine, top: &Path) -> Result<String> {
     let lines = load(top)?;
     let picked = plan(
+        machine,
         top,
         &lines,
         &[Kind::Check, Kind::Fix],
@@ -783,6 +795,7 @@ pub fn list_staged(top: &Path) -> Result<String> {
 /// The `test` lines that the files changed in `<since>..HEAD` match, and, when
 /// <since> is not a commit here, every test with the reason why.
 pub fn select_tests(
+    machine: Machine,
     top: &Path,
     lines: &[Line],
     since: &str,
@@ -812,6 +825,7 @@ pub fn select_tests(
         )?;
         Ok((
             plan(
+                machine,
                 top,
                 lines,
                 &[Kind::Test],
@@ -828,14 +842,14 @@ pub fn select_tests(
         )?);
         let why = format!("{since} is not in the history, so every test runs");
         Ok((
-            plan(top, lines, &[Kind::Test], &everything, true, None)?,
+            plan(machine, top, lines, &[Kind::Test], &everything, true, None)?,
             Some(why),
         ))
     }
 }
 
-fn tests(top: &Path, since: &str, run: bool) -> Result<()> {
-    let (picked, why) = select_tests(top, &load(top)?, since)?;
+fn tests(machine: Machine, top: &Path, since: &str, run: bool) -> Result<()> {
+    let (picked, why) = select_tests(machine, top, &load(top)?, since)?;
     if let Some(why) = why {
         note(why);
     }

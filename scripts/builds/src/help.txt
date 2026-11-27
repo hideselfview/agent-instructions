@@ -672,7 +672,10 @@ builds checks and installs:
     mark the host as refusing jobs, and runs the job on no other host
   - before `builds setup` runs the `prepare` programs, and before `builds
     tool` or setup puts a tool in place
-  - before builds copies a tool to a host, whose check runs the toolchain
+  - on this Mac, before a job on a host gets this Mac's tool builds, whose keys
+    the toolchain computes
+  - on a host, before `builds setup` copies a tool there, whose check runs the
+    toolchain
   - before `builds checks` picks and runs a repo's checks
   - in an app checkout, on this Mac or a host, once builds switches it to the
     commit it builds

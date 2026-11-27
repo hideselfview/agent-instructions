@@ -3,6 +3,16 @@ use crate::checks::parse;
 use crate::hook_stats::{Change, Outcome, Run};
 use crate::testing::{Scratch, git, git_out};
 
+/// The scratch folder's machine, which the checks run on.
+macro_rules! machine {
+    ($scratch:expr) => {
+        Machine {
+            places: &$scratch.places(),
+            system: &$scratch.system(),
+        }
+    };
+}
+
 /// A repo with <files> committed, a `.checks` of <checks> (committed too), and
 /// stub programs in tools/ that append their arguments to `log`.
 fn repo(scratch: &Scratch, checks: &str) -> std::path::PathBuf {
@@ -68,7 +78,7 @@ fn a_run_with_nothing_matching_runs_nothing_and_succeeds() {
     let scratch = Scratch::new("run-none");
     let top = repo(&scratch, "check sh *.sh tools/ok.sh {files}\n");
     stage(&top, "notes.md", "x");
-    run_staged(&top, None).unwrap();
+    run_staged(machine!(scratch), &top, None).unwrap();
     assert_eq!(log(&top), "");
 }
 
@@ -81,7 +91,7 @@ fn a_check_gets_the_staged_files_it_matches() {
     );
     stage(&top, "a.sh", "x");
     stage(&top, "b.md", "x");
-    run_staged(&top, None).unwrap();
+    run_staged(machine!(scratch), &top, None).unwrap();
     // The checks run at the same time, so either may log first.
     let mut logged: Vec<String> = log(&top).lines().map(str::to_string).collect();
     logged.sort();
@@ -96,7 +106,9 @@ fn a_failing_check_still_lets_the_rest_run_and_the_run_fails() {
         "check bad *.sh tools/fail.sh\ncheck good *.sh tools/second.sh\n",
     );
     stage(&top, "a.sh", "x");
-    let error = run_staged(&top, None).unwrap_err().text();
+    let error = run_staged(machine!(scratch), &top, None)
+        .unwrap_err()
+        .text();
     // The checks run at the same time, so either may log first.
     let mut logged: Vec<String> = log(&top).lines().map(str::to_string).collect();
     logged.sort();
@@ -130,7 +142,7 @@ echo "$1 read $(cat "$3")" >> "$top/log"
     git(&top, &["add", "tools/meet.sh"]);
     git(&top, &["commit", "-q", "-m", "Add meet"]);
     stage(&top, "a.txt", "ugly\n");
-    run_staged(&top, None).unwrap();
+    run_staged(machine!(scratch), &top, None).unwrap();
     let mut logged: Vec<String> = log(&top).lines().map(str::to_string).collect();
     logged.sort();
     assert_eq!(logged, ["one read formatted", "two read formatted"]);
@@ -141,7 +153,7 @@ fn a_fix_stages_again_the_files_it_changed() {
     let scratch = Scratch::new("run-fix");
     let top = repo(&scratch, "fix fmt *.txt tools/format.sh {files}\n");
     stage(&top, "a.txt", "ugly");
-    run_staged(&top, None).unwrap();
+    run_staged(machine!(scratch), &top, None).unwrap();
     assert_eq!(staged_content(&top, "a.txt"), "formatted\n");
     let out = std::process::Command::new("git")
         .arg("-C")
@@ -162,7 +174,9 @@ fn a_partly_staged_file_is_refused_by_name_before_any_check_runs() {
     stage(&top, "a.txt", "staged");
     stage(&top, "b.txt", "other");
     std::fs::write(top.join("a.txt"), "staged\nmore, not staged").unwrap();
-    let error = run_staged(&top, None).unwrap_err().text();
+    let error = run_staged(machine!(scratch), &top, None)
+        .unwrap_err()
+        .text();
     assert!(
         error.contains("a.txt") && !error.contains("b.txt"),
         "{error}"
@@ -183,7 +197,9 @@ fn every_partly_staged_file_is_named() {
     stage(&top, "b.txt", "2");
     std::fs::write(top.join("a.txt"), "1+").unwrap();
     std::fs::write(top.join("b.txt"), "2+").unwrap();
-    let error = run_staged(&top, None).unwrap_err().text();
+    let error = run_staged(machine!(scratch), &top, None)
+        .unwrap_err()
+        .text();
     assert!(
         error.contains("a.txt") && error.contains("b.txt"),
         "{error}"
@@ -201,7 +217,7 @@ fn an_unstaged_file_beside_a_staged_one_is_allowed() {
     )
     .unwrap();
     std::fs::write(top.join("untracked.txt"), "x").unwrap();
-    run_staged(&top, None).unwrap();
+    run_staged(machine!(scratch), &top, None).unwrap();
     assert_eq!(log(&top), "ok a.txt\n");
 }
 
@@ -210,7 +226,7 @@ fn a_fully_staged_file_is_allowed() {
     let scratch = Scratch::new("run-fully-staged");
     let top = repo(&scratch, "check ok *.txt tools/ok.sh {files}\n");
     stage(&top, "a.txt", "staged");
-    run_staged(&top, None).unwrap();
+    run_staged(machine!(scratch), &top, None).unwrap();
     assert_eq!(log(&top), "ok a.txt\n");
 }
 
@@ -221,7 +237,7 @@ fn a_refused_run_is_recorded_as_failed_with_no_checks() {
     let log_path = recorded(&scratch);
     stage(&top, "a.txt", "staged");
     std::fs::write(top.join("a.txt"), "staged\nmore").unwrap();
-    run_staged(&top, Some(&log_path)).unwrap_err();
+    run_staged(machine!(scratch), &top, Some(&log_path)).unwrap_err();
     let runs = recorded_runs(&log_path);
     assert_eq!(runs.len(), 1);
     assert!(!runs[0].passed);
@@ -237,7 +253,7 @@ fn list_says_what_run_would_run() {
         "check sh *.sh tools/ok.sh {files}\nfix md *.md tools/format.sh {files}\ntest t *.sh tools/ok.sh\n",
     );
     stage(&top, "a.sh", "x");
-    let text = list_staged(&top).unwrap();
+    let text = list_staged(machine!(scratch), &top).unwrap();
     assert_eq!(text, "check sh: tools/ok.sh a.sh\n");
     assert_eq!(log(&top), "");
 }
@@ -268,7 +284,7 @@ fn a_recorded_runs_check_names_itself_to_the_programs_it_runs() {
     stage(&top, "a.sh", "x\n");
     git(&top, &["add", "tools/named.sh"]);
     let log_path = recorded(&scratch);
-    run_staged(&top, Some(&log_path)).unwrap();
+    run_staged(machine!(scratch), &top, Some(&log_path)).unwrap();
     let at = recorded_runs(&log_path)[0].at;
     assert!(
         log(&top).contains(&format!("named {at}:1\n")),
@@ -276,7 +292,7 @@ fn a_recorded_runs_check_names_itself_to_the_programs_it_runs() {
         log(&top)
     );
     std::fs::remove_file(top.join("log")).unwrap();
-    run_staged(&top, None).unwrap();
+    run_staged(machine!(scratch), &top, None).unwrap();
     assert!(log(&top).contains("named \n"), "{}", log(&top));
 }
 
@@ -307,7 +323,7 @@ fn a_recorded_run_holds_the_files_each_check_with_its_time_and_what_was_skipped(
             .stdout,
     )
     .unwrap();
-    assert!(run_staged(&top, Some(&log)).is_err());
+    assert!(run_staged(machine!(scratch), &top, Some(&log)).is_err());
     let runs = recorded_runs(&log);
     assert_eq!(runs.len(), 1);
     let run = &runs[0];
@@ -372,9 +388,9 @@ fn each_run_adds_a_row_and_a_run_with_nothing_picked_is_recorded_too() {
     let top = repo(&scratch, "check sh *.sh tools/ok.sh {files}\n");
     let log = recorded(&scratch);
     stage(&top, "notes.md", "x");
-    run_staged(&top, Some(&log)).unwrap();
+    run_staged(machine!(scratch), &top, Some(&log)).unwrap();
     stage(&top, "a.sh", "x");
-    run_staged(&top, Some(&log)).unwrap();
+    run_staged(machine!(scratch), &top, Some(&log)).unwrap();
     let runs = recorded_runs(&log);
     assert_eq!(runs.len(), 2);
     // Newest first.
@@ -407,7 +423,7 @@ fn a_crates_line_records_how_many_crates_it_was_handed() {
     stage(&top, "a/src/lib.rs", "// a\n");
     stage(&top, "b/src/lib.rs", "// b\n");
     let log = recorded(&scratch);
-    run_staged(&top, Some(&log)).unwrap();
+    run_staged(machine!(scratch), &top, Some(&log)).unwrap();
     assert_eq!(
         recorded_runs(&log)[0].checks[0].outcome.handed(),
         Some((0, 2))
@@ -425,9 +441,11 @@ fn a_database_that_cannot_be_written_warns_and_leaves_the_runs_result_alone() {
     let log = recorded(&scratch);
     std::fs::create_dir(&log).unwrap();
     stage(&top, "a.md", "x");
-    run_staged(&top, Some(&log)).unwrap();
+    run_staged(machine!(scratch), &top, Some(&log)).unwrap();
     stage(&top, "a.sh", "x");
-    let error = run_staged(&top, Some(&log)).unwrap_err().text();
+    let error = run_staged(machine!(scratch), &top, Some(&log))
+        .unwrap_err()
+        .text();
     assert!(
         error.contains("bad") && !error.contains("builds.sqlite"),
         "{error}"
@@ -468,10 +486,10 @@ fn tests_since_picks_the_tests_whose_paths_changed() {
     let scratch = Scratch::new("tests-since");
     let (top, first) = history(&scratch);
     let lines = parse(&std::fs::read_to_string(top.join(".checks")).unwrap()).unwrap();
-    let (picked, why) = select_tests(&top, &lines, &first).unwrap();
+    let (picked, why) = select_tests(machine!(scratch), &top, &lines, &first).unwrap();
     assert_eq!(names(&picked), ["t-sh"]);
     assert_eq!(why, None);
-    let (none, _) = select_tests(&top, &lines, "HEAD").unwrap();
+    let (none, _) = select_tests(machine!(scratch), &top, &lines, "HEAD").unwrap();
     assert!(none.is_empty());
 }
 
@@ -480,8 +498,13 @@ fn tests_since_an_unknown_rev_runs_every_test_and_says_why() {
     let scratch = Scratch::new("tests-unknown");
     let (top, _) = history(&scratch);
     let lines = parse(&std::fs::read_to_string(top.join(".checks")).unwrap()).unwrap();
-    let (picked, why) =
-        select_tests(&top, &lines, "0123456789abcdef0123456789abcdef01234567").unwrap();
+    let (picked, why) = select_tests(
+        machine!(scratch),
+        &top,
+        &lines,
+        "0123456789abcdef0123456789abcdef01234567",
+    )
+    .unwrap();
     assert_eq!(names(&picked), ["t-sh", "t-py", "t-all"]);
     assert!(why.unwrap().contains("not in the history"));
 }
@@ -532,7 +555,9 @@ fn a_range_check_finds_a_failing_file_the_branch_changed_and_leaves_head_the_ind
         &[("a.sh", "x"), ("b.sh", "y")],
     );
     let before = state(&top);
-    let error = run_range(&top, "main").unwrap_err().text();
+    let error = run_range(machine!(scratch), &top, "main")
+        .unwrap_err()
+        .text();
     assert!(error.contains("bad"), "{error}");
     assert_eq!(log(&top), "fail a.sh b.sh\n");
     std::fs::remove_file(top.join("log")).unwrap();
@@ -547,7 +572,7 @@ fn a_range_check_hands_only_the_files_the_branch_changed() {
         "check sh *.sh tools/ok.sh {files}\n",
         &[("a.sh", "x")],
     );
-    run_range(&top, "main").unwrap();
+    run_range(machine!(scratch), &top, "main").unwrap();
     assert_eq!(log(&top), "ok a.sh\n");
 }
 
@@ -560,7 +585,9 @@ fn a_range_fix_that_would_change_a_file_fails_and_puts_the_file_back() {
         &[("a.txt", "ugly\n")],
     );
     let before = state(&top);
-    let error = run_range(&top, "main").unwrap_err().text();
+    let error = run_range(machine!(scratch), &top, "main")
+        .unwrap_err()
+        .text();
     assert!(error.contains("fmt"), "{error}");
     assert_eq!(state(&top), before);
     assert_eq!(
@@ -577,7 +604,7 @@ fn a_range_fix_that_changes_nothing_passes() {
         "fix fmt *.txt tools/format.sh {files}\n",
         &[("a.txt", "formatted\n")],
     );
-    run_range(&top, "main").unwrap();
+    run_range(machine!(scratch), &top, "main").unwrap();
 }
 
 #[test]
@@ -589,7 +616,9 @@ fn a_range_check_refuses_a_branch_file_with_uncommitted_changes_before_any_line_
         &[("a.sh", "x")],
     );
     std::fs::write(top.join("a.sh"), "edited").unwrap();
-    let error = run_range(&top, "main").unwrap_err().text();
+    let error = run_range(machine!(scratch), &top, "main")
+        .unwrap_err()
+        .text();
     assert!(error.contains("a.sh"), "{error}");
     assert_eq!(log(&top), "");
 }
@@ -602,7 +631,9 @@ fn a_range_check_of_an_unknown_rev_is_refused() {
         "check sh *.sh tools/ok.sh {files}\n",
         &[("a.sh", "x")],
     );
-    let error = run_range(&top, "nowhere").unwrap_err().text();
+    let error = run_range(machine!(scratch), &top, "nowhere")
+        .unwrap_err()
+        .text();
     assert!(error.contains("nowhere"), "{error}");
 }
 

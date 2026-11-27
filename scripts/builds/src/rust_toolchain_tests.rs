@@ -225,10 +225,20 @@ fn a_held_prepare_lock_is_not_waited_for() {
     // The builds a holder starts takes no lock of its own.
     places.preparing = Some("1.100.1".to_string());
     let inner = preparing(&places, Some(&pinned())).unwrap();
-    assert!(inner.lock.is_none());
+    assert!(inner.lock().is_none());
     drop(held);
     assert!(!crate::flock::is_held(&lock).unwrap());
-    assert!(preparing(&places, None).unwrap().lock.is_none());
+    assert!(preparing(&places, None).unwrap().lock().is_none());
+}
+
+#[test]
+fn a_held_channel_that_is_not_utf8_is_an_error() {
+    use std::os::unix::ffi::OsStrExt;
+    let held = |bytes: &'static [u8]| held_channel(Some(std::ffi::OsStr::from_bytes(bytes)));
+    assert_eq!(held(b"1.100.1").unwrap(), Some("1.100.1".to_string()));
+    assert_eq!(held_channel(None).unwrap(), None);
+    let error = held(b"1.\xff").unwrap_err().text();
+    assert!(error.contains(PREPARING_VARIABLE), "{error}");
 }
 
 #[test]
@@ -254,6 +264,17 @@ fn reads_a_toolchain_file_as_rustup_does() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn a_value_of_the_wrong_type_is_an_error() {
+    for text in [
+        "toolchain = 1\n",
+        "[toolchain]\nchannel = 1\n",
+        "[toolchain]\nchannel = \"1.100.1\"\nprofile = [\"minimal\"]\n",
+    ] {
+        assert!(parse("rust-toolchain.toml", text).is_err(), "{text}");
+    }
 }
 
 #[test]

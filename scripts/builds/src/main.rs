@@ -539,11 +539,35 @@ fn run(
         }
         Programs => programs::cmd_programs(&Places::from_env()?, system, args),
         SccacheTmpdir => sccache::cmd_tmpdir(&Places::from_env()?.root, args),
-        Checks(checks::Run) => checks_run::cmd_run(args),
-        Checks(checks::Whole) => checks_run::cmd_whole(args),
+        Checks(checks::Run) => checks_run::cmd_run(
+            crate::checks::Machine {
+                places: &Places::from_env()?,
+                system,
+            },
+            args,
+        ),
+        Checks(checks::Whole) => checks_run::cmd_whole(
+            crate::checks::Machine {
+                places: &Places::from_env()?,
+                system,
+            },
+            args,
+        ),
         Checks(checks::Stats) => checks_run::stats(args),
-        Checks(checks::List) => checks_run::cmd_list(args),
-        Checks(checks::Tests) => checks_run::cmd_tests(args),
+        Checks(checks::List) => checks_run::cmd_list(
+            crate::checks::Machine {
+                places: &Places::from_env()?,
+                system,
+            },
+            args,
+        ),
+        Checks(checks::Tests) => checks_run::cmd_tests(
+            crate::checks::Machine {
+                places: &Places::from_env()?,
+                system,
+            },
+            args,
+        ),
         Waits => waits::cmd_waits(args),
         InstallHook => install_hook::cmd_install_hook(args),
         Lock => lock::cmd_lock(&Places::from_env()?, system, args),

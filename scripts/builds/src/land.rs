@@ -172,7 +172,10 @@ pub fn cmd_land(tool: &crate::tool::Tool, args: &crate::args::Args) -> Result<()
     let stores = hold_stores()?;
     let mut stdout = crate::output::answer_handle().lock();
     land_recorded(
-        &tool.places,
+        crate::checks::Machine {
+            places: &tool.places,
+            system: &tool.system,
+        },
         &tool.program,
         args,
         &mut Report::to(&mut stdout),
@@ -195,14 +198,15 @@ fn hold_stores() -> Result<Option<crate::install_gate::Holding<'static>>> {
 }
 
 /// Lands <args> with <program> answering the `builds` commands the landing
-/// runs, writes the record of the run to its project's store in <places>,
+/// runs and <machine> running its checks, writes the record of the run to its
+/// project's store in the machine's places,
 /// ends <stores>, the landing's use of the stores, and then fast-forwards the
 /// repo's main checkout when the landing pushed. In agent-instructions the
 /// main checkout's post-merge hook installs the landed builds, which may move
 /// the store to another schema, so every record comes before it, and the use
 /// ends first because install waits for every use.
 fn land_recorded(
-    places: &crate::places::Places,
+    machine: crate::checks::Machine,
     program: &Path,
     args: &crate::args::Args,
     out: &mut Report,
@@ -212,9 +216,9 @@ fn land_recorded(
         result,
         run,
         pushed_from,
-    } = land_profiled(program, args, out);
+    } = land_profiled(machine, program, args, out);
     if let Some(run) = &run {
-        record_run(places, run);
+        record_run(machine.places, run);
     }
     drop(stores);
     if let Some(workdir) = &pushed_from {
@@ -634,6 +638,8 @@ struct Recording {
 }
 
 struct Landing<'a> {
+    /// What runs the checks of the landing's result.
+    machine: crate::checks::Machine<'a>,
     program: &'a Path,
     workdir: PathBuf,
     request: Request,
@@ -1374,7 +1380,12 @@ impl Ended {
 /// The landing, with the program that answers the `builds` commands it runs
 /// (this program; tests pass a stand-in) and <out> for what it says. Land
 /// holds the worktree's lock only until it has run.
-fn land_profiled(program: &Path, args: &crate::args::Args, out: &mut Report) -> Ended {
+fn land_profiled(
+    machine: crate::checks::Machine,
+    program: &Path,
+    args: &crate::args::Args,
+    out: &mut Report,
+) -> Ended {
     let started_at = crate::app_timing::now();
     let began = Moment::now();
     let Some(worktree) = args.positional().first() else {
@@ -1394,7 +1405,7 @@ fn land_profiled(program: &Path, args: &crate::args::Args, out: &mut Report) -> 
         started_at: waiting.0,
         ms: waiting.1.elapsed().as_millis() as u64,
     };
-    let mut landing = match open_landing(program, workdir, args, out) {
+    let mut landing = match open_landing(machine, program, workdir, args, out) {
         Ok(landing) => landing,
         Err(error) => return Ended::before_landing(Err(error)),
     };
@@ -1424,6 +1435,7 @@ fn land_profiled(program: &Path, args: &crate::args::Args, out: &mut Report) -> 
 
 /// The landing of <args>, once the worktree is clean and on the commits.
 fn open_landing<'a>(
+    machine: crate::checks::Machine<'a>,
     program: &'a Path,
     workdir: PathBuf,
     args: &crate::args::Args,
@@ -1439,6 +1451,7 @@ fn open_landing<'a>(
         resolve_on_head(&workdir, &start, &request.shas, out)?
     };
     Ok(Landing {
+        machine,
         program,
         workdir,
         request,

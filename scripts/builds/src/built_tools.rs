@@ -493,16 +493,31 @@ fn fetch(places: &Places, ssh: &Ssh, name: &str, key: &Key, toolchain: &Path) ->
 }
 
 /// Copies each key of <top>'s tools that this Mac has to every host that
-/// lacks it (setup), each failed copy said on stderr. A manifest that can't
-/// be read is an error.
+/// lacks it (setup), once the host has the toolchain the checkout pins; the
+/// caller has installed it on this Mac. Each host that gets no toolchain or
+/// copy is said on stderr. A manifest that can't be read is an error.
 pub fn send_to_hosts(places: &Places, ssh: &Ssh, top: &Path) -> Result<()> {
     if built_tools(top)?.is_empty() {
         return Ok(());
     }
+    let toolchain = crate::rust_toolchain::in_checkout(top, top)?;
     match other_hosts(places) {
         Ok(hosts) => {
             for host in hosts {
-                send_to(places, ssh, &host, top);
+                let transport = Transport {
+                    places,
+                    ssh,
+                    host: &host,
+                };
+                let ready = match &toolchain {
+                    Some(toolchain) => crate::rust_toolchain::ensure_on(&transport, toolchain),
+                    None => Ok(OnHost::Ready),
+                };
+                match ready {
+                    Ok(OnHost::Ready) => send_to(places, ssh, &host, top),
+                    Ok(OnHost::Unreachable(said)) => note(said),
+                    Err(error) => note(error.text()),
+                }
             }
         }
         Err(error) => note(format!(
@@ -513,11 +528,12 @@ pub fn send_to_hosts(places: &Places, ssh: &Ssh, top: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Before a job from <top> runs on <host>: copies there each key of the
-/// checkout's tools that this Mac has and the host lacks, when the host is
-/// of this Mac's platform, and checks it there, once the host has the
-/// toolchain the checkout pins, which the check runs. A failure is said on
-/// stderr and leaves the host to build the key when its setup runs.
+/// Copies to <host> each key of the tools of the checkout at <top> that this
+/// Mac has and the host lacks, when the host is of this Mac's platform, and
+/// checks it there. Each key and each check runs the toolchain the checkout
+/// pins, so the caller has installed it on this Mac and on <host>
+/// (rust_toolchain.rs). A failure is said on stderr and leaves the host to
+/// build the key when its setup runs.
 pub fn send_to(places: &Places, ssh: &Ssh, host: &Host, top: &Path) {
     let tools = match built_tools(top) {
         Ok(tools) => tools,
@@ -532,24 +548,15 @@ pub fn send_to(places: &Places, ssh: &Ssh, host: &Host, top: &Path) {
     };
     let transport = Transport { places, ssh, host };
     for line in tools {
-        // The key runs the checkout's toolchain on this Mac.
-        let sent = crate::rust_toolchain::ensure_in(places, ssh.system(), top, top)
-            .and_then(|()| key(top, &line))
-            .and_then(|key| {
-                let here = key_dir(places, &line.name, &key);
-                let remote = key_dir_on(&line.name, &key);
-                if !here.is_dir() || host_has(&transport, host, &remote)? != Some(false) {
-                    return Ok(false);
-                }
-                if let Some(toolchain) = crate::rust_toolchain::in_checkout(top, top)?
-                    && let OnHost::Unreachable(said) =
-                        crate::rust_toolchain::ensure_on(&transport, &toolchain)?
-                {
-                    fail!("{said}");
-                }
-                send_key(&transport, host, &line.name, &remote, &here)?;
-                Ok(true)
-            });
+        let sent = key(top, &line).and_then(|key| {
+            let here = key_dir(places, &line.name, &key);
+            let remote = key_dir_on(&line.name, &key);
+            if !here.is_dir() || host_has(&transport, host, &remote)? != Some(false) {
+                return Ok(false);
+            }
+            send_key(&transport, host, &line.name, &remote, &here)?;
+            Ok(true)
+        });
         match sent {
             Ok(true) => note(format!("copied tool {} to host {}", line.name, host.name)),
             Ok(false) => {}

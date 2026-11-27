@@ -24,6 +24,8 @@ use crate::checkout::git_local_env_vars;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::glob::{Question, segment_matches, segments_match};
+use crate::places::Places;
+use crate::system::System;
 
 pub const CONFIG: &str = ".checks";
 
@@ -188,6 +190,13 @@ impl Line {
     }
 }
 
+/// The machine the checks run on, which installs the toolchain they run.
+#[derive(Clone, Copy)]
+pub struct Machine<'a> {
+    pub places: &'a Places,
+    pub system: &'a System,
+}
+
 /// The lines of <kinds> that some of <files> match, each with its command
 /// expanded, in file order. A line that names `{files}` or `{crates}` and has
 /// nothing to hand it (no matching file still there, no crate holding one) is
@@ -196,6 +205,7 @@ impl Line {
 /// `Cargo.lock` hands `{crates}` the crates whose resolved dependencies
 /// changed since <base> (`lock_diff`), or every crate with no <base>.
 pub fn plan(
+    machine: Machine,
     top: &Path,
     lines: &[Line],
     kinds: &[Kind],
@@ -204,8 +214,8 @@ pub fn plan(
     base: Option<&str>,
 ) -> Result<Vec<Planned>> {
     // Planning asks cargo for the workspace's crates, and the lines the plan
-    // picks run cargo and rustc.
-    ensure_toolchain(top)?;
+    // picks run cargo and rustc, for which rustup installs nothing.
+    crate::rust_toolchain::ensure_in(machine.places, machine.system, top, top)?;
     let mut metadata: Option<Vec<Crate>> = None;
     let mut lock: Option<Vec<String>> = None;
     let mut planned = Vec::new();
@@ -266,19 +276,6 @@ struct Crate {
     name: String,
     /// The crate's folder relative to the repo, empty for the repo itself.
     dir: String,
-}
-
-/// Installs the toolchain the checkout at <top> pins when this machine lacks
-/// it: the checks run cargo and rustc, and rustup installs nothing for them.
-fn ensure_toolchain(top: &Path) -> Result<()> {
-    match crate::rust_toolchain::in_checkout(top, top)? {
-        Some(toolchain) => crate::rust_toolchain::ensure(
-            &crate::places::Places::from_env()?,
-            &crate::system::System::from_env()?,
-            &toolchain,
-        ),
-        None => Ok(()),
-    }
 }
 
 fn workspace_crates(top: &Path) -> Result<Vec<Crate>> {

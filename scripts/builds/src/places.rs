@@ -156,7 +156,9 @@ impl Places {
             uid: unsafe { libc::getuid() },
             lists,
             fonts: cfg!(target_os = "macos").then(|| PathBuf::from(boards::fonts::TERMINAL_FONTS)),
-            preparing: std::env::var(crate::rust_toolchain::PREPARING_VARIABLE).ok(),
+            preparing: crate::rust_toolchain::held_channel(
+                std::env::var_os(crate::rust_toolchain::PREPARING_VARIABLE).as_deref(),
+            )?,
         })
     }
 

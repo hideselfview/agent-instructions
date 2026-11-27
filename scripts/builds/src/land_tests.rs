@@ -4,9 +4,12 @@ use crate::testing::{Scratch, git_out};
 /// The landing in <f>, which records its run in the store of its project in
 /// <f>'s places, when there is one.
 fn land(f: &Fixture, program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> {
-    let places = f.scratch.places();
+    let (places, system) = (f.scratch.places(), f.scratch.system());
     land_recorded(
-        &places,
+        crate::checks::Machine {
+            places: &places,
+            system: &system,
+        },
         program,
         &crate::args::Args::of(crate::command::Command::Land, args).unwrap(),
         &mut Report::to(out),
@@ -195,7 +198,12 @@ fn profiled(f: &Fixture, dir: &Path, args: &[&str], cues: Cues) -> (i32, Option<
     let mut all = vec![dir.display().to_string()];
     all.extend(args.iter().map(|a| a.to_string()));
     let mut out = Vec::new();
+    let (places, system) = (f.scratch.places(), f.scratch.system());
     let Ended { result, run, .. } = land_profiled(
+        crate::checks::Machine {
+            places: &places,
+            system: &system,
+        },
         &stub,
         &crate::args::Args::of(crate::command::Command::Land, &all).unwrap(),
         &mut Report::to(&mut out),
@@ -1465,11 +1473,14 @@ read -t 60 mark <&4 || { echo "the landing in $other did not reach its check"; e
     let landing = |dir: &Path, sha: String| {
         let args = vec![dir.display().to_string(), sha];
         let stub = stub.clone();
-        let places = f.scratch.places();
+        let (places, system) = (f.scratch.places(), f.scratch.system());
         std::thread::spawn(move || {
             let mut out = Vec::new();
             let result = land_recorded(
-                &places,
+                crate::checks::Machine {
+                    places: &places,
+                    system: &system,
+                },
                 &stub,
                 &crate::args::Args::of(crate::command::Command::Land, &args).unwrap(),
                 &mut Report::to(&mut out),
@@ -1499,11 +1510,14 @@ fn two_landings_started_together_in_one_worktree_run_one_after_the_other() {
     let landing = |sha: String| {
         let args = vec![one.display().to_string(), sha];
         let stub = stub.clone();
-        let places = f.scratch.places();
+        let (places, system) = (f.scratch.places(), f.scratch.system());
         std::thread::spawn(move || {
             let mut out = Vec::new();
             let result = land_recorded(
-                &places,
+                crate::checks::Machine {
+                    places: &places,
+                    system: &system,
+                },
                 &stub,
                 &crate::args::Args::of(crate::command::Command::Land, &args).unwrap(),
                 &mut Report::to(&mut out),
@@ -1855,8 +1869,12 @@ fn an_install_that_moves_the_store_waits_until_the_landing_records_its_run() {
         a,
     ];
     let mut out = Vec::new();
+    let system = f.scratch.system();
     let result = land_recorded(
-        &places,
+        crate::checks::Machine {
+            places: &places,
+            system: &system,
+        },
         &stub,
         &crate::args::Args::of(crate::command::Command::Land, &args).unwrap(),
         &mut Report::to(&mut out),
@@ -2226,10 +2244,14 @@ read -t 60 mark <&4 || { echo "the landing in $other did not reach its check"; e
     let landing = |dir: &Path, item: &str, sha: String| {
         let args = vec![dir.display().to_string(), "--done".into(), item.into(), sha];
         let (stub, places) = (stub.clone(), f.scratch.places());
+        let system = f.scratch.system();
         std::thread::spawn(move || {
             let mut out = Vec::new();
             let result = land_recorded(
-                &places,
+                crate::checks::Machine {
+                    places: &places,
+                    system: &system,
+                },
                 &stub,
                 &crate::args::Args::of(crate::command::Command::Land, &args).unwrap(),
                 &mut Report::to(&mut out),

@@ -1,6 +1,16 @@
 use super::*;
 use crate::testing::{Scratch, git};
 
+/// The scratch folder's machine, which the checks run on.
+macro_rules! machine {
+    ($scratch:expr) => {
+        Machine {
+            places: &$scratch.places(),
+            system: &$scratch.system(),
+        }
+    };
+}
+
 fn files(names: &[&str]) -> Vec<String> {
     names.iter().map(|n| n.to_string()).collect()
 }
@@ -96,10 +106,11 @@ fn workspace(scratch: &Scratch) -> std::path::PathBuf {
     top
 }
 
-fn crates_argv(top: &Path, staged: &[&str]) -> Vec<String> {
+fn crates_argv(scratch: &Scratch, top: &Path, staged: &[&str]) -> Vec<String> {
     let lines =
         parse("check c *.rs,Cargo.toml,clippy.toml,.clippy.toml,Cargo.lock,rust-toolchain.toml,rust-toolchain,.cargo/** cargo clippy {crates} -- -D warnings\n").unwrap();
     let planned = plan(
+        machine!(scratch),
         top,
         &lines,
         &[Kind::Check],
@@ -120,11 +131,15 @@ fn crates_expand_to_the_crates_holding_a_staged_file() {
     let scratch = Scratch::new("checks-crates");
     let top = workspace(&scratch);
     assert_eq!(
-        crates_argv(&top, &["crates/a/src/lib.rs"]),
+        crates_argv(&scratch, &top, &["crates/a/src/lib.rs"]),
         files(&["cargo", "clippy", "-p", "a", "--", "-D", "warnings"])
     );
     assert_eq!(
-        crates_argv(&top, &["crates/b/src/lib.rs", "crates/a/src/lib.rs"]),
+        crates_argv(
+            &scratch,
+            &top,
+            &["crates/b/src/lib.rs", "crates/a/src/lib.rs"]
+        ),
         files(&[
             "cargo", "clippy", "-p", "a", "-p", "b", "--", "-D", "warnings"
         ])
@@ -180,16 +195,16 @@ fn a_staged_lock_counts_as_the_crates_whose_dependencies_changed() {
     );
     std::fs::write(top.join("Cargo.lock"), lock_with_dep("1.0.1")).unwrap();
     assert_eq!(
-        crates_argv(&top, &["Cargo.lock"]),
+        crates_argv(&scratch, &top, &["Cargo.lock"]),
         files(&["cargo", "clippy", "-p", "a", "--", "-D", "warnings"])
     );
     // When the lock matches HEAD, no crate's dependencies change, so plan
     // leaves the line out.
     std::fs::write(top.join("Cargo.lock"), lock_with_dep("1.0.0")).unwrap();
-    assert!(crates_argv(&top, &["Cargo.lock"]).is_empty());
+    assert!(crates_argv(&scratch, &top, &["Cargo.lock"]).is_empty());
     // The root manifest still counts as every crate.
     assert_eq!(
-        crates_argv(&top, &["Cargo.toml"]),
+        crates_argv(&scratch, &top, &["Cargo.toml"]),
         files(&[
             "cargo", "clippy", "-p", "a", "-p", "b", "--", "-D", "warnings"
         ])
@@ -203,15 +218,15 @@ fn a_root_cargo_toml_clippy_toml_or_lock_counts_as_every_crate() {
     let every = files(&[
         "cargo", "clippy", "-p", "a", "-p", "b", "--", "-D", "warnings",
     ]);
-    assert_eq!(crates_argv(&top, &["Cargo.toml"]), every);
-    assert_eq!(crates_argv(&top, &["Cargo.lock"]), every);
+    assert_eq!(crates_argv(&scratch, &top, &["Cargo.toml"]), every);
+    assert_eq!(crates_argv(&scratch, &top, &["Cargo.lock"]), every);
     std::fs::write(top.join("clippy.toml"), "").unwrap();
     std::fs::write(top.join(".clippy.toml"), "").unwrap();
-    assert_eq!(crates_argv(&top, &["clippy.toml"]), every);
-    assert_eq!(crates_argv(&top, &[".clippy.toml"]), every);
+    assert_eq!(crates_argv(&scratch, &top, &["clippy.toml"]), every);
+    assert_eq!(crates_argv(&scratch, &top, &[".clippy.toml"]), every);
     // A crate's own manifest counts as that crate only.
     assert_eq!(
-        crates_argv(&top, &["crates/b/Cargo.toml"]),
+        crates_argv(&scratch, &top, &["crates/b/Cargo.toml"]),
         files(&["cargo", "clippy", "-p", "b", "--", "-D", "warnings"])
     );
 }
@@ -237,8 +252,29 @@ fn the_root_toolchain_file_or_cargo_config_counts_as_every_crate() {
             false => "",
         };
         std::fs::write(top.join(config), text).unwrap();
-        assert_eq!(crates_argv(&top, &[config]), every, "{config}");
+        assert_eq!(crates_argv(&scratch, &top, &[config]), every, "{config}");
     }
+}
+
+#[test]
+fn planning_installs_the_pinned_toolchain_on_the_machine_it_is_given() {
+    let scratch = Scratch::new("checks-install");
+    let top = workspace(&scratch);
+    std::fs::write(top.join("rust-toolchain"), "1.100.1\n").unwrap();
+    scratch.stand_in("rustup", "echo 'no network' >&2; exit 1");
+    let lines = parse("check c *.md true\n").unwrap();
+    let error = plan(
+        machine!(scratch),
+        &top,
+        &lines,
+        &[Kind::Check],
+        &files(&["a.md"]),
+        false,
+        None,
+    )
+    .unwrap_err()
+    .text();
+    assert!(error.contains("no network"), "{error}");
 }
 
 #[test]
@@ -253,11 +289,19 @@ fn a_file_an_every_crate_glob_matches_counts_as_every_crate() {
     )
     .unwrap();
     let argv = |staged: &[&str]| -> Vec<Vec<String>> {
-        plan(&top, &lines, &[Kind::Check], &files(staged), false, None)
-            .unwrap()
-            .into_iter()
-            .map(|p| p.argv)
-            .collect()
+        plan(
+            machine!(scratch),
+            &top,
+            &lines,
+            &[Kind::Check],
+            &files(staged),
+            false,
+            None,
+        )
+        .unwrap()
+        .into_iter()
+        .map(|p| p.argv)
+        .collect()
     };
     // The lint driver's source lies in no crate, and hands line c every
     // crate; line d reads it as a plain `*.rs` that no crate holds.
@@ -281,11 +325,12 @@ fn a_line_with_nothing_to_hand_its_placeholder_is_left_out() {
     let scratch = Scratch::new("checks-nothing");
     let top = workspace(&scratch);
     // Not in any crate.
-    assert!(crates_argv(&top, &["tools/x.rs"]).is_empty());
+    assert!(crates_argv(&scratch, &top, &["tools/x.rs"]).is_empty());
     // Matches, but is not on disk.
     let lines = parse("check f *.rs tool {files}\n").unwrap();
     assert!(
         plan(
+            machine!(scratch),
             &top,
             &lines,
             &[Kind::Check],
@@ -308,6 +353,7 @@ fn files_expand_to_the_matching_files_in_order_and_gates_run_whole() {
     }
     let lines = parse("check sh *.sh lint --x {files}\ncheck gate *.md ./gate.sh\n").unwrap();
     let planned = plan(
+        machine!(scratch),
         &top,
         &lines,
         &[Kind::Check],
@@ -318,7 +364,16 @@ fn files_expand_to_the_matching_files_in_order_and_gates_run_whole() {
     .unwrap();
     assert_eq!(planned[0].argv, files(&["lint", "--x", "b.sh", "a.sh"]));
     assert_eq!(planned[1].argv, files(&["./gate.sh"]));
-    let only_md = plan(&top, &lines, &[Kind::Check], &files(&["c.md"]), false, None).unwrap();
+    let only_md = plan(
+        machine!(scratch),
+        &top,
+        &lines,
+        &[Kind::Check],
+        &files(&["c.md"]),
+        false,
+        None,
+    )
+    .unwrap();
     assert_eq!(only_md.len(), 1);
     assert_eq!(only_md[0].line.name, "gate");
 }

@@ -96,7 +96,7 @@ impl Landing<'_> {
                     .to_string(),
             ));
         }
-        let failed = match crate::checks_run::run_whole(&self.workdir, out) {
+        let failed = match crate::checks_run::run_whole(self.machine, &self.workdir, out) {
             Ok(failed) => failed,
             Err(error) => {
                 return Ok(Err(format!(

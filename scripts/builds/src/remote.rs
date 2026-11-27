@@ -1099,7 +1099,12 @@ pub fn start_job<'a>(
         // A hook check copies no tool: `builds setup` copies this Mac's
         // builds to every host. Only the checkout's own files have this
         // Mac's key.
-        if request.prepare == Prepare::Yes && request.what == What::Working {
+        if request.prepare == Prepare::Yes
+            && request.what == What::Working
+            && !crate::manifest::built_tools(source)?.is_empty()
+        {
+            // Each tool's key runs the checkout's toolchain on this Mac.
+            crate::rust_toolchain::ensure_in(places, ssh.system(), source, source)?;
             crate::built_tools::send_to(places, ssh, host, source);
         }
         if let Err(said) = transport.push(source, &request.repo, &sha, &id)? {
