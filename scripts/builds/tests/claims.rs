@@ -658,6 +658,51 @@ fn app_checkout_reports_the_build_root_of_the_checkout_it_changes() {
     }
 }
 
+/// new copies a warm checkout's build output into the worktree it hands out;
+/// the sizes it then records and tells the dashboard of count the copy.
+#[test]
+fn new_measures_the_worktree_after_it_copies_build_output_into_it() {
+    let demo = Demo::new("new");
+    let warm = demo.volume().join("demo/side-1/target/debug");
+    std::fs::create_dir_all(warm.join(".fingerprint")).unwrap();
+    std::fs::create_dir_all(warm.join("deps")).unwrap();
+    std::fs::write(warm.join("deps/libwarm.rlib"), vec![7u8; 3 * 1024 * 1024]).unwrap();
+    let dashboard = StandInDashboard::listen(&demo.volume());
+
+    let main = path(&demo.main()).to_string();
+    let output = demo
+        .builds()
+        .current_dir(&demo.dir)
+        .args(["new", &main, "--for", "agent A"])
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "builds new: {said}");
+    assert!(said.contains("cloned "), "new copied no build: {said}");
+    let top = PathBuf::from(String::from_utf8(output.stdout).unwrap().trim());
+    let name = top.file_name().unwrap();
+
+    let root = demo.volume().join("demo").join(name);
+    assert_eq!(
+        dashboard.told().last(),
+        Some(&root),
+        "the last the dashboard was told of"
+    );
+    let record = demo
+        .volume()
+        .join(".builds-daemon/sizes/demo")
+        .join(format!("{}.json", path(Path::new(name))));
+    let sizes: Value = serde_json::from_str(
+        &std::fs::read_to_string(&record)
+            .unwrap_or_else(|error| panic!("new measured no sizes: {error}")),
+    )
+    .unwrap();
+    assert!(
+        sizes["target"]["kib"].as_u64().unwrap() >= 3072,
+        "the sizes miss the copy: {sizes}"
+    );
+}
+
 /// The daemon follows the scratch volume; status asks it for the sizes, and
 /// says the same as when it measured them itself. A second daemon on the same
 /// volume is refused. It serves the page, the state the page shows, and the

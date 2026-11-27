@@ -148,7 +148,7 @@ pub(crate) fn hand_out(
                 .and_then(|()| reuse(&free, &start))
                 .and_then(|()| {
                     switched = true;
-                    prepare(tool, ssh, &free)
+                    prepare_handed(tool, ssh, &free)
                 });
             if let Err(error) = started {
                 return Err(undo(error, undo_reuse(&main, &free, &start, switched)));
@@ -160,7 +160,7 @@ pub(crate) fn hand_out(
             let started = Checkout::find(&dir.display().to_string()).and_then(|checkout| {
                 write_claim(&checkout, who, tool.now, Some(Note::Starting))?;
                 set_project(&tool.places, &checkout, project)?;
-                prepare(tool, ssh, &checkout)?;
+                prepare_handed(tool, ssh, &checkout)?;
                 Ok(checkout)
             });
             match started {
@@ -176,6 +176,16 @@ pub(crate) fn hand_out(
         start,
         added,
     })
+}
+
+/// `prepare` for a worktree `hand_out` hands out, then the sizes of its build
+/// root, recorded and told to the dashboard. `prepare` fills the root after
+/// setup tells the dashboard of it, and one that failed partway may have
+/// written it too.
+fn prepare_handed(tool: &Tool, ssh: &crate::host::Ssh, checkout: &Checkout) -> Result<()> {
+    let prepared = prepare(tool, ssh, checkout);
+    crate::sizes::record_roots(&tool.places, &[checkout.build_root(&tool.places)]);
+    prepared
 }
 
 /// <error>, the failure of a step of `builds new`, with the failure of the
