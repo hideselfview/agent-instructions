@@ -1,78 +1,112 @@
-//! The flags every lists command takes, parsed one way: `--name value`,
-//! `--switch`, the rest positional. A flag the command doesn't list is
-//! refused by name, never ignored. Lists commands share `--project` and `--by`.
+//! The words of a builds command after the words that name it, read one way
+//! for every command: by the command's usage lines (command.rs), each of
+//! which is a form (form.rs) that names the flags the command takes and the
+//! positional words it takes in order. A flag no form names is refused by
+//! name, the same way for every command, never ignored.
+
+mod form;
 
 use std::io::Read;
 
 use serde::de::DeserializeOwned;
 
+use crate::command::Command;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::Id;
 
-/// The flags every lists command takes.
-pub const COMMON: [&str; 2] = ["project", "by"];
+pub use form::is_flag;
+use form::{Flag, Form, Misfit};
 
-#[derive(Debug)]
+/// The flag every command takes, whether its usage lines name it or not
+/// (project_flag.rs).
+const GLOBAL: [Flag; 1] = [Flag {
+    name: crate::project_flag::PROJECT,
+    values: 1,
+    repeats: false,
+}];
+
+#[derive(Clone, Debug)]
 pub struct Args {
+    command: Command,
+    /// The words as given.
+    words: Vec<String>,
     positional: Vec<String>,
-    /// Each flag given, in order; a switch has no value.
-    flags: Vec<(String, Option<String>)>,
+    /// Each flag given, in order, with its values.
+    flags: Vec<(&'static str, Vec<String>)>,
 }
 
 impl Args {
-    /// <args> with <valued> flags (and `--project`, `--by`) taking the next
-    /// argument as their value and <switches> taking none. `--` ends the
-    /// flags.
-    pub fn parse(args: &[String], valued: &[&str], switches: &[&str]) -> Result<Args> {
-        Self::parse_with(args, valued, switches, &COMMON)
-    }
-
-    /// Parse a command that takes only the flags it names.
-    pub fn parse_only(args: &[String], valued: &[&str]) -> Result<Args> {
-        Self::parse_with(args, valued, &[], &[])
-    }
-
-    fn parse_with(
-        args: &[String],
-        valued: &[&str],
-        switches: &[&str],
-        common: &[&str],
-    ) -> Result<Args> {
-        let mut positional = Vec::new();
-        let mut flags = Vec::new();
-        let mut rest = args.iter();
-        while let Some(arg) = rest.next() {
-            if arg == "--" {
-                positional.extend(rest.by_ref().cloned());
-                break;
-            }
-            let Some(name) = arg.strip_prefix("--") else {
-                positional.push(arg.clone());
-                continue;
-            };
-            if valued.contains(&name) || common.contains(&name) {
-                let Some(value) = rest.next() else {
-                    fail!("--{name} needs a value")
-                };
-                flags.push((name.to_string(), Some(value.clone())));
-            } else if switches.contains(&name) {
-                flags.push((name.to_string(), None));
-            } else {
-                let mut known: Vec<String> = valued
-                    .iter()
-                    .chain(common)
-                    .chain(switches)
-                    .map(|n| format!("--{n}"))
-                    .collect();
-                known.dedup();
-                fail!(
-                    "unknown flag --{name}; this command takes {}",
-                    known.join(", ")
-                );
+    /// <words>, the words after those that name <command>, read by the first
+    /// of the command's forms they fit. Fails naming a flag that no form
+    /// takes, else with the first form's reason and the command's usage.
+    pub fn of(command: Command, words: &[String]) -> Result<Args> {
+        let forms = forms(command)?;
+        let mut first_misfit = None;
+        for form in &forms {
+            match form.read(words, &GLOBAL) {
+                Ok(read) => {
+                    return Ok(Args {
+                        command,
+                        words: words.to_vec(),
+                        positional: read.positional,
+                        flags: read.flags,
+                    });
+                }
+                Err(misfit) => {
+                    first_misfit.get_or_insert(misfit);
+                }
             }
         }
-        Ok(Args { positional, flags })
+        let named = format!("builds {}", command.words()[0].join(" "));
+        let usage = command.usage_text();
+        let unknown = words.iter().find(|word| {
+            is_flag(word)
+                && forms.iter().all(|form| {
+                    form.flag(word).is_none() && GLOBAL.iter().all(|flag| flag.name != *word)
+                })
+        });
+        if let Some(word) = unknown {
+            let mut known: Vec<&str> = forms
+                .iter()
+                .flat_map(|form| form.flags.iter().map(|flag| flag.name))
+                .chain(GLOBAL.iter().map(|flag| flag.name))
+                .collect();
+            known.sort_unstable();
+            known.dedup();
+            fail!(
+                "{named} has no flag {word}. Its flags are {}.\n{usage}",
+                crate::command::and_list(&known)
+            );
+        }
+        match first_misfit {
+            Some(Misfit::NeedsValue(flag)) => fail!("{flag} needs a value\n{usage}"),
+            Some(Misfit::Twice(flag)) => fail!("{flag} is given twice\n{usage}"),
+            _ => fail!("{usage}"),
+        }
+    }
+
+    /// The arguments of <argv>, the command line of a running builds
+    /// process, when the process runs <command>; None for any other command
+    /// and for words that do not fit it.
+    pub fn of_process(command: Command, argv: &[String]) -> Option<Args> {
+        let words = crate::ack::agent::without_flag(argv);
+        let parsed = Command::of(words.get(1..)?)?;
+        if parsed.command != command {
+            return None;
+        }
+        let rest: Vec<String> = parsed.rest.iter().map(|word| word.to_string()).collect();
+        Args::of(command, &rest).ok()
+    }
+
+    /// The command whose words these are.
+    pub fn command(&self) -> Command {
+        self.command
+    }
+
+    /// The words as given, which a record of the command names it by.
+    pub fn words(&self) -> &[String] {
+        &self.words
     }
 
     pub fn positional(&self) -> &[String] {
@@ -80,23 +114,40 @@ impl Args {
     }
 
     /// The positional arguments, exactly <count> of them, else a refusal that
-    /// says <usage> (`Command::usage_text`).
-    pub fn exactly(&self, count: usize, usage: &str) -> Result<&[String]> {
+    /// gives the command's usage.
+    pub fn exactly(&self, count: usize) -> Result<&[String]> {
         if self.positional.len() != count {
-            fail!("{usage}");
+            fail!("{}", self.command.usage_text());
         }
         Ok(&self.positional)
+    }
+
+    /// The values of each flag <name> given, in order: <name> is a long
+    /// flag's name without its dashes (`why`), or a short flag with its dash
+    /// (`-b`).
+    fn given(&self, name: &str) -> impl Iterator<Item = &[String]> {
+        debug_assert!(
+            declares(self.command, name),
+            "{:?} reads flag {name}, which none of its usage lines names",
+            self.command
+        );
+        self.flags
+            .iter()
+            .filter(|(flag, _)| spelled(flag, name))
+            .map(|(_, values)| values.as_slice())
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     /// The value of <name>, None when it was not given; refused when given
     /// twice.
     pub fn value(&self, name: &str) -> Result<Option<&str>> {
-        let mut given = self.flags.iter().filter(|(flag, _)| flag == name);
+        let mut given = self.given(name);
         let first = given.next();
         if given.next().is_some() {
             fail!("--{name} is given twice");
         }
-        Ok(first.and_then(|(_, value)| value.as_deref()))
+        Ok(first.and_then(|values| values.first()).map(String::as_str))
     }
 
     /// The value of <name>, which the command requires.
@@ -118,17 +169,22 @@ impl Args {
 
     /// Every value of a flag that may repeat, in order.
     pub fn values(&self, name: &str) -> Vec<&str> {
-        self.flags
-            .iter()
-            .filter(|(flag, _)| flag == name)
-            .filter_map(|(_, value)| value.as_deref())
+        self.given(name)
+            .filter_map(|values| values.first())
+            .map(String::as_str)
             .collect()
     }
 
-    pub fn switch(&self, name: &str) -> bool {
+    /// Each flag given, in the order given, with its values.
+    pub fn given_flags(&self) -> impl Iterator<Item = (&'static str, &[String])> {
         self.flags
             .iter()
-            .any(|(flag, value)| flag == name && value.is_none())
+            .map(|(flag, values)| (*flag, values.as_slice()))
+    }
+
+    /// Whether the switch <name> was given.
+    pub fn switch(&self, name: &str) -> bool {
+        self.given(name).next().is_some()
     }
 
     /// The value of <name> as a variant of <T> (its serde spelling), if given.
@@ -147,10 +203,10 @@ impl Args {
     }
 
     /// The positional arguments as ids: at least one, each named once, else
-    /// a refusal that says <usage> (`Command::usage_text`).
-    pub fn positional_ids(&self, usage: &str) -> Result<Vec<Id>> {
+    /// a refusal that gives the command's usage.
+    pub fn positional_ids(&self) -> Result<Vec<Id>> {
         if self.positional.is_empty() {
-            fail!("{usage}");
+            fail!("{}", self.command.usage_text());
         }
         let ids = self
             .positional
@@ -169,6 +225,60 @@ impl Args {
     pub fn ids(&self, name: &str) -> Result<Option<Vec<Id>>> {
         self.value(name)?.map(Id::parse_list).transpose()
     }
+}
+
+/// Whether <flag>, a flag's spelling, is the flag an `Args` method names
+/// <name>.
+fn spelled(flag: &str, name: &str) -> bool {
+    match name.strip_prefix('-') {
+        Some(_) => flag == name,
+        None => flag.strip_prefix("--") == Some(name),
+    }
+}
+
+/// Whether a usage line of <command>, or the global flags, names the flag an
+/// `Args` method names <name>.
+pub fn declares(command: Command, name: &str) -> bool {
+    GLOBAL.iter().any(|flag| spelled(flag.name, name))
+        || forms(command).is_ok_and(|forms| {
+            forms
+                .iter()
+                .any(|form| form.flags.iter().any(|flag| spelled(flag.name, name)))
+        })
+}
+
+/// The forms of <command>'s usage lines, each read without the words that
+/// name the command.
+fn forms(command: Command) -> Result<Vec<Form>> {
+    command
+        .usage()
+        .iter()
+        .map(|line| Form::of(after_words(command, line)))
+        .collect()
+}
+
+/// The arguments of words that fit <command>'s first usage line, for a test
+/// that asks a question of every command.
+#[cfg(test)]
+pub fn example(command: Command) -> Args {
+    let form = Form::of(after_words(command, command.usage()[0])).unwrap();
+    Args::of(command, &form.example()).unwrap()
+}
+
+/// <line>, a usage line of <command>, after `builds` and the longest of the
+/// command's names that it starts with.
+fn after_words(command: Command, line: &'static str) -> &'static str {
+    let line = line.strip_prefix("builds ").unwrap_or(line);
+    command
+        .words()
+        .iter()
+        .filter_map(|named| {
+            let named = named.join(" ");
+            let rest = line.strip_prefix(named.as_str())?;
+            (rest.is_empty() || rest.starts_with(' ')).then(|| (named.len(), rest.trim_start()))
+        })
+        .max_by_key(|(length, _)| *length)
+        .map_or(line, |(_, rest)| rest)
 }
 
 /// A variant's name as the request files spell it: through the type's own

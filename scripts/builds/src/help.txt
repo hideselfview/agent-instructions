@@ -17,6 +17,8 @@ A section's heading after the page prints that section alone: `builds help
 lists DECISION LOG`, or `builds help APP BUILDS` for a section of this
 page.
 
+  {help #4}
+
 builds is a Rust program in agent-instructions (scripts/builds).
 agent-instructions' install.sh builds it from the main checkout's committed
 HEAD, never from the working tree, with the libraries it is built with: the
@@ -1490,7 +1492,7 @@ When a lane finishes, builds records the run if a project holds the repo.
 If an install is moving the stores, the lane waits to record its run
 (INSTALLING). If builds cannot save the record, the command fails and says why.
 
-  {app-build #7}
+  {app-build --record-handed}
                               record the run a lane wrote to its own store
                               <store> while an install moved the stores, in
                               the store of <project>, else of the one project
@@ -1872,7 +1874,7 @@ built again.
                               print the steps (lane, name, command, and "(CI
                               only)" for a step a `ci-only` line names) and
                               each lane's test and shots lines
-  {app-build #5}
+  {app-build --landing-coverage}
                               check that a landing's branch has the passing app
                               builds it needs: `builds land` runs it after the
                               lists' checks and before it fetches anything,
@@ -1929,7 +1931,7 @@ built again.
                               whatever projects hold its repo, and neither does
                               a repo in no project or a branch whose commits
                               are all on origin/main
-  {app-build #6}
+  {app-build --drop-shots}
                               record that the landing of <branch> needs no
                               run of the shots prefix <prefix> in <lane>,
                               which the branch's app builds ran, for the

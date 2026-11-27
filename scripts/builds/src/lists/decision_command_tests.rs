@@ -425,7 +425,7 @@ fn find_matches_every_word_in_title_or_body_ignoring_case_newest_first() {
 fn find_needs_a_word() {
     let scratch = Scratch::new("decision-find");
     let tool = tool_with(&scratch, |_| ());
-    assert!(refusal(run(&tool, "find --project demo")).contains("say what to look for"));
+    assert!(refusal(run(&tool, "find --project demo")).starts_with("usage: builds decision find"));
     run(&tool, "find anything --project demo").unwrap();
 }
 

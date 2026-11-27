@@ -108,8 +108,8 @@ impl World {
         self.run_args(command.split_whitespace().map(str::to_string).collect())
     }
 
-    fn run_args(&self, mut args: Vec<String>) -> Result<String> {
-        args.extend(["--by".to_string(), "tester".to_string()]);
+    fn run_args(&self, args: Vec<String>) -> Result<String> {
+        let mut args = crate::lists::fixtures::with_by("design", "tester", args);
         // show and list find the project from the directory the command runs
         // in, which is no repo of the project here.
         if matches!(

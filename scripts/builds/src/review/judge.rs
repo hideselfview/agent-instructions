@@ -800,7 +800,7 @@ pub fn move_legacy_judge(db: &Connection) -> Result<()> {
 
 /// `builds judge <command>`.
 /// `builds judge listen`.
-pub fn cmd_listen(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn cmd_listen(tool: &Tool, args: &Args) -> Result<()> {
     let said = listen_command(
         tool,
         args,
@@ -816,16 +816,12 @@ pub fn cmd_listen(tool: &Tool, args: &[String]) -> Result<()> {
 /// <inbox>.
 pub fn listen_command(
     tool: &Tool,
-    args: &[String],
+    args: &Args,
     cwd: &Path,
     caller: Option<&Caller>,
     inbox: Option<&Messaging>,
 ) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
-    args.exactly(
-        0,
-        &crate::command::Command::Judge(crate::command::judge::Listen).usage_text(),
-    )?;
+    args.exactly(0)?;
     let Some(project) = args.value("project")? else {
         fail!("say which project's reviews the session judges with --project");
     };
@@ -840,7 +836,7 @@ pub fn listen_command(
         );
     };
     let store = Store::named(&tool.places, project)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     let sessions = tool.sessions();
     let running = running_claude(&sessions)?;
     store.write(&stamp, "judge listen", |db| {

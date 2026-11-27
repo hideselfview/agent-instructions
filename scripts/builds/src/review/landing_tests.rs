@@ -94,7 +94,11 @@ fn asked_as(demo: &Demo, fake: &Fake, side: &Path, shas: &[String], key: &str) -
         "--rules-root".to_string(),
         fake.root.display().to_string(),
     ]);
-    let args = Args::parse(&words, &["project", "landing", "rules-root"], &[]).unwrap();
+    let args = Args::of(
+        crate::command::Command::Review(crate::command::review::CheckLanding),
+        &words,
+    )
+    .unwrap();
     ask_of(&demo.tool, &args)
 }
 
@@ -407,7 +411,11 @@ fn landed_records_the_worktrees_claim_wherever_it_runs() {
         fake.root.display().to_string(),
     ]
     .into();
-    let args = Args::parse(&words, &["project", "rules-root"], &[]).unwrap();
+    let args = Args::of(
+        crate::command::Command::Review(crate::command::review::Landed),
+        &words,
+    )
+    .unwrap();
     // The test process runs in no claimed worktree, as builds land does when
     // the coordinator runs it from the person's checkout.
     assert!(record_landing(&demo.tool, &args).unwrap().is_some());
@@ -627,7 +635,14 @@ fn check_landing(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> bool
         .map(|w| w.to_string()),
     );
     words.push(fake.root.display().to_string());
-    match check_landing_command(&demo.tool, &words) {
+    match check_landing_command(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Review(crate::command::review::CheckLanding),
+            &words,
+        )
+        .unwrap(),
+    ) {
         Ok(()) => true,
         Err(Fail::Exit(1)) => false,
         Err(other) => panic!("check-landing failed: {}", other.text()),

@@ -87,7 +87,7 @@ fn a_long_usage_line_breaks_between_its_arguments() {
     let item = Command::Item(crate::command::item::Edit);
     assert_eq!(
         wrapped(item, item.usage()[0]),
-        "  builds item edit N [--title T] [--area A] [--details-file F] [--brief P]\n                   [--for F] [--origin N] [--tag T]... [--untag T]..."
+        "  builds item edit N [--title T] [--area A] [--details-file F] [--brief P]\n                   [--for F] [--origin N] [--tag T]... [--untag T]... [--by WHO]"
     );
 }
 

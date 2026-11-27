@@ -441,10 +441,7 @@ fn replace_program(
 }
 
 /// `builds install`.
-pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
-    if !args.is_empty() {
-        fail!("{}", crate::command::Command::Install.usage_text());
-    }
+pub fn cmd_install(tool: &Tool) -> Result<()> {
     let home = &tool.places.home;
     replace_program(
         &tool.places,

@@ -355,8 +355,8 @@ fn tmpdir_problem(root: &Path, folder: &Path) -> Result<Option<String>> {
 
 /// The host side of `tmpdir_issue`. Print the issue as a JSON value so it
 /// passes over SSH without using a path as a field delimiter.
-pub fn cmd_tmpdir(root: &Path, args: &[String]) -> Result<()> {
-    let [pid] = args else {
+pub fn cmd_tmpdir(root: &Path, args: &crate::args::Args) -> Result<()> {
+    let [pid] = args.positional() else {
         fail!("{}", crate::command::Command::SccacheTmpdir.usage_text());
     };
     let pid = pid

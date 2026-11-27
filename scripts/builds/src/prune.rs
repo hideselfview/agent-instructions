@@ -828,27 +828,24 @@ fn naming_texts(tops: &[&Path], files: &[String]) -> std::result::Result<Vec<Str
 /// own prune with the same options (`prune_hosts`). A prune that
 /// deletes holds the prune lock while it runs and records when it finished
 /// (prune_schedule.rs).
-pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
-    let mut run = Run::Real;
-    let mut idle: u64 = 0;
-    let mut warm = false;
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        match arg.as_str() {
-            "--dry-run" => run = Run::Dry,
-            "--include-warm" => warm = true,
-            "--idle" => {
-                let minutes = rest.next().map(String::as_str).unwrap_or("");
-                if minutes.is_empty() || !minutes.bytes().all(|b| b.is_ascii_digit()) {
-                    fail!("prune: --idle takes minutes");
-                }
-                idle = minutes
-                    .parse()
-                    .context(|| "prune: --idle takes minutes".to_string())?;
+pub fn cmd_prune(tool: &Tool, args: &crate::args::Args) -> Result<()> {
+    let run = if args.switch("dry-run") {
+        Run::Dry
+    } else {
+        Run::Real
+    };
+    let warm = args.switch("include-warm");
+    let idle: u64 = match args.value("idle")? {
+        None => 0,
+        Some(minutes) => {
+            if minutes.is_empty() || !minutes.bytes().all(|b| b.is_ascii_digit()) {
+                fail!("prune: --idle takes minutes");
             }
-            other => fail!("prune: unknown option {other}"),
+            minutes
+                .parse()
+                .context(|| "prune: --idle takes minutes".to_string())?
         }
-    }
+    };
     if warm && idle == 0 {
         fail!("prune: --include-warm needs --idle");
     }
@@ -866,7 +863,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     let ssh = tool.ssh();
     crate::remote_worktrees::prune(&tool.places, &ssh, run)?;
     crate::lane_size::shrink_all(&tool.places, &ssh, run, crate::app_timing::now())?;
-    prune_hosts(&tool.places, &ssh, args)?;
+    prune_hosts(&tool.places, &ssh, args.words())?;
     let roots = tool.roots()?;
     for root in &roots {
         let Some(checkout) = &root.live else {

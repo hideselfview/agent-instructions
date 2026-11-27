@@ -39,12 +39,9 @@ fn app_build_words(repo: &str, git_ref: &str, scene: &str, project: Option<&str>
 }
 
 /// `builds shots picture`, given the arguments after `picture`.
-pub fn cmd(tool: &Tool, args: &[String]) -> Result<()> {
-    let (project, words) = crate::project_flag::take(
-        args,
-        &crate::command::Command::Shots(crate::command::shots::Picture).usage_text(),
-    )?;
-    let [repo, git_ref, scene, side] = &words[..] else {
+pub fn cmd(tool: &Tool, args: &crate::args::Args) -> Result<()> {
+    let project = args.value("project")?;
+    let [repo, git_ref, scene, side] = args.positional() else {
         fail!(
             "{}",
             crate::command::Command::Shots(crate::command::shots::Picture).usage_text()
@@ -67,6 +64,10 @@ pub fn cmd(tool: &Tool, args: &[String]) -> Result<()> {
                 side = side.word()
             ));
             let words = app_build_words(repo, git_ref, scene, project);
+            let words = crate::args::Args::of(
+                crate::command::Command::AppBuild(crate::command::app_build::Build),
+                &words,
+            )?;
             let ended = crate::app_build::cmd_app_build(tool, &words)
                 .err()
                 .map(|error| error.text());

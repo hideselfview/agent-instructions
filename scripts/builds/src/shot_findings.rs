@@ -404,10 +404,9 @@ fn older_program_note(cached: &Cached) -> Option<String> {
 }
 
 /// `builds shots findings`, given the arguments after `findings`.
-pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
-    let grouped = args.iter().any(|arg| arg == "--by-cause");
-    let args: Vec<&String> = args.iter().filter(|arg| *arg != "--by-cause").collect();
-    let [repo, git_ref, lane, prefix] = args[..] else {
+pub fn cmd_findings(places: &Places, args: &crate::args::Args) -> Result<()> {
+    let grouped = args.switch("by-cause");
+    let [repo, git_ref, lane, prefix] = args.positional() else {
         fail!(
             "{}",
             crate::command::Command::Shots(crate::command::shots::Findings).usage_text()

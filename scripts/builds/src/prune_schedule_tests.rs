@@ -22,10 +22,18 @@ fn the_daemon_prunes_at_once_and_then_every_interval_after_the_later_of_a_finish
 fn a_prune_that_deletes_records_its_finish_and_a_dry_run_records_nothing() {
     let scratch = Scratch::new("prune-record");
     let tool = scratch.tool(0);
-    crate::prune::cmd_prune(&tool, &["--dry-run".to_string()]).unwrap();
+    crate::prune::cmd_prune(
+        &tool,
+        &crate::args::Args::of(crate::command::Command::Prune, &["--dry-run".to_string()]).unwrap(),
+    )
+    .unwrap();
     assert_eq!(last_finished(&tool.places).unwrap(), None);
     let before = crate::app_timing::now();
-    crate::prune::cmd_prune(&tool, &[]).unwrap();
+    crate::prune::cmd_prune(
+        &tool,
+        &crate::args::Args::of(crate::command::Command::Prune, &[]).unwrap(),
+    )
+    .unwrap();
     let finished = last_finished(&tool.places).unwrap().expect("recorded");
     assert!(finished >= before, "{finished} < {before}");
 }
@@ -35,9 +43,12 @@ fn a_prune_fails_at_once_while_another_runs() {
     let scratch = Scratch::new("prune-lock");
     let tool = scratch.tool(0);
     let running = hold(&tool.places).unwrap();
-    let refused = crate::prune::cmd_prune(&tool, &[])
-        .expect_err("refused")
-        .text();
+    let refused = crate::prune::cmd_prune(
+        &tool,
+        &crate::args::Args::of(crate::command::Command::Prune, &[]).unwrap(),
+    )
+    .expect_err("refused")
+    .text();
     assert!(
         refused.contains("another builds prune is running"),
         "{refused}"

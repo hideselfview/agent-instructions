@@ -294,7 +294,8 @@ fn note_adds_a_line_and_wants_text() {
         (note.text.as_str(), note.by.as_str()),
         ("R1 landed today", "tester")
     );
-    assert!(refusal(item(&demo, &["note", "1"])).contains("needs its text"));
+    assert!(refusal(item(&demo, &["note", "1"])).starts_with("usage: builds item note"));
+    assert!(refusal(item(&demo, &["note", "1", " "])).contains("needs its text"));
     assert!(refusal(item(&demo, &["note", "7", "x"])).contains("not a record"));
 }
 
@@ -595,7 +596,15 @@ fn take_refuses_what_is_not_ready_or_not_right() {
     assert_eq!(demo.state(), before);
 
     let unclaimed = demo.add_side(2, "x", "other");
-    cmd_release(&demo.tool.places, &[unclaimed.display().to_string()]).unwrap();
+    cmd_release(
+        &demo.tool.places,
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            &[unclaimed.display().to_string()],
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let no_claim = refusal(item(
         &demo,
         &take_args(&unclaimed.display().to_string(), &brief, &["1"], "other"),
@@ -668,7 +677,11 @@ fn release_is_refused_while_an_item_runs_in_the_worktree() {
     let side_arg = side.display().to_string();
     let refused = refusal(cmd_release(
         &demo.tool.places,
-        std::slice::from_ref(&side_arg),
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            std::slice::from_ref(&side_arg),
+        )
+        .unwrap(),
     ));
     assert!(
         refused.contains("still runs #1") && refused.contains("item stop 1"),
@@ -680,7 +693,11 @@ fn release_is_refused_while_an_item_runs_in_the_worktree() {
             .is_some()
     );
     item(&demo, &["stop", "1", "--why", "done here"]).unwrap();
-    cmd_release(&demo.tool.places, &[side_arg]).unwrap();
+    cmd_release(
+        &demo.tool.places,
+        &crate::args::Args::of(crate::command::Command::Release, &[side_arg]).unwrap(),
+    )
+    .unwrap();
 }
 
 /// A claim made for an item that is not yet taken carries the starting state,
@@ -794,7 +811,7 @@ fn place_refuses_a_closed_item_a_missing_why_and_an_unknown_place() {
     );
     assert!(
         refusal(item(&demo, &["place", "1", "middle", "--why", "w"]))
-            .contains("first, last or none, not 'middle'")
+            .starts_with("usage: builds item place")
     );
     assert!(
         refusal(item(&demo, &["place", "99", "first", "--why", "w"])).contains("is not a record")
@@ -1013,7 +1030,11 @@ fn stop_keeps_the_worktree_of_unfinished_work_and_take_runs_the_item_there_again
 
     crate::claim::cmd_claim(
         &demo.tool.places,
-        &[side_arg.clone(), "agent B".into()],
+        &crate::args::Args::of(
+            crate::command::Command::Claim,
+            &[side_arg.clone(), "agent B".into()],
+        )
+        .unwrap(),
         NOON,
     )
     .unwrap();
@@ -1146,7 +1167,11 @@ fn take_and_finished_refuse_what_would_split_an_item_from_its_kept_work() {
     item(&demo, &["stop", "2", "--why", "the agent ran out of room"]).unwrap();
     crate::claim::cmd_claim(
         &demo.tool.places,
-        &[two_arg.clone(), "agent C".into()],
+        &crate::args::Args::of(
+            crate::command::Command::Claim,
+            &[two_arg.clone(), "agent C".into()],
+        )
+        .unwrap(),
         NOON,
     )
     .unwrap();
@@ -1191,7 +1216,11 @@ fn release_and_health_see_an_item_of_another_project_in_the_worktree() {
         .unwrap();
     let refused = refusal(cmd_release(
         &demo.tool.places,
-        std::slice::from_ref(&side_arg),
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            std::slice::from_ref(&side_arg),
+        )
+        .unwrap(),
     ));
     assert!(refused.contains("still runs #1"), "{refused}");
     let health = crate::health::health(&demo.tool).unwrap();
@@ -1544,7 +1573,11 @@ fn drop_refuses_an_item_whose_worktree_runs_another_item() {
 fn release_refused(demo: &Demo, side: &std::path::Path) -> String {
     refusal(cmd_release(
         &demo.tool.places,
-        &[side.display().to_string()],
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            &[side.display().to_string()],
+        )
+        .unwrap(),
     ))
 }
 
@@ -1664,7 +1697,15 @@ fn release_and_health_wait_for_a_git_commit_that_runs_in_the_worktree() {
         "the hook let the commit through"
     );
     assert!(releases(&crate::health::health(&demo.tool).unwrap()));
-    cmd_release(&demo.tool.places, &[side.display().to_string()]).unwrap();
+    cmd_release(
+        &demo.tool.places,
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            &[side.display().to_string()],
+        )
+        .unwrap(),
+    )
+    .unwrap();
 }
 
 /// Release removes the claim of a worktree whose work an item keeps, or
@@ -1678,7 +1719,15 @@ fn release_lets_go_of_kept_or_landed_work() {
     crate::testing::git(&demo.main, &["cherry-pick", &sha]);
     crate::testing::git(&demo.main, &["push", "-q", "origin", "main"]);
     crate::testing::git(&side, &["fetch", "-q", "origin"]);
-    cmd_release(&demo.tool.places, std::slice::from_ref(&side_arg)).unwrap();
+    cmd_release(
+        &demo.tool.places,
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            std::slice::from_ref(&side_arg),
+        )
+        .unwrap(),
+    )
+    .unwrap();
 
     let two = demo.add_side(2, "agent B", "other");
     let two_arg = two.display().to_string();
@@ -1689,11 +1738,19 @@ fn release_lets_go_of_kept_or_landed_work() {
     item(&demo, &["stop", "1", "--why", "the agent ran out of room"]).unwrap();
     crate::claim::cmd_claim(
         &demo.tool.places,
-        &[two_arg.clone(), "agent C".into()],
+        &crate::args::Args::of(
+            crate::command::Command::Claim,
+            &[two_arg.clone(), "agent C".into()],
+        )
+        .unwrap(),
         NOON,
     )
     .unwrap();
-    cmd_release(&demo.tool.places, &[two_arg]).unwrap();
+    cmd_release(
+        &demo.tool.places,
+        &crate::args::Args::of(crate::command::Command::Release, &[two_arg]).unwrap(),
+    )
+    .unwrap();
 }
 
 /// Commits <sha> of <from> onto a new worktree <n>, on branch <branch>, as
@@ -1749,7 +1806,15 @@ fn release_frees_a_worktree_whose_commits_are_copies_on_another_branch() {
         kept.unheld.copied_on.iter().collect::<Vec<_>>(),
         ["staging"]
     );
-    cmd_release(&demo.tool.places, &[copy.display().to_string()]).unwrap();
+    cmd_release(
+        &demo.tool.places,
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            &[copy.display().to_string()],
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let checkout = Checkout::find(&copy.display().to_string()).unwrap();
     assert!(
         crate::claim::Claim::read(&checkout.claim_file())
@@ -1801,13 +1866,17 @@ fn health_lists_a_loose_branch_until_a_worktree_takes_it_or_it_lands() {
     crate::worktree::cmd_new(
         &demo.tool,
         &crate::testing::no_ssh(),
-        &[
-            demo.main.display().to_string(),
-            "--resume".into(),
-            "loose".into(),
-            "--project".into(),
-            "demo".into(),
-        ],
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            &[
+                demo.main.display().to_string(),
+                "--resume".into(),
+                "loose".into(),
+                "--project".into(),
+                "demo".into(),
+            ],
+        )
+        .unwrap(),
     )
     .unwrap();
     assert!(
@@ -2106,7 +2175,15 @@ fn a_refused_take_with_a_repo_leaves_no_claimed_worktree_or_branch() {
 
     // A free worktree: the take claims it, and the refusal frees it again.
     let side = demo.add_side(1, "agent A", "old");
-    cmd_release(&demo.scratch.places(), &[side.display().to_string()]).unwrap();
+    cmd_release(
+        &demo.scratch.places(),
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            &[side.display().to_string()],
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let said = refusal(item(&demo, &repo_take(&brief, "2", "work")));
     assert!(said.contains("waits on"), "{said}");
     let checkout = Checkout::find(&side.display().to_string()).unwrap();

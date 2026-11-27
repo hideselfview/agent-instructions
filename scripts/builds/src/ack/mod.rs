@@ -31,7 +31,6 @@ use rusqlite::TransactionBehavior;
 
 use crate::args::{Args, current_dir};
 use crate::checkout::Checkout;
-use crate::command::Parsed;
 use crate::db::{self, Make, Sql};
 use crate::fail;
 use crate::fail::Result;
@@ -56,10 +55,10 @@ pub const PASSED: &str = "BUILDS_ACKNOWLEDGED";
 pub fn gate(
     places: &Places,
     session: &agent::Session,
-    parsed: &Parsed<'_, String>,
+    args: &Args,
     project: Option<&str>,
 ) -> Result<()> {
-    if std::env::var_os(PASSED).is_some() || !parsed.needs_acknowledgement()? {
+    if std::env::var_os(PASSED).is_some() || !args.needs_acknowledgement()? {
         return Ok(());
     }
     let Some(identity) = session.identity()? else {
@@ -274,8 +273,7 @@ pub fn outdated(store: &Store, session: &str) -> Result<Option<String>> {
 }
 
 /// `builds ack`.
-pub fn cmd_ack(places: &Places, session: &agent::Session, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["role"], &["compacted", "codex-compacted"])?;
+pub fn cmd_ack(places: &Places, session: &agent::Session, args: &Args) -> Result<()> {
     if args.switch("compacted") {
         crate::output::answer_line(compacted(places, agent::HookInput::from_stdin()?)?);
         return Ok(());
@@ -290,7 +288,7 @@ pub fn cmd_ack(places: &Places, session: &agent::Session, args: &[String]) -> Re
     crate::output::answer(ack(
         places,
         &identity,
-        &args,
+        args,
         &current_dir()?,
         crate::app_timing::now(),
     )?);
@@ -599,7 +597,7 @@ fn forget_compacted(places: &Places, session: &str, thread: &str) -> Result<()> 
     Ok(())
 }
 
-impl crate::command::Parsed<'_, String> {
+impl Args {
     /// Whether the acknowledgement check (ack/mod.rs `gate`) covers the
     /// command. It passes `ack` itself; the hook that gives an agent its
     /// rules; the commands that use no store, since the check reads one and
@@ -614,10 +612,10 @@ impl crate::command::Parsed<'_, String> {
     pub fn needs_acknowledgement(&self) -> Result<bool> {
         use crate::command::Command::*;
         use crate::command::*;
-        Ok(match self.command {
+        Ok(match self.command() {
             Ack | RulesOnEdit => false,
-            Status => !crate::status::is_folderless_json(self.rest),
-            Checks(checks::Run) => match crate::checks_run::run_worktree(self.rest) {
+            Status => !crate::status::is_folderless_json(self),
+            Checks(checks::Run) => match crate::checks_run::run_worktree(self) {
                 Some(worktree) => !crate::checkout::Checkout::at(worktree)?
                     .is_some_and(|checkout| checkout.is_main()),
                 None => true,
@@ -632,7 +630,12 @@ impl crate::command::Parsed<'_, String> {
             | Release
             | Retire
             | Cargo
-            | AppBuild
+            | AppBuild(
+                app_build::Build
+                | app_build::LandingCoverage
+                | app_build::DropShots
+                | app_build::RecordHanded,
+            )
             | BuildApp
             | Lock
             | Programs
@@ -749,7 +752,7 @@ impl crate::command::Parsed<'_, String> {
             )
             | Lists(
                 lists::Init | lists::DesignGlobs | lists::AddRepo | lists::Show | lists::ProjectOf,
-            ) => self.command.stores() != crate::install_gate::Stores::Storeless,
+            ) => self.command().stores() != crate::install_gate::Stores::Storeless,
         })
     }
 }

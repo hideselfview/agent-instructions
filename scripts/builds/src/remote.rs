@@ -176,73 +176,28 @@ pub struct Request {
     pub prepare: Prepare,
 }
 
-pub fn parse(args: &[String]) -> Result<Request> {
-    let [repo, rest @ ..] = args else {
-        fail!(
-            "{}",
-            crate::command::Command::Remote(crate::command::remote::Run).usage_text()
-        );
+pub fn parse(args: &crate::args::Args) -> Result<Request> {
+    let refused = || {
+        crate::fail::Fail::Message(
+            crate::command::Command::Remote(crate::command::remote::Run).usage_text(),
+        )
     };
-    let Some(dashes) = rest.iter().position(|arg| arg == "--") else {
-        fail!(
-            "{}",
-            crate::command::Command::Remote(crate::command::remote::Run).usage_text()
-        );
-    };
-    let (before, command) = (&rest[..dashes], &rest[dashes + 1..]);
-    if command.is_empty() {
-        fail!(
-            "{}",
-            crate::command::Command::Remote(crate::command::remote::Run).usage_text()
-        );
-    }
-    let mut what = None;
-    let mut host = None;
-    let mut at = 0;
-    while at < before.len() {
-        match before[at].as_str() {
-            "--host" => {
-                let Some(name) = before.get(at + 1) else {
-                    fail!(
-                        "{}",
-                        crate::command::Command::Remote(crate::command::remote::Run).usage_text()
-                    );
-                };
-                host = Some(name.clone());
-                at += 2;
-            }
-            "--staged" if what.is_none() => {
-                what = Some(What::Staged);
-                at += 1;
-            }
-            "--working" if what.is_none() => {
-                what = Some(What::Working);
-                at += 1;
-            }
-            flag if flag.starts_with('-') => fail!(
-                "{}",
-                crate::command::Command::Remote(crate::command::remote::Run).usage_text()
-            ),
-            reference if what.is_none() => {
-                what = Some(What::Ref(reference.to_string()));
-                at += 1;
-            }
-            _ => fail!(
-                "{}",
-                crate::command::Command::Remote(crate::command::remote::Run).usage_text()
-            ),
-        }
-    }
-    let Some(what) = what else {
-        fail!(
-            "{}",
-            crate::command::Command::Remote(crate::command::remote::Run).usage_text()
-        );
+    let words = args.positional();
+    let dashes = words
+        .iter()
+        .position(|arg| arg == "--")
+        .ok_or_else(refused)?;
+    let (before, command) = (&words[..dashes], &words[dashes + 1..]);
+    let (repo, what) = match (before, args.switch("staged"), args.switch("working")) {
+        ([repo, reference], false, false) => (repo, What::Ref(reference.clone())),
+        ([repo], true, false) => (repo, What::Staged),
+        ([repo], false, true) => (repo, What::Working),
+        _ => return Err(refused()),
     };
     Ok(Request {
         repo: repo.clone(),
         what,
-        host,
+        host: args.value("host")?.map(str::to_string),
         command: command.to_vec(),
         prepare: Prepare::Yes,
     })
@@ -1350,19 +1305,13 @@ pub fn run_job_on(
 /// app-build` runs each step of a lane on a host through this, so its time
 /// limit and its takeover stop the step on the host the way they stop one
 /// here.
-pub fn cmd_step(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
-    let [name, worktree, dashes, command @ ..] = args else {
+pub fn cmd_step(tool: &Tool, ssh: &Ssh, args: &crate::args::Args) -> Result<()> {
+    let [name, worktree, _dashes, command @ ..] = args.positional() else {
         fail!(
             "{}",
             crate::command::Command::Remote(crate::command::remote::Step).usage_text()
         );
     };
-    if dashes != "--" || command.is_empty() {
-        fail!(
-            "{}",
-            crate::command::Command::Remote(crate::command::remote::Step).usage_text()
-        );
-    }
     let Some(host) = host::all(&tool.places)?
         .into_iter()
         .find(|host| host.name == *name)
@@ -1381,7 +1330,7 @@ pub fn cmd_step(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
 }
 
 /// `builds remote run`.
-pub fn cmd_run(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
+pub fn cmd_run(tool: &Tool, ssh: &Ssh, args: &crate::args::Args) -> Result<()> {
     let request = parse(args)?;
     let source = source_of(&tool.places, &request.repo, &request.what)?;
     let picked = pick_host(

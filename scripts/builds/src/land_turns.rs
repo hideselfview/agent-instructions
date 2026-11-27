@@ -4,23 +4,18 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::command::{Command, Parsed};
+use crate::command::Command;
 use crate::fail;
 use crate::fail::Result;
 use crate::land::{WORKTREE_TURN_FILE, read_holder, record_branch, record_pid};
 
 /// Returns the worktree that the command line <argv> of a running `builds
 /// land <worktree> ...` lands in. Returns None for any other command.
-pub fn requested(argv: &[String]) -> Option<&str> {
-    let words = crate::ack::agent::without_flag(argv);
-    match Command::of(words.get(1..)?)? {
-        Parsed {
-            command: Command::Land,
-            rest: [worktree, ..],
-            ..
-        } if !worktree.starts_with('-') => Some(worktree),
-        _ => None,
-    }
+pub fn requested(argv: &[String]) -> Option<String> {
+    crate::args::Args::of_process(Command::Land, argv)?
+        .positional()
+        .first()
+        .cloned()
 }
 
 /// The turn a landing waits for and the landing that holds it, as that
@@ -44,7 +39,7 @@ pub fn landing_worktree(pid: i32, argv: &[String]) -> Option<std::result::Result
     let worktree = requested(argv)?;
     Some(
         crate::procs::cwd(pid)
-            .map(|dir| dir.join(worktree))
+            .map(|dir| dir.join(&worktree))
             .ok_or_else(|| {
                 format!(
                     "builds cannot read the working directory of process {pid}, a `builds land`, so health cannot tell which worktree it lands in"

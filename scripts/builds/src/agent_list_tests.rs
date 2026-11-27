@@ -63,7 +63,17 @@ fn demo_with_item(name: &str) -> Demo {
 
 fn listed(demo: &Demo, args: &[&str]) -> String {
     let mut out = Vec::new();
-    list(&demo.tool, &words(args), &demo.scratch.dir, &mut out).unwrap();
+    list(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Agent(crate::command::agent::List),
+            &crate::lists::item_fixtures::read_words(args),
+        )
+        .unwrap(),
+        &demo.scratch.dir,
+        &mut out,
+    )
+    .unwrap();
     String::from_utf8(out).unwrap()
 }
 
@@ -127,7 +137,17 @@ fn show_prints_the_record_each_process_and_the_last_result_of_the_log() {
     )
     .unwrap();
     let mut out = Vec::new();
-    show(&demo.tool, &words(&["s1"]), &demo.scratch.dir, &mut out).unwrap();
+    show(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Agent(crate::command::agent::Show),
+            &crate::lists::item_fixtures::read_words(&["s1"]),
+        )
+        .unwrap(),
+        &demo.scratch.dir,
+        &mut out,
+    )
+    .unwrap();
     let out = String::from_utf8(out).unwrap();
     for part in [
         "agent s1: implementing of project demo, ended ",

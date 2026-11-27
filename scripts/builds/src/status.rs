@@ -523,33 +523,20 @@ fn volume_line(root: &Path) -> Result<String> {
     Ok(format!("volume: {} free of {}", fields[3], fields[1]))
 }
 
-/// Whether `builds status <args>` is the JSON listing without folder sizes,
-/// `--json --no-folders` in either order: it lists the checkouts, their app
-/// lanes and their locks, and reads no folder.
-pub fn is_folderless_json(args: &[String]) -> bool {
-    matches!(
-        args.iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .as_slice(),
-        ["--json", "--no-folders"] | ["--no-folders", "--json"]
-    )
+/// Whether <args>, the arguments of `builds status`, ask for the JSON
+/// listing without folder sizes: it lists the checkouts, their app lanes and
+/// their locks, and reads no folder.
+pub fn is_folderless_json(args: &crate::args::Args) -> bool {
+    args.switch("json") && args.switch("no-folders")
 }
 
 /// `builds status [--json [--no-folders]]`.
-pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
-    if is_folderless_json(args) {
-        return print_json(tool, false);
+pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &crate::args::Args) -> Result<()> {
+    if args.switch("json") {
+        return print_json(tool, !is_folderless_json(args));
     }
-    match args
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .as_slice()
-    {
-        [] => {}
-        ["--json"] => return print_json(tool, true),
-        _ => fail!("{}", crate::command::Command::Status.usage_text()),
+    if args.switch("no-folders") {
+        fail!("{}", crate::command::Command::Status.usage_text());
     }
     tool.places.require_volume()?;
     let repos = repos(&tool.places)?;

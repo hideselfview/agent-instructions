@@ -85,13 +85,8 @@ fn with_board_store(args: &[String], store: Option<PathBuf>) -> Vec<String> {
 
 /// `builds shots <args>` for the checker's own commands, which builds runs
 /// in this process.
-pub fn cmd_checker(places: &Places, args: &[String]) -> Result<()> {
-    if args.is_empty() {
-        fail!(
-            "{}",
-            crate::command::Command::Shots(crate::command::shots::Checker).usage_text()
-        );
-    }
+/// The words go to the checker as given: the checker reads them itself.
+pub fn cmd_checker(places: &Places, args: &crate::args::Args) -> Result<()> {
     places.require_volume()?;
     let checker = shots::Checker {
         versions: &VERSIONS,
@@ -101,7 +96,7 @@ pub fn cmd_checker(places: &Places, args: &[String]) -> Result<()> {
             volume: places.root.clone(),
         },
     };
-    let args = with_board_store(args, board_store(places)?);
+    let args = with_board_store(args.words(), board_store(places)?);
     if shots::main(&checker, &args) {
         Ok(())
     } else {

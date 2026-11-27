@@ -115,7 +115,11 @@ impl Bench {
             "--reviewer",
             &program,
         ];
-        item_words(&self.demo.tool, &crate::testing::no_ssh(), &words(&args))
+        item_words(
+            &self.demo.tool,
+            &crate::testing::no_ssh(),
+            &crate::lists::item_fixtures::read_words(&args),
+        )
     }
 
     /// `builds item check-brief` with the brief, in side worktree 1.
@@ -134,7 +138,11 @@ impl Bench {
             &program,
         ];
         args.extend_from_slice(extra);
-        item_words(&self.demo.tool, &crate::testing::no_ssh(), &words(&args))
+        item_words(
+            &self.demo.tool,
+            &crate::testing::no_ssh(),
+            &crate::lists::item_fixtures::read_words(&args),
+        )
     }
 
     fn lists(&self) -> Lists {
@@ -589,9 +597,9 @@ fn check_brief_needs_a_worktree_and_names_no_items() {
     let none = refusal(item_words(
         &b.demo.tool,
         &crate::testing::no_ssh(),
-        &words(&["check-brief", "--brief", &b.brief]),
+        &crate::lists::item_fixtures::read_words(&["check-brief", "--brief", &b.brief]),
     ));
     assert!(none.contains("needs --worktree"), "{none}");
     let item = refusal(b.check_brief(&["1"]));
-    assert!(item.contains("names no items"), "{item}");
+    assert!(item.starts_with("usage: builds item check-brief"), "{item}");
 }

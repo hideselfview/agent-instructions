@@ -474,16 +474,8 @@ fn misses(inputs: &Inputs, conn: &rusqlite::Connection) -> Result<String> {
 /// `builds review case propose --repo-dir DIR --rules-root DIR [--per-group
 /// N] [--model M]`: proposes cases from the store's landings, writes those
 /// that pass the check, and exits 1 when a check gave no answer.
-pub(super) fn propose_command(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(
-        args,
-        &["repo-dir", "rules-root", "per-group", "model", "reviewer"],
-        &[],
-    )?;
-    args.exactly(
-        0,
-        &crate::command::Command::Review(crate::command::review::CasePropose).usage_text(),
-    )?;
+pub(super) fn propose_command(tool: &crate::tool::Tool, args: &Args) -> Result<()> {
+    args.exactly(0)?;
     let Some(root) = args.value("rules-root")? else {
         fail!("name the agent-instructions worktree to write the cases in with --rules-root");
     };
@@ -494,7 +486,7 @@ pub(super) fn propose_command(tool: &crate::tool::Tool, args: &[String]) -> Resu
             .map_err(|_| crate::fail::Fail::Message(format!("'{n}' is not a number")))?,
         None => PER_GROUP,
     };
-    let store = Store::resolve(&tool.places, &args, &current_dir()?)?;
+    let store = Store::resolve(&tool.places, args, &current_dir()?)?;
     let proposed = propose(&Inputs {
         store: &store,
         project: &store.project,

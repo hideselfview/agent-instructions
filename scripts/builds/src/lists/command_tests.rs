@@ -188,7 +188,11 @@ fn add_repo_lets_a_repo_whose_work_a_project_carries_resolve_to_it() {
         project_of(&tool.places, &checkout, None).unwrap(),
         Some("bae".to_string())
     );
-    let none = Args::parse(&[], &[], &[]).unwrap();
+    let none = Args::of(
+        crate::command::Command::Item(crate::command::item::List),
+        &[],
+    )
+    .unwrap();
     assert_eq!(
         Store::resolve(&tool.places, &none, &carried)
             .unwrap()

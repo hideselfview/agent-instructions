@@ -43,14 +43,16 @@ fn every_command_is_named_by_its_words_and_its_usage_lines_start_with_them() {
 /// answers agree: a command that makes a run folder keeps the Mac awake, a
 /// command that takes no use of the stores needs no acknowledgement, and the
 /// commands that start detached on purpose or only print are each one way.
+/// The arguments of `builds <words>`.
+fn args_of(words: &[String]) -> crate::args::Args {
+    let parsed = Command::parse(words).unwrap();
+    crate::args::Args::of(parsed.command, parsed.rest).unwrap()
+}
+
 #[test]
 fn every_command_answers_each_property_and_the_answers_agree() {
     for command in Command::ALL {
-        let parsed = Parsed {
-            command: *command,
-            named: &[],
-            rest: &[] as &[String],
-        };
+        let parsed = crate::args::example(*command);
         let stores = command.stores();
         if command.makes_run_folder() {
             assert!(command.keeps_awake(), "{command:?}");
@@ -260,11 +262,7 @@ fn a_command_reads_the_project_flag_by_its_words() {
         ("queue demo", false),
     ] {
         let words = words(line);
-        assert_eq!(
-            Command::parse(&words).unwrap().reads_project(),
-            reads,
-            "{line}"
-        );
+        assert_eq!(args_of(&words).reads_project(), reads, "{line}");
     }
 }
 
@@ -287,10 +285,7 @@ fn the_acknowledgement_check_covers_every_command_but_those_that_need_none() {
     ] {
         let words = words(line);
         assert_eq!(
-            Command::parse(&words)
-                .unwrap()
-                .needs_acknowledgement()
-                .unwrap(),
+            args_of(&words).needs_acknowledgement().unwrap(),
             needs,
             "{line}"
         );

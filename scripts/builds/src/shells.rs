@@ -571,7 +571,7 @@ fn runs_a_build(argv: &[String]) -> bool {
             words.get(1..).and_then(Command::of).is_some_and(|parsed| {
                 matches!(
                     parsed.command,
-                    AppBuild | BuildApp | Cargo | Land | Checks(_)
+                    AppBuild(_) | BuildApp | Cargo | Land | Checks(_)
                 )
             })
         }

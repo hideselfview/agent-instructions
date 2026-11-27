@@ -126,7 +126,6 @@ use crate::app_timing::{
 use crate::cargo_run::APP_BUILD_PROJECT_VARIABLE;
 use crate::checkout::Checkout;
 use crate::claim::Claim;
-use crate::command::Parsed;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::host::{Refused, Ssh};
@@ -290,20 +289,6 @@ pub fn all_shots(lane: Lane) -> Pick {
     Pick::Shots(lane, shots::Prefix::all_of(&lane.app()))
 }
 
-/// The pick of the `--all-shots <lane>` flag whose words after the flag are
-/// <after>, and the words after the lane; fails naming <usage> when no lane
-/// follows.
-pub fn all_shots_flag<'a>(
-    after: &'a [String],
-    usage: &str,
-    lanes: &[Lane],
-) -> Result<(Pick, &'a [String])> {
-    let [lane, rest @ ..] = after else {
-        fail!("{ALL_SHOTS} needs an app\n{usage}");
-    };
-    Ok((all_shots(Lane::parse_in_or_fail(lanes, lane)?), rest))
-}
-
 /// The command-line words that ask for <pick> in a lane's process, or in a
 /// request that names steps: `--all-shots <lane>` for a lane's full set of
 /// shots, else the kind's flag, the lane and the argument.
@@ -324,35 +309,28 @@ pub fn pick_kind_of(name: &str) -> Option<PickKind> {
         .find(|kind| name.starts_with(kind.step_prefix()))
 }
 
-/// <args> (the steps, then `--test` and `--shots` flags, each with a lane and
-/// an argument, and `--all-shots` flags, each with a lane) as the step names
-/// and the flags.
-pub fn split_picks(args: &[String], lanes: &[Lane]) -> Result<(Vec<String>, Vec<Pick>)> {
-    let is_flag =
-        |arg: &String| arg == ALL_SHOTS || PickKind::ALL.iter().any(|kind| arg == kind.flag());
-    let at = args.iter().position(is_flag).unwrap_or(args.len());
-    let (names, mut flags) = (args[..at].to_vec(), &args[at..]);
+/// The picks of <args>, each `--test <lane> <Class>`, `--shots <lane>
+/// <prefix>` and `--all-shots <lane>` in the order given, for the lanes
+/// <lanes>.
+pub fn picks_of(args: &crate::args::Args, lanes: &[Lane]) -> Result<Vec<Pick>> {
     let mut picks = Vec::new();
-    while let Some((flag, rest)) = flags.split_first() {
+    for (flag, values) in args.given_flags() {
         if flag == ALL_SHOTS {
-            let (pick, after) =
-                all_shots_flag(rest, &crate::command::Command::AppBuild.usage_text(), lanes)?;
-            picks.push(pick);
-            flags = after;
+            let [lane] = values else {
+                fail!("{ALL_SHOTS} takes one app\n{}", args.command().usage_text());
+            };
+            picks.push(all_shots(Lane::parse_in_or_fail(lanes, lane)?));
             continue;
         }
         let Some(kind) = PickKind::ALL.into_iter().find(|kind| flag == kind.flag()) else {
-            fail!(
-                "{flag:?} where --test, --shots or {ALL_SHOTS} goes\n{usage}",
-                usage = crate::command::Command::AppBuild.usage_text()
-            );
+            continue;
         };
-        let [lane, arg, after @ ..] = rest else {
+        let [lane, arg] = values else {
             fail!(
-                "{} needs a lane and a {}\n{usage}",
+                "{} needs a lane and a {}\n{}",
                 kind.flag(),
                 kind.what(),
-                usage = crate::command::Command::AppBuild.usage_text(),
+                args.command().usage_text()
             );
         };
         if arg.is_empty() || arg.starts_with('-') || arg.contains(char::is_whitespace) {
@@ -364,9 +342,8 @@ pub fn split_picks(args: &[String], lanes: &[Lane]) -> Result<(Vec<String>, Vec<
         }
         let lane = Lane::parse_in_or_fail(lanes, lane)?;
         picks.push(Pick::from_flag(lane, kind, arg)?);
-        flags = after;
     }
-    Ok((names, picks))
+    Ok(picks)
 }
 
 /// The refusal for a pick of a kind whose line <config> lacks in <lane>.
@@ -2969,63 +2946,52 @@ pub fn run_lanes(
     }
 }
 
+/// The arguments of <argv>, the command line of a process, when it runs
+/// `builds app-build` (`Build`).
+fn build_args(argv: &[String]) -> Option<crate::args::Args> {
+    crate::args::Args::of_process(
+        crate::command::Command::AppBuild(crate::command::app_build::Build),
+        argv,
+    )
+}
+
 /// Returns the commit from the command line <argv> of a lane's process,
 /// `builds app-build <repo> --lane <lane> <commit> ...`, which a request
 /// starts for each lane (`run_lanes`) and which waits in that lane's queue.
 /// Returns None for any other command.
-pub fn lane_requested(argv: &[String]) -> Option<&str> {
-    let words = crate::ack::agent::without_flag(argv);
-    match crate::command::Command::of(words.get(1..)?)? {
-        Parsed {
-            command: crate::command::Command::AppBuild,
-            rest: [_repo, "--lane", _lane, commit, ..],
-            ..
-        } if !commit.starts_with('-') => Some(commit),
-        _ => None,
-    }
+pub fn lane_requested(argv: &[String]) -> Option<String> {
+    let args = build_args(argv)?;
+    args.value("lane").ok()??;
+    let [_repo, commit, ..] = args.positional() else {
+        return None;
+    };
+    Some(commit.clone())
 }
 
 /// Returns the repo and the ref (the branch or commit to build) from the
 /// command line <argv> of a running `builds app-build <repo> <ref> ...`
 /// request. Returns None for any other command, for `--list`, and for a
 /// lane's process (`--lane`), which the request starts and waits for.
-pub fn requested(argv: &[String]) -> Option<(&str, &str)> {
-    let words = crate::ack::agent::without_flag(argv);
-    match crate::command::Command::of(words.get(1..)?)? {
-        Parsed {
-            command: crate::command::Command::AppBuild,
-            rest: [repo, reference, ..],
-            ..
-        } if !repo.starts_with('-') && !reference.starts_with('-') => Some((repo, reference)),
-        _ => None,
+pub fn requested(argv: &[String]) -> Option<(String, String)> {
+    let args = build_args(argv)?;
+    if args.switch("list") || args.switch("lane") {
+        return None;
     }
+    let [repo, reference, ..] = args.positional() else {
+        return None;
+    };
+    Some((repo.clone(), reference.clone()))
 }
 
 /// `builds app-build`. The floor of <tool>'s rules is the free-disk floor a
 /// host keeps when a lane adds a checkout there (lane_size.rs).
-pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn cmd_app_build(tool: &Tool, args: &crate::args::Args) -> Result<()> {
     let places = &tool.places;
-    if let [flag, rest @ ..] = args
-        && flag == crate::app_landing::FLAG
-    {
-        return crate::app_landing::cmd_landing_coverage(places, rest);
-    }
-    if let [flag, rest @ ..] = args
-        && flag == crate::app_shots_drop::FLAG
-    {
-        return crate::app_shots_drop::cmd_drop_shots(tool, rest);
-    }
-    if let [flag, rest @ ..] = args
-        && flag == crate::handed_runs::FLAG
-    {
-        return crate::handed_runs::cmd_record_handed(places, rest);
-    }
-    let [repo, rest @ ..] = args else {
-        fail!("{}", crate::command::Command::AppBuild.usage_text());
+    let usage = || crate::fail::Fail::Message(args.command().usage_text());
+    let [repo, rest @ ..] = args.positional() else {
+        return Err(usage());
     };
-    if let [flag] = rest
-        && flag == "--list"
-    {
+    if args.switch("list") {
         let top = local_source(places, repo)?;
         let file = top.join(CONFIG);
         let text =
@@ -3057,22 +3023,12 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         }
         return Ok(());
     }
-    if let [flag, word, commit, names @ ..] = rest
-        && flag == "--lane"
-        && !commit.starts_with('-')
-    {
-        let [built_ref_flag, named, names @ ..] = names else {
-            fail!("{}", crate::command::Command::AppBuild.usage_text());
-        };
-        if built_ref_flag != BUILT_REF {
-            fail!("{}", crate::command::Command::AppBuild.usage_text());
-        }
-        let (flag, names) = match names.split_first() {
-            Some((first, [project, rest @ ..])) if first == PROJECT => {
-                (Some(project.as_str()), rest)
-            }
-            _ => (None, names),
-        };
+    let [commit, names @ ..] = rest else {
+        return Err(usage());
+    };
+    let flag = args.value("project")?;
+    if let Some(word) = args.value("lane")? {
+        let named = args.require("built-ref")?;
         // The request that started the lane chose the project, and a claim
         // that changed while the lane queued does not change it. A lane run
         // by hand chooses it as a request does.
@@ -3080,10 +3036,8 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
             Some(_) => crate::lists::store::project_named(places, repo, flag)?,
             None => crate::app_timing::recording_project(places, repo, named, None)?,
         };
-        let (needs_only, names) = strip_leading(names, NEEDS_ONLY);
-        let (fresh, names) = strip_leading(names, FRESH);
         let lanes = config_at(places, repo, commit)?.lanes;
-        let (names, mut picks) = split_picks(names, &lanes)?;
+        let mut picks = picks_of(args, &lanes)?;
         let lane = Lane::parse_in_or_fail(&lanes, word)?;
         if !picks.is_empty() {
             picks.retain(|pick| pick.lane() == lane);
@@ -3115,11 +3069,11 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
                 named,
                 project: project.as_deref(),
             },
-            names: &names,
+            names,
             picks: &picks,
             reused_shots: &reused_shots,
-            needs_only,
-            fresh,
+            needs_only: args.switch("needs-only"),
+            fresh: args.switch("fresh"),
         };
         return match run_lane(tool, repo, lane, request, &pinned) {
             Err(Fail::Exit(code)) => {
@@ -3132,30 +3086,15 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
             other => other,
         };
     }
-    let [commit, tail @ ..] = rest else {
-        fail!("{}", crate::command::Command::AppBuild.usage_text());
-    };
-    if commit.starts_with('-') {
-        fail!("{}", crate::command::Command::AppBuild.usage_text());
-    }
-    let (flag, tail) =
-        crate::project_flag::take(tail, &crate::command::Command::AppBuild.usage_text())?;
     // Before anything builds, so that a build with nowhere to record fails
     // at once.
     let project = crate::app_timing::recording_project(places, repo, commit, flag)?;
-    if tail.first().is_none_or(|arg| arg.starts_with("--")) {
+    if names.is_empty() {
         // No step named: the diff chooses them (derive.rs).
-        let args: Vec<String> = [repo, commit].into_iter().cloned().chain(tail).collect();
-        return crate::derive::derive_and_run(places, &args, project.as_deref());
+        return crate::derive::derive_and_run(places, args, project.as_deref());
     }
-    let fresh = tail.iter().any(|arg| arg == "--fresh");
-    let tail: Vec<String> = tail
-        .iter()
-        .filter(|arg| *arg != "--fresh")
-        .cloned()
-        .collect();
-    let (names, picks) = split_picks(&tail, &config_at(places, repo, commit)?.lanes)?;
-    let plan = explicit_plan(places, repo, commit, &names, picks)?;
+    let picks = picks_of(args, &config_at(places, repo, commit)?.lanes)?;
+    let plan = explicit_plan(places, repo, commit, names, picks)?;
     let pinned = pin(places)?;
     run_lanes(
         &pinned,
@@ -3168,7 +3107,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         &plan.lanes,
         &BuildPicks::pending(plan.picks),
         &[],
-        fresh,
+        args.switch("fresh"),
     )
 }
 
@@ -3220,14 +3159,6 @@ fn explicit_plan(
         lanes,
         picks,
     })
-}
-
-/// Whether <names> start with the flag <flag>, and <names> without it.
-fn strip_leading<'a>(names: &'a [String], flag: &str) -> (bool, &'a [String]) {
-    match names.split_first() {
-        Some((first, rest)) if first == flag => (true, rest),
-        _ => (false, names),
-    }
 }
 
 #[cfg(test)]

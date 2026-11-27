@@ -612,9 +612,24 @@ fn the_hook_worktree_is_none_for_a_range_run() {
         .iter()
         .map(|arg| arg.to_string())
         .collect();
-    assert_eq!(run_worktree(&args), None);
+    assert_eq!(
+        run_worktree(
+            &crate::args::Args::of(
+                crate::command::Command::Checks(crate::command::checks::Run),
+                &args
+            )
+            .unwrap()
+        ),
+        None
+    );
     let args: Vec<String> = ["--since"].iter().map(|a| a.to_string()).collect();
-    assert_eq!(run_worktree(&args), None);
+    assert!(
+        crate::args::Args::of(
+            crate::command::Command::Checks(crate::command::checks::Run),
+            &args
+        )
+        .is_err()
+    );
 }
 
 #[test]

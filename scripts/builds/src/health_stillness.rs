@@ -629,7 +629,7 @@ fn command_kind(row: &Row) -> Option<&'static str> {
     let parsed = Command::of(&words)?;
     let command = parsed.command;
     match command {
-        AppBuild | BuildApp | Lock => Some("app build"),
+        AppBuild(_) | BuildApp | Lock => Some("app build"),
         Land => Some("landing"),
         Install => Some("install"),
         Review(review::Wait) => Some("review wait"),
@@ -819,6 +819,8 @@ fn review_wait(places: &Places, pid: i32) -> std::result::Result<Option<Key>, St
     let cwd = crate::procs::cwd(pid)
         .ok_or_else(|| format!("process {pid} has no readable working directory"))?;
     let args: Vec<_> = args.iter().map(|word| (*word).to_string()).collect();
+    let args = crate::args::Args::of(Command::Review(crate::command::review::Wait), &args)
+        .map_err(Fail::text)?;
     let (store, id) = crate::review::wait_target(places, &args, &cwd).map_err(Fail::text)?;
     Ok(Some(Key::Review(store.project, id)))
 }

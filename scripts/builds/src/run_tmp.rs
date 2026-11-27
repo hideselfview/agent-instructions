@@ -270,7 +270,12 @@ impl crate::command::Command {
         match self {
             Cargo
             | Lake
-            | AppBuild
+            | AppBuild(
+                app_build::Build
+                | app_build::LandingCoverage
+                | app_build::DropShots
+                | app_build::RecordHanded,
+            )
             | BuildApp
             | Lock
             | Remote(remote::Run | remote::Step)

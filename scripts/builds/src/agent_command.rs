@@ -254,8 +254,7 @@ fn record_process<T>(
 
 /// `builds agent run`, printing to <out>.
 /// `builds agent run`.
-pub fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<()> {
-    let args = Args::parse(args, &["role", "brief", "message-file"], &[])?;
+pub fn run(tool: &Tool, args: &Args, cwd: &Path, out: &mut dyn Write) -> Result<()> {
     let word = args.require("role")?;
     let Some(role) = AgentRole::from_word(word) else {
         fail!("--role takes implementing or planner, not {word:?}");
@@ -265,10 +264,10 @@ pub fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Res
         .iter()
         .map(|text| Id::parse(text))
         .collect::<Result<Vec<_>>>()?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     let lists = store.load()?;
     let plan = plan(&lists, role, &ids, args.value("brief")?)?;
-    let started_by = resolve_by(&args, cwd)?;
+    let started_by = resolve_by(args, cwd)?;
     let file = project_file::load(&tool.reviewer.rules_root, &lists.project)?;
     let repos = store.repos()?;
     let brief_path = find_brief(&tool.places, &repos, &plan.brief)?;
@@ -502,13 +501,8 @@ fn join(
 
 /// `builds agent resume`, printing to <out>.
 /// `builds agent resume`.
-pub fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<()> {
-    let args = Args::parse(args, &["item", "message-file"], &[])?;
-    let [session] = args.exactly(
-        1,
-        &crate::command::Command::Agent(crate::command::agent::Resume).usage_text(),
-    )?
-    else {
+pub fn resume(tool: &Tool, args: &Args, cwd: &Path, out: &mut dyn Write) -> Result<()> {
+    let [session] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let ids = args
@@ -523,7 +517,7 @@ pub fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> 
             usage = crate::command::Command::Agent(crate::command::agent::Resume).usage_text(),
         );
     }
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     let lists = store.load()?;
     let agents = {
         let conn = db::open(&store.database(), db::Make::Never)?;

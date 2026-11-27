@@ -16,7 +16,7 @@ use crate::lists::{Id, Stamp, item};
 use crate::output::note;
 use crate::tool::Tool;
 
-pub fn cmd_area(tool: &Tool, command: Subcommand, args: &[String]) -> Result<()> {
+pub fn cmd_area(tool: &Tool, command: Subcommand, args: &Args) -> Result<()> {
     let cwd = current_dir()?;
     match command {
         Subcommand::Add => add(tool, args, &cwd),
@@ -154,17 +154,12 @@ pub fn plant(
     crate::db::plant_row(db, &TABLES, "area", columns)
 }
 
-fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["after"], &[])?;
-    let [name] = args.exactly(
-        1,
-        &crate::command::Command::Area(crate::command::area::Add).usage_text(),
-    )?
-    else {
+fn add(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let [name] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("area add {name}"), |db| {
         add_area(db, name, args.value("after")?)
     })?;
@@ -172,17 +167,12 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-fn rename(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
-    let [old, new] = args.exactly(
-        2,
-        &crate::command::Command::Area(crate::command::area::Rename).usage_text(),
-    )?
-    else {
+fn rename(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let [old, new] = args.exactly(2)? else {
         unreachable!("exactly two")
     };
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("area rename {old}"), |db| {
         rename_area(db, old, new)
     })?;
@@ -190,21 +180,16 @@ fn rename(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-fn move_after(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["after"], &[])?;
-    let [name] = args.exactly(
-        1,
-        &crate::command::Command::Area(crate::command::area::Move).usage_text(),
-    )?
-    else {
+fn move_after(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let [name] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let after = args.require("after")?;
     if after == name {
         fail!("area '{name}' cannot move after itself");
     }
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("area move {name}"), |db| {
         move_area(db, name, after)
     })?;
@@ -212,17 +197,12 @@ fn move_after(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-fn remove(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
-    let [name] = args.exactly(
-        1,
-        &crate::command::Command::Area(crate::command::area::Remove).usage_text(),
-    )?
-    else {
+fn remove(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let [name] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("area remove {name}"), |db| {
         remove_area(db, name)
     })?;

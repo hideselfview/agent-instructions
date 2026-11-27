@@ -9,9 +9,8 @@ use crate::fail::{Context, Result};
 use crate::lists::check::project_name_fault;
 use crate::review::rules;
 
-pub fn cmd_brief(root: &Path, args: &[String]) -> Result<()> {
-    let args = Args::parse_only(args, &["project"])?;
-    let paths = paths(&args)?;
+pub fn cmd_brief(root: &Path, args: &Args) -> Result<()> {
+    let paths = paths(args)?;
     let project = args.value("project")?;
     if let Some(fault) = project.and_then(project_name_fault) {
         fail!("{fault}");
@@ -64,10 +63,14 @@ mod tests {
 
     #[test]
     fn the_brief_rejects_the_by_flag() {
-        let scratch = crate::testing::Scratch::new("brief-flags");
         let args = ["--by".into(), "agent".into(), "src/main.rs".into()];
-        let error = cmd_brief(&scratch.dir, &args).unwrap_err().text();
-        assert_eq!(error, "unknown flag --by; this command takes --project");
+        let error = crate::args::Args::of(crate::command::Command::Brief, &args)
+            .unwrap_err()
+            .text();
+        assert!(
+            error.starts_with("builds brief has no flag --by. Its flags are --project."),
+            "{error}"
+        );
     }
 
     #[test]

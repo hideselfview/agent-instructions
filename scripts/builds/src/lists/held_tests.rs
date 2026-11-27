@@ -43,12 +43,16 @@ fn start(
 fn held(demo: &Demo, top: &std::path::Path) -> Result<()> {
     cmd_note(
         &demo.tool.places,
-        &args(&[
-            &top.display().to_string(),
-            "--state",
-            "held",
-            "waits on the lock",
-        ]),
+        &crate::args::Args::of(
+            crate::command::Command::Note,
+            &args(&[
+                &top.display().to_string(),
+                "--state",
+                "held",
+                "waits on the lock",
+            ]),
+        )
+        .unwrap(),
         NOON,
     )
 }
@@ -138,12 +142,16 @@ fn other_states_need_no_wait() {
     let top = demo.add_side(1, "agent", "work");
     cmd_note(
         &demo.tool.places,
-        &args(&[
-            &top.display().to_string(),
-            "--state",
-            "winding-down",
-            "last item",
-        ]),
+        &crate::args::Args::of(
+            crate::command::Command::Note,
+            &args(&[
+                &top.display().to_string(),
+                "--state",
+                "winding-down",
+                "last item",
+            ]),
+        )
+        .unwrap(),
         NOON,
     )
     .unwrap();
@@ -163,7 +171,12 @@ fn noting_a_worktree_held_and_then_not_held_keeps_a_held_span_on_its_items() {
     ] {
         let mut note = vec![top_arg.as_str()];
         note.extend(words);
-        cmd_note(&demo.tool.places, &args(&note), at).unwrap();
+        cmd_note(
+            &demo.tool.places,
+            &crate::args::Args::of(crate::command::Command::Note, &args(&note)).unwrap(),
+            at,
+        )
+        .unwrap();
     }
     assert_eq!(
         demo.store.load().unwrap().items[0].spans,

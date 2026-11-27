@@ -26,8 +26,8 @@ command -v builds >/dev/null 2>&1 || {
 exec builds checks run
 ";
 
-pub fn cmd_install_hook(args: &[String]) -> Result<()> {
-    let [repo] = args else {
+pub fn cmd_install_hook(args: &crate::args::Args) -> Result<()> {
+    let [repo] = args.positional() else {
         fail!("{}", crate::command::Command::InstallHook.usage_text())
     };
     let path = install(Path::new(repo))?;

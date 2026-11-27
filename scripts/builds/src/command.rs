@@ -95,6 +95,7 @@ declare! {
             "builds help workflow",
             "builds help lists",
             "builds help briefs",
+            "builds help [workflow|lists|briefs] [SECTION...]",
         ];
         Ack => [["ack"]], [
             "builds ack [--agent ID] [--project P] [--role ROLE]...",
@@ -112,7 +113,7 @@ declare! {
         ];
         Claim => [["claim"]], ["builds claim <checkout> <who> [--project P]"];
         Note => [["note"]], [
-            "builds note <checkout> [--state waiting-on-you|winding-down|held] [<text>]",
+            "builds note <checkout> [--state waiting-on-you|winding-down|held] [<text>...]",
         ];
         Release => [["release"]], ["builds release <checkout>"];
         Retire => [["retire"]], ["builds retire <checkout>"];
@@ -120,19 +121,6 @@ declare! {
             "builds cargo <subcommand> [<args>...]",
             "builds cargo update (-p <package>... | -w) [<args>...]",
             "builds cargo tree|metadata|locate-project|pkgid|verify-project [<args>...]",
-        ];
-        AppBuild => [["app-build"]], [
-            "builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... \
-             [--design-shots] [--all-shots <app>]... [--fresh] [--project P]",
-            "builds app-build <repo> <ref> <step>... [--test <app> <Class>]... [--shots <app> \
-             <prefix>]... [--all-shots <app>]... [--fresh] [--project P]",
-            "builds app-build <repo> --lane <app> <ref> [<step>...] [--test <lane> <Class>]... \
-             [--shots <lane> <prefix>]... [--all-shots <lane>]...",
-            "builds app-build <repo> --list",
-            "builds app-build --landing-coverage <worktree> <branch> <ref> [<own commit>...]",
-            "builds app-build --drop-shots <repo> <branch> <lane> <prefix> --why TEXT [--by WHO] \
-             [--project P]",
-            "builds app-build --record-handed <repo> <store> [<project>]",
         ];
         BuildApp => [["build-app"]], ["builds build-app <repo> <app> [<ref>]"];
         Lock => [["lock"]], ["builds lock <repo> --lane <app> <command> [<args>...]"];
@@ -170,10 +158,34 @@ declare! {
                  [--message-file F] [--project P] [--by WHO]",
             ];
             Resume => [["agent", "resume"]], [
-                "builds agent resume SESSION [--item N]... [--message-file F] [--project P]",
+                "builds agent resume SESSION [--item N]... [--message-file F] [--project P] [--by WHO]",
             ];
             List => [["agent", "list"]], ["builds agent list [--running] [--project P]"];
             Show => [["agent", "show"]], ["builds agent show SESSION [--project P]"];
+        }
+        AppBuild(app_build::AppBuild) {
+            /// A build of a ref, the process of one of its lanes, or the list
+            /// of a repo's steps.
+            Build => [["app-build"]], [
+                "builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... \
+                 [--design-shots] [--all-shots <app>]... [--fresh] [--project P]",
+                "builds app-build <repo> <ref> <step>... [--test <app> <Class>]... [--shots <app> \
+                 <prefix>]... [--all-shots <app>]... [--fresh] [--project P]",
+                "builds app-build <repo> --lane <app> <ref> --built-ref <name> [--project P] \
+                 [--needs-only] [--fresh] [<step>...] [--test <lane> <Class>]... [--shots <lane> \
+                 <prefix>]... [--all-shots <lane>]...",
+                "builds app-build <repo> --list",
+            ];
+            LandingCoverage => [["app-build", "--landing-coverage"]], [
+                "builds app-build --landing-coverage <worktree> <branch> <ref> [<own commit>...]",
+            ];
+            DropShots => [["app-build", "--drop-shots"]], [
+                "builds app-build --drop-shots <repo> <branch> <lane> <prefix> --why TEXT [--by WHO] \
+                 [--project P]",
+            ];
+            RecordHanded => [["app-build", "--record-handed"]], [
+                "builds app-build --record-handed <repo> <store> [<project>]",
+            ];
         }
         Shots(shots::Shots) {
             Findings => [["shots", "findings"]], [
@@ -192,8 +204,8 @@ declare! {
                 "builds shots harness mac --into <folder>",
                 "builds shots harness android --into <folder>",
                 "builds shots \
-                 run|scenes|capture|check|lint|runtime|chrome|components|states|version \
-                 [<argument>...]",
+                 run|scenes|capture|check|lint|runtime|chrome|components|states|version|recheck \
+                 [<args>...]",
             ];
         }
         AppCheckout(app_checkout::AppCheckout) {
@@ -269,21 +281,21 @@ declare! {
             Run => [["review"], ["review", "run"]], [
                 "builds review [run] <worktree> [<base>] --kind code|mechanical [--checked-by \
                  TEXT] [--landing <key>] [--item N]... [--head SHA] [--rules-root DIR] \
-                 [--reviewer PROGRAM]",
+                 [--reviewer PROGRAM] [--by WHO]",
             ];
             Copy => [["review", "copy"]], [
-                "builds review copy <worktree> [<base>] [--rules-root DIR] [--reviewer PROGRAM]",
+                "builds review copy <worktree> [<base>] [--rules-root DIR] [--reviewer PROGRAM] [--by WHO]",
             ];
             Settle => [["review", "settle"]], [
-                "builds review settle <finding> confirmed|dropped --why <text>",
-                "builds review settle <finding> --again --why <text>",
-                "builds review settle <finding> allowed --by-person --why <text>",
+                "builds review settle <finding> confirmed|dropped --why <text> [--by WHO]",
+                "builds review settle <finding> --again --why <text> [--by WHO]",
+                "builds review settle <finding> allowed --by-person --why <text> [--by WHO]",
             ];
             Wait => [["review", "wait"]], ["builds review wait <landing>"];
-            Dispute => [["review", "dispute"]], ["builds review dispute <finding> --why <text>"];
+            Dispute => [["review", "dispute"]], ["builds review dispute <finding> --why <text> [--by WHO]"];
             Keep => [["review", "keep"]], [
-                "builds review keep <finding> --why <text>",
-                "builds review keep <finding> --again --why <text>",
+                "builds review keep <finding> --why <text> [--by WHO]",
+                "builds review keep <finding> --again --why <text> [--by WHO]",
             ];
             Show => [["review", "show"]], ["builds review show <landing>"];
             Key => [["review", "key"]], ["builds review key <worktree> --project P"];
@@ -293,20 +305,20 @@ declare! {
             ];
             Landed => [["review", "landed"]], [
                 "builds review landed <worktree> --project P <sha>... [--landing KEY] \
-                 [--more-to-land] [--rules-root DIR]",
+                 [--more-to-land] [--rules-root DIR] [--by WHO]",
             ];
             Groups => [["review", "groups"]], [
                 "builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]",
             ];
             Replay => [["review", "replay"]], [
                 "builds review replay [--case NAME]... [--source REPO] [--model <model>] \
-                 [--rules-root DIR] [--compare] [--reviewer PROGRAM]",
+                 [--rules-root DIR] [--compare] [--reviewer PROGRAM] [--by WHO]",
                 "builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model \
-                 <model>] [--rules-root DIR] [--reviewer PROGRAM]",
+                 <model>] [--rules-root DIR] [--reviewer PROGRAM] [--by WHO]",
             ];
             Audit => [["review", "audit"]], [
                 "builds review audit <landing> --repo-dir DIR [--rules-root DIR] [--reviewer \
-                 PROGRAM]",
+                 PROGRAM] [--seed N] [--by WHO]",
             ];
             Misses => [["review", "misses"]], [
                 "builds review misses",
@@ -322,8 +334,8 @@ declare! {
             CaseAdd => [["review", "case", "add"]], [
                 "builds review case add <landing> <finding> --repo-dir DIR --rules-root DIR \
                  [--name NAME]",
-                "builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P \
-                 --name NAME --repo-dir DIR --rules-root DIR",
+                "builds review case add (--rule SLUG --file PATH | --clean-for SLUG) --commits \
+                 BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR",
             ];
         }
         Judge(judge::Judge) {
@@ -333,19 +345,19 @@ declare! {
             Ask => [["question", "ask"]], [
                 "builds question ask --title T --kind question|your-step --effect E \
                  --details-file F (--blocks N[,N] | --blocks-nothing WHY) [--from-item N | \
-                 --origin N] [--first WHY] [--plan PATH --plan-number Qn] [--tag T]...",
+                 --origin N] [--first WHY] [--plan PATH --plan-number Qn] [--tag T]... [--by WHO]",
             ];
-            Answer => [["question", "answer"]], ["builds question answer N --request F"];
-            Settle => [["question", "settle"]], ["builds question settle N --request F"];
-            Done => [["question", "done"]], ["builds question done N --request F"];
-            Drop => [["question", "drop"]], ["builds question drop N --why WHY"];
+            Answer => [["question", "answer"]], ["builds question answer N --request F [--by WHO]"];
+            Settle => [["question", "settle"]], ["builds question settle N --request F [--by WHO]"];
+            Done => [["question", "done"]], ["builds question done N --request F [--by WHO]"];
+            Drop => [["question", "drop"]], ["builds question drop N --why WHY [--by WHO]"];
             Place => [["question", "place"]], [
                 "builds question place N (first|last|auto | --above M | --below M) --why WHY \
-                 [--by-person]",
+                 [--by-person] [--by WHO]",
             ];
             Edit => [["question", "edit"]], [
                 "builds question edit N [--title T] [--details-file F] [--effect E] \
-                 [--blocks-nothing WHY] [--origin N] [--tag T]... [--untag T]...",
+                 [--blocks-nothing WHY] [--origin N] [--tag T]... [--untag T]... [--by WHO]",
             ];
             Show => [["question", "show"]], ["builds question show N"];
             List => [["question", "list"]], ["builds question list [--tag T]"];
@@ -354,39 +366,40 @@ declare! {
             Add => [["item", "add"]], [
                 "builds item add --title T --area A --details-file F [--for design-session] \
                  [--wait REF [--until ENDER]]... [--brief P] [--backlog WHY] [--priority \
-                 first|last --why WHY] [--origin N] [--tag T]...",
+                 first|last --why WHY] [--origin N] [--tag T]... [--by WHO]",
             ];
             Edit => [["item", "edit"]], [
                 "builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for \
-                 F] [--origin N] [--tag T]... [--untag T]...",
+                 F] [--origin N] [--tag T]... [--untag T]... [--by WHO]",
             ];
-            Note => [["item", "note"]], ["builds item note N TEXT"];
-            Changes => [["item", "changes"]], ["builds item changes N"];
+            Note => [["item", "note"]], ["builds item note N TEXT... [--by WHO]"];
+            Changes => [["item", "changes"]], ["builds item changes N [--by WHO]"];
             Wait => [["item", "wait"]], [
-                "builds item wait N --on REF [--until ENDER] | --off REF [--blocks-nothing WHY]",
+                "builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY]) \
+                 [--by WHO]",
             ];
-            Backlog => [["item", "backlog"]], ["builds item backlog N [M...] --why WHY"];
-            Start => [["item", "start"]], ["builds item start N [M...] --said WORDS"];
+            Backlog => [["item", "backlog"]], ["builds item backlog N [M...] --why WHY [--by WHO]"];
+            Start => [["item", "start"]], ["builds item start N [M...] --said WORDS [--by WHO]"];
             Take => [["item", "take"]], [
                 "builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2] | \
                  --repo R --branch B [--repo R2 --branch B2]] --brief P [--as design-session] \
                  [--tier implementation|strongest] [--held WHY] [--rules-root DIR] [--reviewer \
-                 PROGRAM]",
+                 PROGRAM] [--by WHO]",
             ];
             CheckBrief => [["item", "check-brief"]], [
                 "builds item check-brief --worktree W [--worktree W2] --brief P [--rules-root \
                  DIR] [--reviewer PROGRAM]",
             ];
-            Handoff => [["item", "handoff"]], ["builds item handoff N --brief P"];
-            Stop => [["item", "stop"]], ["builds item stop N --why WHY"];
-            Finished => [["item", "finished"]], ["builds item finished N --made WHAT"];
-            Drop => [["item", "drop"]], ["builds item drop N --why WHY"];
-            Place => [["item", "place"]], ["builds item place N first|last|none --why WHY"];
+            Handoff => [["item", "handoff"]], ["builds item handoff N --brief P [--by WHO]"];
+            Stop => [["item", "stop"]], ["builds item stop N --why WHY [--by WHO]"];
+            Finished => [["item", "finished"]], ["builds item finished N --made WHAT [--by WHO]"];
+            Drop => [["item", "drop"]], ["builds item drop N --why WHY [--by WHO]"];
+            Place => [["item", "place"]], ["builds item place N first|last|none --why WHY [--by WHO]"];
             CheckLanding => [["item", "check-landing"]], [
                 "builds item check-landing DIR [--done N]... [--part N]... SHA...",
             ];
             Landed => [["item", "landed"]], [
-                "builds item landed DIR [--done N]... [--part N]... SHA...",
+                "builds item landed DIR [--done N]... [--part N]... SHA... [--by WHO]",
             ];
             Show => [["item", "show"]], ["builds item show N"];
             List => [["item", "list"]], [
@@ -395,10 +408,10 @@ declare! {
             Times => [["item", "times"]], ["builds item times [N...]"];
         }
         Area(area::Area) {
-            Add => [["area", "add"]], ["builds area add NAME [--after AREA]"];
-            Rename => [["area", "rename"]], ["builds area rename OLD NEW"];
-            Move => [["area", "move"]], ["builds area move NAME --after AREA"];
-            Remove => [["area", "remove"]], ["builds area remove NAME"];
+            Add => [["area", "add"]], ["builds area add NAME [--after AREA] [--by WHO]"];
+            Rename => [["area", "rename"]], ["builds area rename OLD NEW [--by WHO]"];
+            Move => [["area", "move"]], ["builds area move NAME --after AREA [--by WHO]"];
+            Remove => [["area", "remove"]], ["builds area remove NAME [--by WHO]"];
         }
         Decision(decision::Decision) {
             Add => [["decision", "add"]], ["builds decision add --request FILE [--by WHO]"];
@@ -414,13 +427,13 @@ declare! {
         Design(design::Design) {
             Places => [["design", "places"]], ["builds design places DIR REV..."];
             Only => [["design", "only"]], ["builds design only DIR REV..."];
-            Record => [["design", "record"]], ["builds design record --request FILE"];
-            Amend => [["design", "amend"]], ["builds design amend N --request FILE"];
-            Approve => [["design", "approve"]], ["builds design approve N"];
+            Record => [["design", "record"]], ["builds design record --request FILE [--by WHO]"];
+            Amend => [["design", "amend"]], ["builds design amend N --request FILE [--by WHO]"];
+            Approve => [["design", "approve"]], ["builds design approve N [--by WHO]"];
             Check => [["design", "check"]], ["builds design check N[,N...] DIR REV..."];
-            Landed => [["design", "landed"]], ["builds design landed N DIR SHA..."];
+            Landed => [["design", "landed"]], ["builds design landed N DIR SHA... [--by WHO]"];
             Title => [["design", "title"]], ["builds design title N"];
-            Drop => [["design", "drop"]], ["builds design drop N --why WHY"];
+            Drop => [["design", "drop"]], ["builds design drop N --why WHY [--by WHO]"];
             Show => [["design", "show"]], ["builds design show N"];
             List => [["design", "list"]], ["builds design list"];
             Render => [["design", "render"]], [
@@ -438,7 +451,7 @@ declare! {
                 "builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) \
                  --by WHO [--uploaded FILE]]",
             ];
-            Listen => [["design", "listen"]], ["builds design listen --project P"];
+            Listen => [["design", "listen"]], ["builds design listen --project P [--by WHO]"];
             PublishTake => [["design", "publish", "take"]], [
                 "builds design publish take N [--project P] [--by WHO]",
             ];
@@ -566,15 +579,18 @@ impl Command {
     }
 }
 
-/// `builds <group> <words>` read into its command and the words after it,
-/// for a test that runs a command of <group> by its words.
+/// `builds <group> <words>` read into its command and its arguments, for a
+/// test that runs a command of <group> by its words.
 #[cfg(test)]
-pub fn parse_line(group: &str, words: &[String]) -> Result<(Command, Vec<String>)> {
+pub fn parse_line(group: &str, words: &[String]) -> Result<(Command, crate::args::Args)> {
     let line: Vec<String> = std::iter::once(group.to_string())
         .chain(words.iter().cloned())
         .collect();
     let parsed = Command::parse(&line)?;
-    Ok((parsed.command, parsed.rest.to_vec()))
+    Ok((
+        parsed.command,
+        crate::args::Args::of(parsed.command, parsed.rest)?,
+    ))
 }
 
 /// `usage:` and each of <lines>, one under the other.
@@ -583,7 +599,7 @@ fn usage_text(lines: &[&str]) -> String {
 }
 
 /// <names> as a sentence lists them: "a, b and c".
-fn and_list(names: &[&str]) -> String {
+pub fn and_list(names: &[&str]) -> String {
     match names {
         [] => String::new(),
         [only] => (*only).to_string(),

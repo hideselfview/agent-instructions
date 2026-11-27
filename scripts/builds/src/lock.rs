@@ -193,17 +193,15 @@ pub fn takeover_stopped() -> bool {
     STOPPED.load(Ordering::SeqCst)
 }
 
-pub fn cmd_lock(places: &Places, system: &crate::system::System, args: &[String]) -> Result<()> {
-    let (lane, args) = match args {
-        [repo, flag, word, rest @ ..] if flag == "--lane" => (
-            crate::repo_lanes::parse(places, repo, word)?,
-            [std::slice::from_ref(repo), rest].concat(),
-        ),
-        _ => fail!("{}", crate::command::Command::Lock.usage_text()),
-    };
-    let [repo, command, rest @ ..] = &args[..] else {
+pub fn cmd_lock(
+    places: &Places,
+    system: &crate::system::System,
+    args: &crate::args::Args,
+) -> Result<()> {
+    let [repo, command, rest @ ..] = args.positional() else {
         fail!("{}", crate::command::Command::Lock.usage_text());
     };
+    let lane = crate::repo_lanes::parse(places, repo, args.require("lane")?)?;
     end_on_stop_signals();
     let mut held = take(places, &system.ssh(), repo, lane)?;
     loop {

@@ -475,13 +475,13 @@ fn project_of_finds_the_one_project_a_repo_is_in() {
         project_of(&places, &checkout, None).unwrap(),
         Some("second".to_string())
     );
-    let none = Args::parse(&[], &[], &[]).unwrap();
+    let none = listen(&[]);
     assert_eq!(
         Store::resolve(&places, &none, &repo_dir).unwrap().project,
         "second"
     );
     // --project still wins, and forgetting the name restores the refusal.
-    let named = Args::parse(&["--project".into(), "demo".into()], &[], &[]).unwrap();
+    let named = listen(&["--project".into(), "demo".into()]);
     assert_eq!(
         Store::resolve(&places, &named, &repo_dir).unwrap().project,
         "demo"
@@ -504,12 +504,12 @@ fn resolve_takes_project_flag_else_the_repo_of_the_directory() {
     let repo_dir = scratch.dir.join("coven");
     repo(&repo_dir, "target 1\n");
     fresh(&scratch);
-    let none = Args::parse(&[], &[], &[]).unwrap();
+    let none = listen(&[]);
     assert_eq!(
         Store::resolve(&places, &none, &repo_dir).unwrap().project,
         "demo"
     );
-    let named = Args::parse(&["--project".into(), "other".into()], &[], &[]).unwrap();
+    let named = listen(&["--project".into(), "other".into()]);
     assert_eq!(
         Store::resolve(&places, &named, &repo_dir).unwrap().project,
         "other"
@@ -526,7 +526,7 @@ fn who_wrote_is_by_else_the_claim_else_refused() {
     let scratch = Scratch::new("lists-by");
     let repo_dir = scratch.dir.join("bae");
     repo(&repo_dir, "target 1\n");
-    let none = Args::parse(&[], &[], &[]).unwrap();
+    let none = listen(&[]);
     assert!(message(resolve_by(&none, &repo_dir)).contains("say who you are with --by"));
     assert!(message(resolve_by(&none, &scratch.dir)).contains("--by"));
     let checkout = Checkout::at(&repo_dir).unwrap().unwrap();
@@ -538,9 +538,9 @@ fn who_wrote_is_by_else_the_claim_else_refused() {
     .write(&checkout.claim_file())
     .unwrap();
     assert_eq!(resolve_by(&none, &repo_dir).unwrap(), "import-tags");
-    let given = Args::parse(&["--by".into(), "me".into()], &[], &[]).unwrap();
+    let given = listen(&["--by".into(), "me".into()]);
     assert_eq!(resolve_by(&given, &repo_dir).unwrap(), "me");
-    let blank = Args::parse(&["--by".into(), " ".into()], &[], &[]).unwrap();
+    let blank = listen(&["--by".into(), " ".into()]);
     assert!(resolve_by(&blank, &repo_dir).is_err());
     assert_eq!(
         Stamp::resolve(7, &given, &repo_dir).unwrap(),
@@ -715,4 +715,14 @@ fn write_each_commits_every_store_or_none() {
     .unwrap();
     assert_eq!(first.load().unwrap().items.len(), 1);
     assert_eq!(second.load().unwrap().items.len(), 1);
+}
+
+/// The arguments of `builds judge listen <words>`, a command that reads both
+/// `--project` and `--by`.
+fn listen(words: &[String]) -> Args {
+    Args::of(
+        crate::command::Command::Judge(crate::command::judge::Listen),
+        words,
+    )
+    .unwrap()
 }

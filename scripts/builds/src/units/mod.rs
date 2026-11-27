@@ -502,8 +502,8 @@ fn run(text: &str) -> Result<crate::prune::Run> {
 }
 
 /// `builds units prune`.
-pub fn cmd_prune(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
-    let [days, hours, dry, folders @ ..] = args else {
+pub fn cmd_prune(tool: &crate::tool::Tool, args: &crate::args::Args) -> Result<()> {
+    let [days, hours, dry, folders @ ..] = args.positional() else {
         fail!(
             "{}",
             crate::command::Command::Units(crate::command::units::Prune).usage_text()
@@ -520,8 +520,8 @@ pub fn cmd_prune(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
 }
 
 /// `builds units git-checkouts`.
-pub fn cmd_git_checkouts(args: &[String]) -> Result<()> {
-    let [cargo_home, dry, lockfiles @ ..] = args else {
+pub fn cmd_git_checkouts(args: &crate::args::Args) -> Result<()> {
+    let [cargo_home, dry, lockfiles @ ..] = args.positional() else {
         fail!(
             "{}",
             crate::command::Command::Units(crate::command::units::GitCheckouts).usage_text()
@@ -534,8 +534,8 @@ pub fn cmd_git_checkouts(args: &[String]) -> Result<()> {
 }
 
 /// `builds units after-build`.
-pub fn cmd_after_build(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
-    let [checkout] = args else {
+pub fn cmd_after_build(tool: &crate::tool::Tool, args: &crate::args::Args) -> Result<()> {
+    let [checkout] = args.positional() else {
         fail!(
             "{}",
             crate::command::Command::Units(crate::command::units::AfterBuild).usage_text()
@@ -564,11 +564,19 @@ mod tests {
             for (args, result) in [
                 (
                     words(&["0", "0", dry, &folder]),
-                    cmd_prune(&tool, &words(&["0", "0", dry, &folder])),
+                    crate::args::Args::of(
+                        crate::command::Command::Units(crate::command::units::Prune),
+                        &words(&["0", "0", dry, &folder]),
+                    )
+                    .and_then(|args| cmd_prune(&tool, &args)),
                 ),
                 (
                     words(&[&cargo_home, dry]),
-                    cmd_git_checkouts(&words(&[&cargo_home, dry])),
+                    crate::args::Args::of(
+                        crate::command::Command::Units(crate::command::units::GitCheckouts),
+                        &words(&[&cargo_home, dry]),
+                    )
+                    .and_then(|args| cmd_git_checkouts(&args)),
                 ),
             ] {
                 match result {

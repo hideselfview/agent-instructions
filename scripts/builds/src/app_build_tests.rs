@@ -4,9 +4,17 @@ use crate::app_timing::{self, StepKind, StepResult};
 use crate::testing::Scratch;
 use std::time::Duration;
 
-/// `split_picks` with the apps of a repo that names only the platforms' own.
-fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
-    super::split_picks(args, &[Lane::MAC, Lane::ANDROID])
+/// The steps and the picks of `builds app-build demo main <words>`, with the
+/// apps of a repo that names only the platforms' own.
+fn split_picks(words: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
+    let mut line = vec!["demo".to_string(), "main".to_string()];
+    line.extend_from_slice(words);
+    let args = crate::args::Args::of(
+        crate::command::Command::AppBuild(crate::command::app_build::Build),
+        &line,
+    )?;
+    let picks = picks_of(&args, &[Lane::MAC, Lane::ANDROID])?;
+    Ok((args.positional()[2..].to_vec(), picks))
 }
 
 /// A lock of an app lane in <scratch>'s places, held while a test runs steps,
@@ -454,14 +462,12 @@ fn a_flag_needs_a_lane_and_an_argument_that_is_one_plain_word() {
         &["--test", "mac", "--run-only"],
         &["--test", "mac", "A B"],
         &["--test", "mac", ""],
-        &["--test", "mac", "X", "stray"],
         &["--shots"],
         &["--shots", "mac"],
         &["--shots", "ios", "mac.x."],
         &["--shots", "mac", "--windows"],
         &["--shots", "mac", "a b"],
         &["--shots", "mac", "mac.Upper"],
-        &["--shots", "mac", "mac.x.", "stray"],
     ] {
         assert!(split_picks(&args(bad)).is_err(), "{bad:?}");
     }
@@ -1614,7 +1620,11 @@ fn app_build_returns_a_cached_failure_and_takes_no_lane_without_a_project() {
     assert!(matches!(
         cmd_app_build(
             &scratch.tool(30),
-            &args(&["demo", "HEAD", "--shots", "mac.a."]),
+            &crate::args::Args::of(
+                crate::command::Command::AppBuild(crate::command::app_build::Build),
+                &args(&["demo", "HEAD", "--shots", "mac.a."])
+            )
+            .unwrap(),
         ),
         Err(Fail::Exit(1))
     ));
@@ -1629,10 +1639,23 @@ fn app_build_returns_a_cached_failure_and_takes_no_lane_without_a_project() {
         r#"{"findings": [], "scenes": ["mac.a"], "boards": {"mac.a": "h"}}"#,
     )
     .unwrap();
-    crate::shot_findings::cmd_findings(&places, &args(&["demo", "HEAD", "mac", "mac.a."])).unwrap();
-    let Err(Fail::Message(message)) =
-        crate::shot_findings::cmd_findings(&places, &args(&["demo", "HEAD", "mac", "mac.other."]))
-    else {
+    crate::shot_findings::cmd_findings(
+        &places,
+        &crate::args::Args::of(
+            crate::command::Command::Shots(crate::command::shots::Findings),
+            &args(&["demo", "HEAD", "mac", "mac.a."]),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let Err(Fail::Message(message)) = crate::shot_findings::cmd_findings(
+        &places,
+        &crate::args::Args::of(
+            crate::command::Command::Shots(crate::command::shots::Findings),
+            &args(&["demo", "HEAD", "mac", "mac.other."]),
+        )
+        .unwrap(),
+    ) else {
         panic!("no run of that prefix is cached")
     };
     assert!(
@@ -2150,7 +2173,7 @@ fn a_request_names_its_repo_and_ref() {
             "--test",
             "A"
         ])),
-        Some(("bae", "work"))
+        Some(("bae".to_string(), "work".to_string()))
     );
     assert_eq!(
         requested(&argv(&[
@@ -2185,7 +2208,7 @@ fn a_lanes_process_names_its_repo_and_commit() {
             "abc123",
             "android-tests"
         ])),
-        Some("abc123")
+        Some("abc123".to_string())
     );
     assert_eq!(
         lane_requested(&argv(&["builds", "app-build", "bae", "work"])),
@@ -2276,7 +2299,7 @@ fn an_agent_option_does_not_hide_a_build_request_or_lane() {
             "bae",
             "work"
         ])),
-        Some(("bae", "work"))
+        Some(("bae".to_string(), "work".to_string()))
     );
     assert_eq!(
         lane_requested(&argv(&[
@@ -2289,7 +2312,7 @@ fn an_agent_option_does_not_hide_a_build_request_or_lane() {
             "mac",
             "abc"
         ])),
-        Some("abc")
+        Some("abc".to_string())
     );
 }
 

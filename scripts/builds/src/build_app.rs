@@ -224,10 +224,10 @@ fn quit(system: &System, bundle: &str, app: &Path) -> Result<()> {
 /// app checkout's own `main` can lag behind it.
 const DEFAULT_REF: &str = "origin/main";
 
-fn parse_args(args: &[String]) -> Result<(&String, &str, &str)> {
-    match args {
+fn parse_args(args: &crate::args::Args) -> Result<(&String, &str, &str)> {
+    match args.positional() {
         [repo, app] => Ok((repo, app, DEFAULT_REF)),
-        [repo, app, commit] if !commit.starts_with('-') => Ok((repo, app, commit.as_str())),
+        [repo, app, commit] => Ok((repo, app, commit.as_str())),
         _ => fail!("{}", crate::command::Command::BuildApp.usage_text()),
     }
 }
@@ -254,7 +254,7 @@ fn built_app(site: &mut Site, built: &CopiedApp) -> Result<PathBuf> {
     }
 }
 
-pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn cmd_build_app(tool: &Tool, args: &crate::args::Args) -> Result<()> {
     ended(build_app(tool, args), lock::stop_signal())
 }
 
@@ -277,7 +277,7 @@ fn ended(result: Result<()>, signal: Option<libc::c_int>) -> Result<()> {
     }
 }
 
-fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
+fn build_app(tool: &Tool, args: &crate::args::Args) -> Result<()> {
     let (repo, word, commit) = parse_args(args)?;
     lock::end_on_stop_signals();
     let places = &tool.places;

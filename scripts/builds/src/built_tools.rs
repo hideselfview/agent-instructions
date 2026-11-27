@@ -130,8 +130,8 @@ fn key_dir_on(name: &str, key: &Key) -> String {
 
 /// `builds tool <name> [<checkout>]`: puts the checkout's key of tool <name>
 /// in place on this Mac, links the checkout to it and prints its folder.
-pub fn cmd_tool(places: &Places, ssh: &Ssh, args: &[String]) -> Result<()> {
-    let (name, at) = match args {
+pub fn cmd_tool(places: &Places, ssh: &Ssh, args: &crate::args::Args) -> Result<()> {
+    let (name, at) = match args.positional() {
         [name] => (name, "."),
         [name, at] => (name, at.as_str()),
         _ => fail!("{}", crate::command::Command::Tool.usage_text()),

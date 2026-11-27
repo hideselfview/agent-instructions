@@ -158,7 +158,15 @@ fn the_drop_command_accepts_a_prefix_from_a_build_named_by_commit() {
         "agent",
     ]
     .map(str::to_string);
-    cmd_drop_shots(&tool, &args).unwrap();
+    cmd_drop_shots(
+        &tool,
+        &crate::args::Args::of(
+            crate::command::Command::AppBuild(crate::command::app_build::DropShots),
+            &args,
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let db = store.open_existing().unwrap();
     assert_eq!(
         dropped(&db, "bae", "work", Lane::MAC, tool.now).unwrap(),

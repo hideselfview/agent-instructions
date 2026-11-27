@@ -1846,13 +1846,26 @@ fn settle_again_takes_no_verdict_and_always_drops() {
         words
     };
     assert!(
-        settle(&demo.tool, &words(&["dropped", "--again"]), None)
-            .unwrap_err()
-            .text()
-            .contains("usage"),
+        crate::args::Args::of(
+            crate::command::Command::Review(crate::command::review::Settle),
+            &words(&["dropped", "--again"])
+        )
+        .and_then(|args| settle(&demo.tool, &args, None))
+        .unwrap_err()
+        .text()
+        .contains("usage"),
         "--again takes no verdict"
     );
-    settle(&demo.tool, &words(&["--again"]), None).unwrap();
+    settle(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Review(crate::command::review::Settle),
+            &words(&["--again"]),
+        )
+        .unwrap(),
+        None,
+    )
+    .unwrap();
     assert!(findings_of(&demo, landing)[0].settled_as("dropped"));
 }
 
@@ -1884,19 +1897,36 @@ fn only_by_person_allows_a_confirmed_finding_to_land() {
         words
     };
     assert!(
-        settle(&demo.tool, &words(&["allowed"]), None)
-            .unwrap_err()
-            .text()
-            .contains("never on your own judgment")
+        crate::args::Args::of(
+            crate::command::Command::Review(crate::command::review::Settle),
+            &words(&["allowed"])
+        )
+        .and_then(|args| settle(&demo.tool, &args, None))
+        .unwrap_err()
+        .text()
+        .contains("never on your own judgment")
     );
     assert!(
-        settle(&demo.tool, &words(&["dropped", "--by-person"]), None)
-            .unwrap_err()
-            .text()
-            .contains("--by-person goes with allowed")
+        crate::args::Args::of(
+            crate::command::Command::Review(crate::command::review::Settle),
+            &words(&["dropped", "--by-person"])
+        )
+        .and_then(|args| settle(&demo.tool, &args, None))
+        .unwrap_err()
+        .text()
+        .starts_with("usage: builds review settle")
     );
     assert!(findings_of(&demo, landing)[0].is_open());
-    settle(&demo.tool, &words(&["allowed", "--by-person"]), None).unwrap();
+    settle(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Review(crate::command::review::Settle),
+            &words(&["allowed", "--by-person"]),
+        )
+        .unwrap(),
+        None,
+    )
+    .unwrap();
     let found = &findings_of(&demo, landing)[0];
     assert!(!found.is_open() && found.settled_as("confirmed"));
     let Some(record::Settled::Allowed { allowed, .. }) = &found.settled else {
@@ -2035,16 +2065,31 @@ fn a_confirmed_finding_becomes_a_case_and_an_unconfirmed_one_does_not() {
         out.to_str().unwrap(),
         "--project",
         "demo",
-        "--by",
-        "tester",
     ]
     .iter()
     .map(|s| s.to_string())
     .collect();
-    let refused = case_add(&demo.tool, &words).unwrap_err().text();
+    let refused = case_add(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Review(crate::command::review::CaseAdd),
+            &words,
+        )
+        .unwrap(),
+    )
+    .unwrap_err()
+    .text();
     assert!(refused.contains("not settled as confirmed"), "{refused}");
     settle_as(&demo, finding, "confirmed", "a real break");
-    case_add(&demo.tool, &words).unwrap();
+    case_add(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Review(crate::command::review::CaseAdd),
+            &words,
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let cases = cases::load(&out).unwrap();
     assert_eq!(cases.len(), 1);
     assert_eq!(cases[0].project, "demo");
@@ -2156,7 +2201,11 @@ fn a_review_reads_the_brief_from_the_main_checkout_of_another_repo() {
             crate::lists::item::add_item(db, &draft, None, &stamp()).map(|_| ())
         })
         .unwrap();
-    let args = Args::parse(&["--item".to_string(), "1".to_string()], &["item"], &[]).unwrap();
+    let args = Args::of(
+        crate::command::Command::Review(crate::command::review::Run),
+        &["w".to_string(), "--item".to_string(), "1".to_string()],
+    )
+    .unwrap();
     assert_eq!(
         brief_of(&demo.tool.places, &demo.store, &args).unwrap(),
         Some(Brief {

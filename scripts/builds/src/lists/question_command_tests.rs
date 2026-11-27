@@ -5,7 +5,7 @@ use crate::lists::{Closed, Record};
 use crate::testing::Scratch;
 use rusqlite::Connection;
 
-const AS: &str = "--project demo --by tester";
+const AS: &str = "--project demo";
 
 /// A store holding what <build> puts in the fixture lists.
 fn setup<T>(name: &str, build: impl FnOnce(&Connection) -> T) -> (Scratch, Tool, Store, T) {
@@ -26,6 +26,7 @@ fn go(scratch: &Scratch, tool: &Tool, command: &str) -> Result<String> {
         .split_whitespace()
         .map(str::to_string)
         .collect();
+    let words = crate::lists::fixtures::with_by("question", "tester", words);
     run_words(tool, &words, &scratch.dir)
 }
 
@@ -99,7 +100,7 @@ fn ask_with_blocks_makes_the_question_and_the_items_wait_on_it() {
         "{out}"
     );
     let db = crate::db::open_reader(&store.database()).unwrap().unwrap();
-    assert_eq!(crate::lists::store::read_log(&db).unwrap().pop().unwrap().3, format!("question ask --title Which_way --kind question --effect data-loss --details-file {d} --blocks {a},{b} {AS}").replace('#', ""));
+    assert_eq!(crate::lists::store::read_log(&db).unwrap().pop().unwrap().3, format!("question ask --title Which_way --kind question --effect data-loss --details-file {d} --blocks {a},{b} {AS} --by tester").replace('#', ""));
 }
 
 #[test]
@@ -216,7 +217,7 @@ fn ask_refuses_a_bad_title_kind_effect_or_details() {
         &tool,
         &store,
         &format!("ask {ok} --nope 1"),
-        "unknown flag --nope",
+        "builds question ask has no flag --nope",
     );
     refuses(
         &scratch,
@@ -911,7 +912,7 @@ fn place_sets_and_clears_where_a_question_sits() {
         &tool,
         &store,
         &format!("place {low} middle --why w"),
-        "first, last or auto, not 'middle'",
+        "usage: builds question place",
     );
     refuses(
         &scratch,
@@ -1168,7 +1169,7 @@ fn an_unknown_command_and_no_command_are_refused() {
         matches!(run_words(&tool, &words, &scratch.dir), Err(Fail::Message(m)) if m.contains("builds question needs a command"))
     );
     assert!(refused(go(&scratch, &tool, "show 1.5")).contains("not an id"));
-    let hash: Vec<String> = ["show", "#3", "--project", "demo", "--by", "t"]
+    let hash: Vec<String> = ["show", "#3", "--project", "demo"]
         .map(String::from)
         .to_vec();
     assert!(
@@ -1223,10 +1224,12 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
     let (scratch, tool, store, one) = setup("question-tags", |db| item(db, Vec::new()));
     let details = details(&scratch);
     let words = |line: &[&str]| -> Vec<String> {
-        line.iter()
+        let words = line
+            .iter()
             .map(|word| word.to_string())
             .chain(AS.split_whitespace().map(str::to_string))
-            .collect()
+            .collect();
+        crate::lists::fixtures::with_by("question", "tester", words)
     };
     let ask = |title: &str, blocks: &[&str], tag: &str| {
         let mut line = vec![

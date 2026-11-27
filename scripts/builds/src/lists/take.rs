@@ -413,14 +413,7 @@ fn check_brief(
 /// `builds item check-brief`: runs the checks `item take` runs on a brief
 /// (pasted text, spec) in the worktrees <args> names, and takes and
 /// records nothing.
-pub fn check(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["worktree", "brief", "rules-root", "reviewer"], &[])?;
-    if !args.positional().is_empty() {
-        fail!(
-            "check-brief names no items, because it takes none: {usage}",
-            usage = crate::command::Command::Item(crate::command::item::CheckBrief).usage_text()
-        );
-    }
+pub fn check(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
     let brief = args.require("brief")?.to_string();
     let worktrees = args.values("worktree");
     if worktrees.is_empty() {
@@ -434,7 +427,7 @@ pub fn check(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         let checkout = side_checkout(worktree, checkouts.iter())?;
         checkouts.push(checkout);
     }
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     let brief_path = find_brief(&tool.places, &store.repos()?, &brief)?;
     note(format!("brief {brief} is {}", brief_path.display()));
     let read_brief = Brief::read(&brief, &brief_path)?;
@@ -442,7 +435,7 @@ pub fn check(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     for checkout in &checkouts {
         require_project_repo(&lists, checkout)?;
     }
-    let reviewer = reviewer_of(tool, &args)?;
+    let reviewer = reviewer_of(tool, args)?;
     check_brief(None, &lists, &checkouts, &read_brief, &reviewer)?;
     note(format!(
         "brief {brief} passes the checks of `builds item take`; nothing was taken or recorded"
@@ -450,24 +443,8 @@ pub fn check(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn take(tool: &Tool, ssh: &Ssh, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(
-        args,
-        &[
-            "worktree",
-            "repo",
-            "branch",
-            "brief",
-            "as",
-            "tier",
-            "held",
-            "rules-root",
-            "reviewer",
-        ],
-        &[],
-    )?;
-    let ids = args
-        .positional_ids(&crate::command::Command::Item(crate::command::item::Take).usage_text())?;
+pub fn take(tool: &Tool, ssh: &Ssh, args: &Args, cwd: &Path) -> Result<()> {
+    let ids = args.positional_ids()?;
     let design_session = match args.value("as")? {
         None => false,
         Some("design-session") => true,
@@ -488,11 +465,11 @@ pub fn take(tool: &Tool, ssh: &Ssh, args: &[String], cwd: &Path) -> Result<()> {
         }
         crate::claim::require_one_line("--held", why)?;
     }
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     let request = Request {
         tool,
-        args: &args,
+        args,
         store: &store,
         stamp: &stamp,
         ids: &ids,
@@ -505,7 +482,7 @@ pub fn take(tool: &Tool, ssh: &Ssh, args: &[String], cwd: &Path) -> Result<()> {
         let places = if args.values("worktree").is_empty() {
             kept_places(&store.load()?, &ids)?
         } else {
-            places_named(&args)?
+            places_named(args)?
         };
         return request.run(&places);
     }
@@ -515,7 +492,7 @@ pub fn take(tool: &Tool, ssh: &Ssh, args: &[String], cwd: &Path) -> Result<()> {
             usage = crate::command::Command::Item(crate::command::item::Take).usage_text()
         );
     }
-    let handed = hand_out_places(tool, ssh, &store.load()?, &stamp, &args)?;
+    let handed = hand_out_places(tool, ssh, &store.load()?, &stamp, args)?;
     let places: Vec<Place> = handed.iter().map(|(place, _)| place.clone()).collect();
     match request.run(&places) {
         Ok(()) => Ok(()),

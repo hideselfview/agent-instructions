@@ -133,11 +133,11 @@ fn record_in_project(places: &Places, run: &RunRecord, project: Option<&str>) ->
 }
 
 /// `builds app-build --record-handed` with its arguments <args>.
-pub fn cmd_record_handed(places: &Places, args: &[String]) -> Result<()> {
-    let (repo, store, project) = match args {
+pub fn cmd_record_handed(places: &Places, args: &crate::args::Args) -> Result<()> {
+    let (repo, store, project) = match args.positional() {
         [repo, store] => (repo, store, None),
         [repo, store, project] => (repo, store, Some(project.as_str())),
-        _ => fail!("{}", crate::command::Command::AppBuild.usage_text()),
+        _ => fail!("{}", args.command().usage_text()),
     };
     let path =
         std::path::absolute(store).context(|| format!("resolving the handed store at {store}"))?;

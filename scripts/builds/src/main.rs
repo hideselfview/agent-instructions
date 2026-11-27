@@ -295,23 +295,23 @@ fn run_command(args: &[String], session: ack::agent::Session, system: &system::S
         Ok(parsed) => parsed,
         Err(fail) => return exit_code_after(first, fail),
     };
-    let split = match project_flag::split(&parsed) {
-        Ok(split) => split,
+    let command = parsed.command;
+    let words = match args::Args::of(command, parsed.rest) {
+        Ok(words) => words,
         Err(fail) => return exit_code_after(first, fail),
     };
-    let parsed = Parsed {
-        rest: &split.args,
-        ..parsed
+    let project = match project_flag::Flag::of(&words) {
+        Ok(project) => project,
+        Err(fail) => return exit_code_after(first, fail),
     };
-    let command = parsed.command;
     let nested = std::env::var_os(ack::PASSED).is_some();
     let _use = match enter_stores(command, args) {
         Ok(held) => held,
         Err(fail) => return exit_code_after(first, fail),
     };
     if let Err(fail) = Places::from_env().and_then(|places| {
-        ack::gate(&places, &session, &parsed, split.flag.project())?;
-        match &split.flag {
+        ack::gate(&places, &session, &words, project.project())?;
+        match &project {
             // Refuses a name that no project has, which the command itself
             // would never look at. A command that takes no use of the stores
             // opens none: `install` runs on stores of an older schema.
@@ -340,7 +340,7 @@ fn run_command(args: &[String], session: ack::agent::Session, system: &system::S
         Err(fail) => return exit_code_after(first, fail),
     };
     let changed = roots::Changed::default();
-    let result = run(&parsed, session, &changed, system);
+    let result = run(&words, session, &changed, system);
     // The roots the command changed are measured whether it succeeded or
     // not: a failed build left what it wrote.
     if let Ok(places) = Places::from_env() {
@@ -483,21 +483,19 @@ pub fn version() -> String {
     format!("builds {}", env!("BUILDS_SOURCE"))
 }
 
-/// Runs <parsed>. A command that reads `--project` finds it in its words;
-/// the others' words lack it (project_flag.rs).
+/// Runs the command of <args>.
 fn run(
-    parsed: &Parsed<'_, String>,
+    args: &args::Args,
     session: ack::agent::Session,
     changed: &roots::Changed,
     system: &system::System,
 ) -> Result<()> {
     use Command::*;
     use command::*;
-    let command = parsed.command;
+    let command = args.command();
     if command.runs_steps() {
         python::use_new_python(&Places::from_env()?)?;
     }
-    let args = parsed.rest;
     // A tool in the caller's environment as it is.
     let as_called = |session| -> Result<tool::Tool> {
         tool::Tool::new(
@@ -522,8 +520,8 @@ fn run(
     match command {
         // These run in the caller's environment as it is, which cargo
         // inherits; `cargo` asks git about its checkout without changing it.
-        Cargo => cargo_run::cmd_cargo(system, args, changed),
-        Lake => lake_run::cmd_lake(system, args, changed),
+        Cargo => cargo_run::cmd_cargo(system, args.positional(), changed),
+        Lake => lake_run::cmd_lake(system, args.positional(), changed),
         Version => {
             output::answer_line(version());
             Ok(())
@@ -538,22 +536,30 @@ fn run(
         Waits => waits::cmd_waits(args),
         InstallHook => install_hook::cmd_install_hook(args),
         Lock => lock::cmd_lock(&Places::from_env()?, system, args),
-        AppBuild => app_build::cmd_app_build(&as_called(session)?, args),
+        AppBuild(app_build::Build) => crate::app_build::cmd_app_build(&as_called(session)?, args),
+        AppBuild(app_build::LandingCoverage) => {
+            crate::app_landing::cmd_landing_coverage(&Places::from_env()?, args)
+        }
+        AppBuild(app_build::DropShots) => {
+            crate::app_shots_drop::cmd_drop_shots(&as_called(session)?, args)
+        }
+        AppBuild(app_build::RecordHanded) => {
+            crate::handed_runs::cmd_record_handed(&Places::from_env()?, args)
+        }
         Shots(shots::Picture) => shots_picture::cmd(&as_called(session)?, args),
         Shots(shots::Findings) => shot_findings::cmd_findings(&Places::from_env()?, args),
         Shots(shots::CheckProgram) => shots_check_program::cmd(&Places::from_env()?, args),
         Shots(shots::Checker) => shots_program::cmd_checker(&Places::from_env()?, args),
         Brief => brief::cmd_brief(&crate::review::default_rules_root()?, args),
         Ack => ack::cmd_ack(&Places::from_env()?, &session, args),
-        Agent(agent::Start) => ack::agent::cmd_start(&Places::from_env()?, args),
+        Agent(agent::Start) => ack::agent::cmd_start(&Places::from_env()?),
         RulesOnEdit => rules_on_edit::cmd_rules_on_edit(
             &Places::from_env()?,
             &crate::review::default_rules_root()?,
-            args,
         ),
         Queue => queue::cmd_queue(&Places::from_env()?, args),
         Takeover => queue::cmd_takeover(&Places::from_env()?, args),
-        Help => match help::lookup(args) {
+        Help => match help::lookup(args.positional()) {
             Ok(text) => {
                 output::answer(text);
                 Ok(())
@@ -586,7 +592,7 @@ fn run(
         BuildApp => build_app::cmd_build_app(&tool(session)?, args),
         Status => status::cmd_status(&mut tool(session)?, &ssh(), args),
         Prune => prune::cmd_prune(&tool(session)?, args),
-        Install => install::cmd_install(&tool(session)?, args),
+        Install => install::cmd_install(&tool(session)?),
         Units(units::Prune) => crate::units::cmd_prune(&tool(session)?, args),
         Units(units::GitCheckouts) => crate::units::cmd_git_checkouts(args),
         Units(units::AfterBuild) => crate::units::cmd_after_build(&tool(session)?, args),
@@ -615,11 +621,11 @@ fn run(
         }
         Host(host::Add) => crate::host::cmd_add(&tool(session)?, &ssh(), args),
         Host(host::Setup) => crate::host::cmd_setup(&tool(session)?, &ssh(), args),
-        Host(host::SetupHere) => crate::host::cmd_setup_here(&tool(session)?, args),
-        Host(host::SpeedHere) => crate::host::cmd_speed_here(args),
+        Host(host::SetupHere) => crate::host::cmd_setup_here(&tool(session)?, args.positional()),
+        Host(host::SpeedHere) => crate::host::cmd_speed_here(),
         Host(host::Band) => host_band::cmd_band(&tool(session)?, args),
-        Host(host::List) => crate::host::cmd_list(&tool(session)?, &ssh(), args),
-        Host(host::Cache) => crate::host::cmd_cache(&tool(session)?, args),
+        Host(host::List) => crate::host::cmd_list(&tool(session)?, &ssh()),
+        Host(host::Cache) => crate::host::cmd_cache(&tool(session)?),
         Host(host::Remove) => crate::host::cmd_remove(&tool(session)?, args),
         Host(host::ClearXcode) => crate::host::cmd_clear_xcode(&tool(session)?, args),
         Remote(remote::Run) => crate::remote::cmd_run(&tool(session)?, &ssh(), args),

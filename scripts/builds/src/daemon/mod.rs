@@ -183,37 +183,26 @@ fn answer(model: &Model, stream: UnixStream) -> std::io::Result<()> {
 
 /// `builds dashboard [--port <port>] [--listen <address>]`, or `builds
 /// dashboard stage` (stage.rs).
-pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn cmd_dashboard(tool: &Tool, args: &crate::args::Args) -> Result<()> {
     if !cfg!(target_os = "macos") {
         fail!(
             "the dashboard follows the checkouts through macOS's FSEvents, so it runs only on a Mac"
         );
     }
-    let mut port = DASHBOARD_PORT;
-    let mut listen: Option<std::net::IpAddr> = None;
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        match arg.as_str() {
-            "--port" => {
-                let value = rest.next().map(String::as_str).unwrap_or("");
-                match value.parse() {
-                    Ok(number) if value.bytes().all(|b| b.is_ascii_digit()) => port = number,
-                    _ => fail!("dashboard: --port takes a port number"),
-                }
-            }
-            "--listen" => {
-                let value = rest.next().map(String::as_str).unwrap_or("");
-                match value.parse() {
-                    Ok(address) => listen = Some(address),
-                    _ => fail!("dashboard: --listen takes an IP address, such as 192.168.1.20"),
-                }
-            }
-            _ => fail!(
-                "{}",
-                crate::command::Command::Dashboard(crate::command::dashboard::Serve).usage_text()
-            ),
-        }
-    }
+    let port = match args.value("port")? {
+        None => DASHBOARD_PORT,
+        Some(value) => match value.parse() {
+            Ok(number) if value.bytes().all(|b| b.is_ascii_digit()) => number,
+            _ => fail!("dashboard: --port takes a port number"),
+        },
+    };
+    let listen: Option<std::net::IpAddr> = match args.value("listen")? {
+        None => None,
+        Some(value) => match value.parse() {
+            Ok(address) => Some(address),
+            _ => fail!("dashboard: --listen takes an IP address, such as 192.168.1.20"),
+        },
+    };
     crate::output::keep_every_line();
     tool.places.require_volume()?;
     let web = match std::net::TcpListener::bind(("127.0.0.1", port)) {

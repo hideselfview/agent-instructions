@@ -80,7 +80,16 @@ fn run_command(demo: &Demo, extra: &[&str]) -> (Result<()>, String) {
     let mut args = vec!["run"];
     args.extend_from_slice(extra);
     let mut out = Vec::new();
-    let result = run(&demo.tool, &words(&args[1..]), &demo.scratch.dir, &mut out);
+    let result = run(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Agent(crate::command::agent::Run),
+            &words(&args[1..]),
+        )
+        .unwrap(),
+        &demo.scratch.dir,
+        &mut out,
+    );
     (result, String::from_utf8(out).unwrap())
 }
 
@@ -349,7 +358,16 @@ fn ended_agent(name: &str) -> (Demo, String) {
 
 fn resume_command(demo: &Demo, args: &[&str]) -> (Result<()>, String) {
     let mut out = Vec::new();
-    let result = resume(&demo.tool, &words(&args[1..]), &demo.scratch.dir, &mut out);
+    let result = resume(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Agent(crate::command::agent::Resume),
+            &words(&args[1..]),
+        )
+        .unwrap(),
+        &demo.scratch.dir,
+        &mut out,
+    );
     (result, String::from_utf8(out).unwrap())
 }
 

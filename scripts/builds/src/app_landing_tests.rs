@@ -220,7 +220,15 @@ fn a_branch_with_no_app_build_file_needs_no_build_in_a_repo_two_projects_hold() 
     crate::lists::fixtures::make_store_named(&places, "demo", &["bae"]);
     crate::lists::fixtures::make_store_named(&places, "second", &["bae"]);
     let args = [dir.display().to_string(), "HEAD".into(), "work".into()];
-    cmd_landing_coverage(&places, &args).unwrap();
+    cmd_landing_coverage(
+        &places,
+        &crate::args::Args::of(
+            crate::command::Command::AppBuild(crate::command::app_build::LandingCoverage),
+            &args,
+        )
+        .unwrap(),
+    )
+    .unwrap();
 }
 
 /// A branch ran the shots of two screens and the first failed as worse than
@@ -457,7 +465,14 @@ impl ShotsLanding {
             self.head.clone(),
             "work".into(),
         ];
-        cmd_landing_coverage(&self.scratch.places(), &args)
+        cmd_landing_coverage(
+            &self.scratch.places(),
+            &crate::args::Args::of(
+                crate::command::Command::AppBuild(crate::command::app_build::LandingCoverage),
+                &args,
+            )
+            .unwrap(),
+        )
     }
 
     fn check_after_config_change(&self, config: &str) -> Result<()> {
@@ -475,7 +490,14 @@ impl ShotsLanding {
             self.head.clone(),
             target,
         ];
-        cmd_landing_coverage(&self.scratch.places(), &args)
+        cmd_landing_coverage(
+            &self.scratch.places(),
+            &crate::args::Args::of(
+                crate::command::Command::AppBuild(crate::command::app_build::LandingCoverage),
+                &args,
+            )
+            .unwrap(),
+        )
     }
 }
 
@@ -745,6 +767,24 @@ fn a_landing_is_judged_over_its_own_commits() {
         first.clone(),
         second,
     ];
-    assert!(cmd_landing_coverage(&places, &both).is_err());
-    cmd_landing_coverage(&places, &[top, first, "work".into()]).unwrap();
+    assert!(
+        cmd_landing_coverage(
+            &places,
+            &crate::args::Args::of(
+                crate::command::Command::AppBuild(crate::command::app_build::LandingCoverage),
+                &both
+            )
+            .unwrap()
+        )
+        .is_err()
+    );
+    cmd_landing_coverage(
+        &places,
+        &crate::args::Args::of(
+            crate::command::Command::AppBuild(crate::command::app_build::LandingCoverage),
+            &[top, first, "work".into()],
+        )
+        .unwrap(),
+    )
+    .unwrap();
 }

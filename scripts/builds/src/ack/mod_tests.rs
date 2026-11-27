@@ -87,7 +87,7 @@ impl World {
     /// `builds ack <args>` as <agent> runs it in <cwd>.
     fn ack_in(&self, cwd: &Path, agent: &str, args: &[&str], now: i64) -> Result<String> {
         let args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
-        let args = Args::parse(&args, &["role"], &["compacted"])?;
+        let args = Args::of(Command::Ack, &args)?;
         super::ack(&self.places, &identity(agent), &args, cwd, now)
     }
 
@@ -561,7 +561,7 @@ fn an_agent_outside_a_checkout_names_the_project_with_project() {
     let started = super::ack(
         &world.places,
         &identity(AGENT),
-        &Args::parse(&args, &[], &[]).unwrap(),
+        &Args::of(Command::Ack, &args).unwrap(),
         &elsewhere,
         NOON,
     )
@@ -604,7 +604,7 @@ fn ack_naming_bae(world: &World, args: &[&str]) -> Result<String> {
     super::ack(
         &world.places,
         &identity(AGENT),
-        &Args::parse(&args, &[], &[]).unwrap(),
+        &Args::of(Command::Ack, &args).unwrap(),
         &world.checkout,
         NOON,
     )
@@ -653,7 +653,7 @@ fn a_repo_two_projects_hold_is_refused_without_project_and_with_one_that_lacks_i
     let lacking = message(super::ack(
         &world.places,
         &identity(AGENT),
-        &Args::parse(&args, &[], &[]).unwrap(),
+        &Args::of(Command::Ack, &args).unwrap(),
         &world.checkout,
         NOON,
     ));
@@ -775,13 +775,9 @@ fn codex_compaction_clears_only_the_thread_named_in_the_event() {
     assert!(record::last(&db, session, other).unwrap().is_some());
 }
 
-/// <command> with no words after it.
-fn parsed(command: Command) -> Parsed<'static, String> {
-    Parsed {
-        command,
-        named: &[],
-        rest: &[],
-    }
+/// <command> with words that fit its first usage line.
+fn parsed(command: Command) -> Args {
+    crate::args::example(command)
 }
 
 #[test]

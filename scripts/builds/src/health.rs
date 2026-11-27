@@ -678,7 +678,9 @@ pub fn sample(
                     words.get(1..).and_then(Command::of).is_some_and(|parsed| {
                         matches!(
                             parsed.command,
-                            Command::Lock | Command::BuildApp | Command::AppBuild
+                            Command::Lock
+                                | Command::BuildApp
+                                | Command::AppBuild(crate::command::app_build::Build)
                         ) && parsed.rest.first() == Some(&repo.as_str())
                     })
                 };
@@ -766,8 +768,7 @@ pub fn sample(
                 continue;
             };
             let commit = match live_args(process.pid) {
-                Ok(argv) => argv
-                    .and_then(|argv| crate::app_build::lane_requested(&argv).map(str::to_string)),
+                Ok(argv) => argv.and_then(|argv| crate::app_build::lane_requested(&argv)),
                 Err(error) => {
                     unread.push(format!(
                         "{error}, so health cannot tell which commit it waits to build in {repo}'s {} lane",
@@ -2007,13 +2008,11 @@ pub(crate) fn finish_health(
 }
 
 /// `builds health [--json]`: exits 1 when something needs acting on.
-pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
-    let (json, stop_junk) = match args {
-        [] => (false, false),
-        [flag] if flag == "--json" => (true, false),
-        [flag] if flag == "--stop-junk" => (false, true),
-        _ => crate::fail!("{}", crate::command::Command::Health.usage_text()),
-    };
+pub fn cmd_health(tool: &Tool, args: &crate::args::Args) -> Result<()> {
+    let (json, stop_junk) = (args.switch("json"), args.switch("stop-junk"));
+    if json && stop_junk {
+        crate::fail!("{}", crate::command::Command::Health.usage_text());
+    }
     tool.places.require_volume()?;
     let mut release_failures = Vec::new();
     if !stop_junk {
@@ -2186,7 +2185,9 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
         &crate::health_fix::Fixes {
             prune: &|host| {
                 if host.target.is_none() {
-                    return crate::prune::cmd_prune(tool, &[]).map_err(|fault| fault.text());
+                    let none = crate::args::Args::of(crate::command::Command::Prune, &[])
+                        .map_err(|fault| fault.text())?;
+                    return crate::prune::cmd_prune(tool, &none).map_err(|fault| fault.text());
                 }
                 crate::host_setup::ask_builds_there(&tool.places, &ssh, host, "prune", "pruning")
                     .map_err(|fault| fault.text())?
@@ -2437,11 +2438,15 @@ mod tests {
         crate::worktree::cmd_new(
             &tool,
             &crate::testing::no_ssh(),
-            &[
-                main.display().to_string(),
-                "--for".to_string(),
-                "agent".to_string(),
-            ],
+            &crate::args::Args::of(
+                crate::command::Command::New,
+                &[
+                    main.display().to_string(),
+                    "--for".to_string(),
+                    "agent".to_string(),
+                ],
+            )
+            .unwrap(),
         )
         .unwrap();
         let top = scratch.dir.join("demo-worktrees/side-1");

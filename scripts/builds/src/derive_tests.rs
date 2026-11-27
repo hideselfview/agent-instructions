@@ -104,18 +104,28 @@ fn a_shots_prefix_names_its_lane_and_a_class_must_be_in_exactly_one() {
     assert!(lane_of_class(&[Lane::MAC, Lane::ANDROID], "X").is_err());
 }
 
-#[test]
-fn the_flags_take_a_name_without_a_lane_and_fresh_anywhere() {
-    let args: Vec<String> = ["--test", "FooTests", "--fresh", "--shots", "mac.a."]
+/// `builds app-build demo main <words>`.
+fn derive_args(words: &[&str]) -> Result<crate::args::Args> {
+    let line: Vec<String> = ["demo", "main"]
         .iter()
+        .chain(words)
         .map(|word| word.to_string())
         .collect();
-    let (picks, fresh) = parse_picks(&args, &LANES, |kind, arg| match kind {
+    crate::args::Args::of(
+        crate::command::Command::AppBuild(crate::command::app_build::Build),
+        &line,
+    )
+}
+
+#[test]
+fn the_flags_take_a_name_without_a_lane_and_fresh_anywhere() {
+    let args = derive_args(&["--test", "FooTests", "--fresh", "--shots", "mac.a."]).unwrap();
+    let picks = parse_picks(&args, &LANES, |kind, arg| match kind {
         PickKind::Shots => lane_of_prefix(arg, &LANES),
         PickKind::Class => Ok(Lane::ANDROID),
     })
     .unwrap();
-    assert!(fresh);
+    assert!(args.switch("fresh"));
     assert_eq!(
         picks,
         vec![
@@ -123,13 +133,13 @@ fn the_flags_take_a_name_without_a_lane_and_fresh_anywhere() {
             Pick::Shots(Lane::MAC, shots::Prefix::parse("mac.a.").unwrap())
         ]
     );
-    assert!(parse_picks(&["--test".to_string()], &LANES, |_, _| Ok(Lane::MAC)).is_err());
-    assert!(parse_picks(&["mac".to_string()], &LANES, |_, _| Ok(Lane::MAC)).is_err());
+    assert!(derive_args(&["--test"]).is_err());
 }
 
 fn picks_of(words: &[&str]) -> Result<Vec<Pick>> {
-    let args: Vec<String> = words.iter().map(|word| word.to_string()).collect();
-    parse_picks(&args, &LANES, |_, arg| lane_of_prefix(arg, &LANES)).map(|(picks, _)| picks)
+    parse_picks(&derive_args(words)?, &LANES, |_, arg| {
+        lane_of_prefix(arg, &LANES)
+    })
 }
 
 #[test]

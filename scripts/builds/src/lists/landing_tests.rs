@@ -68,14 +68,25 @@ fn setup_after_adding(name: &str, before_take: impl FnOnce(&Demo)) -> Landing {
 fn check(l: &Landing, extra: &[&str]) -> Result<()> {
     let mut args = vec!["check-landing", l.agent.to_str().unwrap()];
     args.extend_from_slice(extra);
-    item_words(&l.demo.tool, &crate::testing::no_ssh(), &words(&args))
+    item_words(
+        &l.demo.tool,
+        &crate::testing::no_ssh(),
+        &crate::lists::item_fixtures::read_words(&args),
+    )
 }
 
 fn landed(l: &Landing, extra: &[&str]) -> Result<()> {
     let mut args = vec![l.agent.to_str().unwrap()];
     args.extend_from_slice(extra);
     let owned: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-    super::landed(&l.demo.tool, &owned)
+    super::landed(
+        &l.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::Landed),
+            &owned,
+        )
+        .unwrap(),
+    )
 }
 
 /// Puts the commit on origin/main, as the landing's push does.
@@ -87,7 +98,14 @@ fn bare(l: &Landing, args: &[&str]) -> Result<()> {
     let mut all = vec!["check-landing", l.agent.to_str().unwrap()];
     all.extend_from_slice(args);
     let owned: Vec<String> = all.iter().map(|a| a.to_string()).collect();
-    check_landing(&l.demo.tool, &owned[1..])
+    check_landing(
+        &l.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::CheckLanding),
+            &owned[1..],
+        )
+        .unwrap(),
+    )
 }
 
 #[test]
@@ -130,7 +148,14 @@ fn check_landing_refuses_an_item_that_runs_in_another_worktree() {
     let before = l.demo.state();
     let mut args = vec![other.display().to_string()];
     args.extend(["--done", "1", &l.commit].iter().map(|a| a.to_string()));
-    let refused = refusal(check_landing(&l.demo.tool, &args));
+    let refused = refusal(check_landing(
+        &l.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::CheckLanding),
+            &args,
+        )
+        .unwrap(),
+    ));
     assert!(
         refused.contains(&format!(
             "1 runs in {}, not in {}: land it from the worktree it runs in",
@@ -272,7 +297,14 @@ fn landed_in_another_repo_than_the_item_runs_in_is_refused() {
         .collect();
     let mut with_dir = vec![other.display().to_string()];
     with_dir.extend(args);
-    let refused = refusal(super::landed(&l.demo.tool, &with_dir));
+    let refused = refusal(super::landed(
+        &l.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::Landed),
+            &with_dir,
+        )
+        .unwrap(),
+    ));
     assert!(refused.contains("not in a worktree of other"), "{refused}");
 }
 
@@ -463,11 +495,35 @@ fn a_part_from_one_repo_leaves_the_item_running_and_done_from_the_other_closes_i
 
     // Each repo's landing is accepted by the check.
     let demo_check = land_args(&t.demo_agent, &["--part", "1", &t.demo_commit]);
-    check_landing(&t.demo.tool, &demo_check).unwrap();
+    check_landing(
+        &t.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::CheckLanding),
+            &demo_check,
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let other_check = land_args(&t.other_agent, &["--done", "1", &t.other_commit]);
-    check_landing(&t.demo.tool, &other_check).unwrap();
+    check_landing(
+        &t.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::CheckLanding),
+            &other_check,
+        )
+        .unwrap(),
+    )
+    .unwrap();
 
-    super::landed(&t.demo.tool, &demo_check).unwrap();
+    super::landed(
+        &t.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::Landed),
+            &demo_check,
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let lists = t.demo.store.load().unwrap();
     let item = lists.item(Id(1)).unwrap();
     assert_eq!(
@@ -479,7 +535,15 @@ fn a_part_from_one_repo_leaves_the_item_running_and_done_from_the_other_closes_i
         (2, 1, "demo")
     );
 
-    super::landed(&t.demo.tool, &other_check).unwrap();
+    super::landed(
+        &t.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::Landed),
+            &other_check,
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let lists = t.demo.store.load().unwrap();
     assert!(lists.item(Id(1)).is_none());
     assert!(matches!(&lists.closed[0].how, How::Landed(c) if *c == [t.other_commit.clone()]));
@@ -497,9 +561,24 @@ fn a_part_from_one_repo_leaves_the_item_running_and_done_from_the_other_closes_i
 fn a_landing_from_the_second_repo_is_accepted_and_the_first_repos_commit_is_not_in_it() {
     let t = two_repos("landing-two-second-repo");
     let from_other = land_args(&t.other_agent, &["--part", "1", &t.other_commit]);
-    check_landing(&t.demo.tool, &from_other).unwrap();
+    check_landing(
+        &t.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::CheckLanding),
+            &from_other,
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let wrong_commit = land_args(&t.other_agent, &["--part", "1", &t.demo_commit]);
-    let refused = refusal(check_landing(&t.demo.tool, &wrong_commit));
+    let refused = refusal(check_landing(
+        &t.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::CheckLanding),
+            &wrong_commit,
+        )
+        .unwrap(),
+    ));
     assert!(refused.contains("not a commit"), "{refused}");
 }
 
@@ -508,7 +587,14 @@ fn done_from_one_repo_waits_until_the_other_repos_worktree_lands() {
     let t = two_repos("landing-two-done-waits");
     let done = land_args(&t.other_agent, &["--done", "1", &t.other_commit]);
     let before = t.demo.state();
-    let refused = refusal(check_landing(&t.demo.tool, &done));
+    let refused = refusal(check_landing(
+        &t.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::CheckLanding),
+            &done,
+        )
+        .unwrap(),
+    ));
     assert!(
         refused.contains(&format!(
             "#1 also runs in {}, whose branch work holds commits origin/main lacks",
@@ -524,7 +610,11 @@ fn done_from_one_repo_waits_until_the_other_repos_worktree_lands() {
     // A part from this repo is no refusal: the item keeps running in both.
     check_landing(
         &t.demo.tool,
-        &land_args(&t.other_agent, &["--part", "1", &t.other_commit]),
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::CheckLanding),
+            &land_args(&t.other_agent, &["--part", "1", &t.other_commit]),
+        )
+        .unwrap(),
     )
     .unwrap();
 
@@ -532,12 +622,32 @@ fn done_from_one_repo_waits_until_the_other_repos_worktree_lands() {
     run_git(&t.demo_agent, &["push", "-q", "origin", "HEAD:main"]);
     super::landed(
         &t.demo.tool,
-        &land_args(&t.demo_agent, &["--part", "1", &t.demo_commit]),
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::Landed),
+            &land_args(&t.demo_agent, &["--part", "1", &t.demo_commit]),
+        )
+        .unwrap(),
     )
     .unwrap();
-    check_landing(&t.demo.tool, &done).unwrap();
+    check_landing(
+        &t.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::CheckLanding),
+            &done,
+        )
+        .unwrap(),
+    )
+    .unwrap();
     run_git(&t.other_agent, &["push", "-q", "origin", "HEAD:main"]);
-    super::landed(&t.demo.tool, &done).unwrap();
+    super::landed(
+        &t.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::Landed),
+            &done,
+        )
+        .unwrap(),
+    )
+    .unwrap();
     assert!(t.demo.store.load().unwrap().item(Id(1)).is_none());
 }
 
@@ -624,11 +734,43 @@ fn a_running_item_takes_a_worktree_of_another_repo_and_lands_from_each() {
     run_git(&demo_agent, &["push", "-q", "origin", "HEAD:main"]);
     run_git(&other_agent, &["push", "-q", "origin", "HEAD:main"]);
     let part = land_args(&demo_agent, &["--part", "1", &demo_commit]);
-    check_landing(&demo.tool, &part).unwrap();
-    super::landed(&demo.tool, &part).unwrap();
+    check_landing(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::CheckLanding),
+            &part,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    super::landed(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::Landed),
+            &part,
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let done = land_args(&other_agent, &["--done", "1", &other_commit]);
-    check_landing(&demo.tool, &done).unwrap();
-    super::landed(&demo.tool, &done).unwrap();
+    check_landing(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::CheckLanding),
+            &done,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    super::landed(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Item(crate::command::item::Landed),
+            &done,
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let lists = demo.store.load().unwrap();
     assert!(lists.item(Id(1)).is_none());
     assert!(matches!(&lists.closed[0].how, How::Landed(c) if *c == [other_commit.clone()]));

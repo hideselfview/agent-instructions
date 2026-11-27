@@ -78,15 +78,13 @@ fn refs(repo: &Path) -> String {
 
 #[test]
 fn parses_a_request() {
-    let parsed = parse(&args(&[
-        "bae",
-        "origin/main",
-        "--host",
-        "m1",
-        "--",
-        "ls",
-        "-l",
-    ]))
+    let parsed = parse(
+        &crate::args::Args::of(
+            crate::command::Command::Remote(crate::command::remote::Run),
+            &args(&["bae", "origin/main", "--host", "m1", "--", "ls", "-l"]),
+        )
+        .unwrap(),
+    )
     .unwrap();
     assert_eq!(
         parsed,
@@ -98,13 +96,50 @@ fn parses_a_request() {
             prepare: crate::setup::Prepare::Yes,
         }
     );
-    let staged = parse(&args(&["bae", "--staged", "--", "true"])).unwrap();
+    let staged = parse(
+        &crate::args::Args::of(
+            crate::command::Command::Remote(crate::command::remote::Run),
+            &args(&["bae", "--staged", "--", "true"]),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(staged.what, What::Staged);
-    let working = parse(&args(&["bae", "--working", "--", "true"])).unwrap();
+    let working = parse(
+        &crate::args::Args::of(
+            crate::command::Command::Remote(crate::command::remote::Run),
+            &args(&["bae", "--working", "--", "true"]),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(working.what, What::Working);
-    assert!(parse(&args(&["bae", "--", "true"])).is_err(), "no ref");
-    assert!(parse(&args(&["bae", "main"])).is_err(), "no command");
-    assert!(parse(&args(&["bae", "main", "--",])).is_err());
+    assert!(
+        crate::args::Args::of(
+            crate::command::Command::Remote(crate::command::remote::Run),
+            &args(&["bae", "--", "true"])
+        )
+        .and_then(|args| parse(&args).map(drop))
+        .is_err(),
+        "no ref"
+    );
+    assert!(
+        crate::args::Args::of(
+            crate::command::Command::Remote(crate::command::remote::Run),
+            &args(&["bae", "main"])
+        )
+        .and_then(|args| parse(&args).map(drop))
+        .is_err(),
+        "no command"
+    );
+    assert!(
+        crate::args::Args::of(
+            crate::command::Command::Remote(crate::command::remote::Run),
+            &args(&["bae", "main", "--",])
+        )
+        .and_then(|args| parse(&args).map(drop))
+        .is_err()
+    );
 }
 
 #[test]

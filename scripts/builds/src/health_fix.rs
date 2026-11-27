@@ -260,10 +260,8 @@ pub fn release_stalled_claims(
                 "{top} holds nothing origin/main lacks and has had no change for {}",
                 crate::text::duration(idle * 60)
             );
-            let said = crate::lists::cmd_item(
-                tool,
-                ssh,
-                crate::command::item::Stop,
+            let words = crate::args::Args::of(
+                crate::command::Command::Item(crate::command::item::Stop),
                 &[
                     id.clone(),
                     "--why".to_string(),
@@ -273,7 +271,8 @@ pub fn release_stalled_claims(
                     "--by".to_string(),
                     "health".to_string(),
                 ],
-            );
+            )?;
+            let said = crate::lists::cmd_item(tool, ssh, crate::command::item::Stop, &words);
             match said {
                 Ok(()) => lines.push(format!(
                     "stopped item {id}, marked running in {top}, which holds nothing origin/main lacks and had no change for {}",

@@ -72,8 +72,8 @@ fn draw(side: &Path, path: &str, body: &str) {
 
 /// Runs `builds design <args>` as the designer, as no agent.
 fn design_command(demo: &Demo, args: &[&str]) -> crate::fail::Result<String> {
-    let mut args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-    args.extend(["--by".to_string(), "designer".to_string()]);
+    let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    let args = crate::lists::fixtures::with_by("design", "designer", args);
     run_as(&demo.tool, &args, || Ok(None), || Ok(None))
 }
 

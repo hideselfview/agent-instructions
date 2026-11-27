@@ -168,14 +168,13 @@ pub fn times_text(lists: &Lists, ids: &[Id], now: i64) -> Result<String> {
 }
 
 /// `builds item times [N...]`.
-pub fn times(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
+pub fn times(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
     let ids: Vec<Id> = args
         .positional()
         .iter()
         .map(|id| Id::parse(id))
         .collect::<Result<_>>()?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     let lists = store.load()?;
     let db = store.open_existing()?;
     if ids.is_empty() {
@@ -317,16 +316,11 @@ pub fn render_item(lists: &Lists, id: Id, now: i64) -> Result<String> {
     Ok(out)
 }
 
-pub fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(
-        1,
-        &crate::command::Command::Item(crate::command::item::Show).usage_text(),
-    )?
-    else {
+pub fn show(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let [id] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     crate::output::answer(render_item(&store.load()?, Id::parse(id)?, tool.now)?);
     Ok(())
 }
@@ -366,19 +360,11 @@ fn chosen<'a>(lists: &'a Lists, choice: &Choice) -> Result<Vec<&'a Item>> {
     Ok(chosen)
 }
 
-pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(
-        args,
-        &["area", "for", "tag"],
-        &["running", "ready", "backlog"],
-    )?;
-    args.exactly(
-        0,
-        &crate::command::Command::Item(crate::command::item::List).usage_text(),
-    )?;
+pub fn list(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    args.exactly(0)?;
     let audience: Option<Audience> = args.choice("for")?;
     let area = args.value("area")?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     let lists = store.load()?;
     if let Some(area) = area
         && !lists.areas.iter().any(|known| known == area)
@@ -414,7 +400,7 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 
 /// `builds next [--for design-session] [--project P]`: the ready items of the
 /// coordinator (or of the design session) in dispatch order.
-pub fn next(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
+pub fn next(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
     crate::output::answer(next_report(tool, args, cwd)?);
     Ok(())
 }
@@ -422,12 +408,11 @@ pub fn next(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// What `builds next` prints: with `--project`, that project's ready items;
 /// without it, those of every project, each project's under its own line,
 /// since item numbers belong to one project.
-pub fn next_report(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(args, &["for"], &[])?;
-    args.exactly(0, &crate::command::Command::Next.usage_text())?;
+pub fn next_report(tool: &Tool, args: &Args, cwd: &Path) -> Result<String> {
+    args.exactly(0)?;
     let audience: Audience = args.choice("for")?.unwrap_or(Audience::Coordinator);
     if args.value("project")?.is_some() {
-        let store = Store::resolve(&tool.places, &args, cwd)?;
+        let store = Store::resolve(&tool.places, args, cwd)?;
         return Ok(next_text(&store.load()?, audience));
     }
     let mut out = String::new();

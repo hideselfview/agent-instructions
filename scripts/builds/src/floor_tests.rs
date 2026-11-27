@@ -96,12 +96,20 @@ fn prune_brings_the_volume_up_to_the_target_above_the_floor() {
         &scratch.dir.join("demo"),
         &["update-ref", "refs/remotes/origin/main", "HEAD"],
     );
-    crate::prune::cmd_prune(&tool, &["--dry-run".to_string()]).unwrap();
+    crate::prune::cmd_prune(
+        &tool,
+        &crate::args::Args::of(crate::command::Command::Prune, &["--dry-run".to_string()]).unwrap(),
+    )
+    .unwrap();
     assert!(
         root.join("side-2/target/blob").exists(),
         "a dry run deleted a folder"
     );
-    crate::prune::cmd_prune(&tool, &[]).unwrap();
+    crate::prune::cmd_prune(
+        &tool,
+        &crate::args::Args::of(crate::command::Command::Prune, &[]).unwrap(),
+    )
+    .unwrap();
     assert!(
         !root.join("side-2/target/blob").exists(),
         "prune kept the idle unclaimed folder under the target"

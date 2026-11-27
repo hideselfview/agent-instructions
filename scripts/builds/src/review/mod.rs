@@ -231,7 +231,7 @@ impl Drop for Running {
 }
 
 /// `builds review <command> <args>`.
-pub fn cmd_review(tool: &Tool, command: review::Review, args: &[String]) -> Result<()> {
+pub fn cmd_review(tool: &Tool, command: review::Review, args: &Args) -> Result<()> {
     match command {
         review::Groups => list_groups(tool, args),
         review::Wait => wait_command(tool, args),
@@ -1060,25 +1060,12 @@ fn call_mechanical(
     Ok(())
 }
 
-fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(
-        args,
-        &[
-            "landing",
-            "item",
-            "rules-root",
-            "reviewer",
-            "head",
-            "kind",
-            "checked-by",
-        ],
-        &[],
-    )?;
+fn run_command(tool: &Tool, args: &Args) -> Result<()> {
     let caller = tool.session.caller()?;
-    if let Some(ReviewKind::Mechanical { checked_by }) = kind_of(tool, &args)? {
-        return call_mechanical(tool, &args, &checked_by, caller.as_ref());
+    if let Some(ReviewKind::Mechanical { checked_by }) = kind_of(tool, args)? {
+        return call_mechanical(tool, args, &checked_by, caller.as_ref());
     }
-    let (reported, to_settle) = run_review(tool, &args, caller.as_ref())?;
+    let (reported, to_settle) = run_review(tool, args, caller.as_ref())?;
     crate::output::answer(reported.text);
     if let Some(refusal) = &reported.refusal {
         crate::output::answer(refusal);
@@ -1216,7 +1203,7 @@ fn tell_judge_waiting(
 
 /// `builds review wait LANDING`: waits until every finding of the review
 /// landing is settled, then prints how each was settled (judge.rs).
-fn wait_command(tool: &Tool, args: &[String]) -> Result<()> {
+fn wait_command(tool: &Tool, args: &Args) -> Result<()> {
     let (store, landing) = wait_target(&tool.places, args, &tool.dir)?;
     drop(store.open_existing()?);
     crate::output::answer(judge::wait(&store, landing, judge::WAIT_LIMIT)?);
@@ -1225,21 +1212,16 @@ fn wait_command(tool: &Tool, args: &[String]) -> Result<()> {
 
 pub fn wait_target(
     places: &crate::places::Places,
-    args: &[String],
+    args: &Args,
     cwd: &Path,
 ) -> Result<(Store, i64)> {
-    let args = Args::parse(args, &[], &[])?;
-    let [landing] = args.exactly(
-        1,
-        &crate::command::Command::Review(crate::command::review::Wait).usage_text(),
-    )?
-    else {
+    let [landing] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let landing: i64 = landing
         .parse()
         .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;
-    let store = Store::resolve(places, &args, cwd)?;
+    let store = Store::resolve(places, args, cwd)?;
     Ok((store, landing))
 }
 
@@ -1247,17 +1229,16 @@ pub fn wait_target(
 /// copy groups over the worktree's net change past BASE, records the run and
 /// prints its findings. Exits 1 when a group raised a finding or gave no
 /// answer.
-fn copy_command(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["rules-root", "reviewer"], &[])?;
-    let (worktree, base) = worktree_and_base(&args)?;
+fn copy_command(tool: &Tool, args: &Args) -> Result<()> {
+    let (worktree, base) = worktree_and_base(args)?;
     let checkout = Checkout::find(worktree)?;
-    let Some(project) = project_given(tool, &args, &checkout)? else {
+    let Some(project) = project_given(tool, args, &checkout)? else {
         fail!(
             "repo {} is in no project of the lists, so builds does not know whose rules to read or which store records the review; say which with --project",
             checkout.repo()
         )
     };
-    let stamp = Stamp::resolve(tool.now, &args, &checkout.top)?;
+    let stamp = Stamp::resolve(tool.now, args, &checkout.top)?;
     let checked = copy::check(&copy::Inputs {
         store: &Store::named(&tool.places, &project)?,
         project: &project,
@@ -1265,7 +1246,7 @@ fn copy_command(tool: &Tool, args: &[String]) -> Result<()> {
         worktree: &checkout.top,
         base,
         label: &default_key(&checkout.top)?,
-        root: &rules_root(&args)?,
+        root: &rules_root(args)?,
         reviewer: &tool.reviewer.program_for(args.value("reviewer")?),
         stamp: &stamp,
     })?;
@@ -1439,8 +1420,7 @@ fn brief_of(
 /// which records that the person allowed an open confirmed finding to land.
 /// <caller> runs it: the agent of the finding's branch never settles it,
 /// and while a judge listens, only the judge gives a verdict (judge.rs).
-fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
-    let args = Args::parse(args, &["why"], &["again", "by-person"])?;
+fn settle(tool: &Tool, args: &Args, caller: Option<&Caller>) -> Result<()> {
     let again = args.switch("again");
     let by_person = args.switch("by-person");
     let (finding, how) = match (args.positional(), again) {
@@ -1451,22 +1431,18 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
             crate::command::Command::Review(crate::command::review::Settle).usage_text()
         ),
     };
-    match (how == "allowed", by_person) {
-        (true, false) => fail!(
+    // No usage line takes --by-person without `allowed`.
+    if how == "allowed" && !by_person {
+        fail!(
             "only the person can allow a finding to land: pass --by-person once they have said to land finding {finding} as it is, with their words in --why, never on your own judgment"
-        ),
-        (false, true) => fail!(
-            "--by-person goes with allowed: {}",
-            crate::command::Command::Review(crate::command::review::Settle).usage_text()
-        ),
-        _ => {}
+        );
     }
     let id: i64 = finding
         .parse()
         .map_err(|_| Fail::Message(format!("'{finding}' is not a finding number")))?;
     let why = args.why()?;
-    let (store, _) = store_of(tool, &args)?;
-    let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
+    let (store, _) = store_of(tool, args)?;
+    let stamp = Stamp::resolve(tool.now, args, &tool.dir)?;
     let sessions = tool.sessions();
     let running = judge::running_claude(&sessions)?;
     if again {
@@ -1527,7 +1503,7 @@ fn held_words(held: &audit_item::Held) -> String {
 
 /// The finding a command names: its one positional argument.
 fn finding_named(args: &Args) -> Result<i64> {
-    let [finding] = args.exactly(1, &crate::command::Command::group_usage_text("review"))? else {
+    let [finding] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     finding
@@ -1541,15 +1517,14 @@ fn finding_named(args: &Args) -> Result<i64> {
 /// once (judge.rs).
 fn dispute_command(
     tool: &Tool,
-    args: &[String],
+    args: &Args,
     caller: Option<&Caller>,
     own: Option<&crate::inbox::Messaging>,
 ) -> Result<()> {
-    let args = Args::parse(args, &["why"], &[])?;
-    let id = finding_named(&args)?;
+    let id = finding_named(args)?;
     let why = args.why()?;
-    let (store, conn) = store_of(tool, &args)?;
-    let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
+    let (store, conn) = store_of(tool, args)?;
+    let stamp = Stamp::resolve(tool.now, args, &tool.dir)?;
     let sessions = tool.sessions();
     let running = judge::running_claude(&sessions)?;
     let finding = store.write(&stamp, &format!("review dispute {id}"), |db| {
@@ -1571,13 +1546,12 @@ fn dispute_command(
 /// answer to a dispute that keeps the finding confirmed. With `--again`, the
 /// judge corrects the reason it gave when it kept the finding. Only whoever
 /// may give a verdict on the finding answers (judge.rs).
-fn keep_command(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
-    let args = Args::parse(args, &["why"], &["again"])?;
+fn keep_command(tool: &Tool, args: &Args, caller: Option<&Caller>) -> Result<()> {
     let again = args.switch("again");
-    let id = finding_named(&args)?;
+    let id = finding_named(args)?;
     let why = args.why()?;
-    let (store, _) = store_of(tool, &args)?;
-    let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
+    let (store, _) = store_of(tool, args)?;
+    let stamp = Stamp::resolve(tool.now, args, &tool.dir)?;
     let sessions = tool.sessions();
     let running = judge::running_claude(&sessions)?;
     store.write(&stamp, &format!("review keep {id}"), |db| {
@@ -1602,19 +1576,14 @@ fn keep_command(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result
 }
 
 /// `builds review show LANDING`.
-fn show(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
-    let [landing] = args.exactly(
-        1,
-        &crate::command::Command::Review(crate::command::review::Show).usage_text(),
-    )?
-    else {
+fn show(tool: &Tool, args: &Args) -> Result<()> {
+    let [landing] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let id: i64 = landing
         .parse()
         .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;
-    let (_, conn) = store_of(tool, &args)?;
+    let (_, conn) = store_of(tool, args)?;
     crate::output::answer(show_text(&conn, id)?);
     Ok(())
 }
@@ -1687,25 +1656,8 @@ fn show_text(conn: &Connection, id: i64) -> Result<String> {
 /// `review/cases` and prints the recall, the false blocking findings and the
 /// tokens. Each replayed case is recorded in its project's store. With
 /// `--landing`, it replays the diffs of recorded reviews instead (`rerun.rs`).
-fn replay(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(
-        args,
-        &[
-            "case",
-            "rules-root",
-            "reviewer",
-            "source",
-            "model",
-            "landing",
-            "repo-dir",
-            "group",
-        ],
-        &["compare"],
-    )?;
-    args.exactly(
-        0,
-        &crate::command::Command::Review(crate::command::review::Replay).usage_text(),
-    )?;
+fn replay(tool: &Tool, args: &Args) -> Result<()> {
+    args.exactly(0)?;
     if !args.values("landing").is_empty() {
         if args.switch("compare") {
             fail!(
@@ -1714,7 +1666,7 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
                     crate::command::Command::Review(crate::command::review::Replay).usage_text()
             );
         }
-        return replay_landings(tool, &args);
+        return replay_landings(tool, args);
     }
     if args.value("repo-dir")?.is_some() || !args.values("group").is_empty() {
         fail!(
@@ -1722,7 +1674,7 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
             usage = crate::command::Command::Review(crate::command::review::Replay).usage_text()
         );
     }
-    let root = rules_root(&args)?;
+    let root = rules_root(args)?;
     let reviewer = tool.reviewer.program_for(args.value("reviewer")?);
     let source = args.value("source")?.map(PathBuf::from);
     let mut all = cases::load(&root)?;
@@ -1748,7 +1700,7 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
         designs.push(Globs::read(&*store.open_existing()?, &case.repo)?);
         stores.push(store);
     }
-    let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
+    let stamp = Stamp::resolve(tool.now, args, &tool.dir)?;
     // Runs the cases under the rules and groups of <root>, every group in
     // <model> when given, and records each case's run.
     let replay_under = |root: &Path, model: Option<&str>| -> Result<Vec<cases::CaseResult>> {
@@ -1851,21 +1803,16 @@ pub(super) fn group_names(root: &Path) -> Result<impl Fn(&str) -> Option<String>
 }
 
 /// `builds review audit LANDING --repo-dir DIR`: audits a landing that landed.
-fn audit_command(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["repo-dir", "rules-root", "reviewer", "seed"], &[])?;
-    let [landing] = args.exactly(
-        1,
-        &crate::command::Command::Review(crate::command::review::Audit).usage_text(),
-    )?
-    else {
+fn audit_command(tool: &Tool, args: &Args) -> Result<()> {
+    let [landing] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let landing: i64 = landing
         .parse()
         .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;
     // audit::audit opens the store, and fails when the project has none.
-    let store = Store::resolve(&tool.places, &args, &tool.dir)?;
-    let root = rules_root(&args)?;
+    let store = Store::resolve(&tool.places, args, &tool.dir)?;
+    let root = rules_root(args)?;
     let reviewer = tool.reviewer.program_for(args.value("reviewer")?);
     let repo_dir = PathBuf::from(args.require("repo-dir")?);
     let stamp = Stamp {
@@ -1903,16 +1850,12 @@ pub(super) fn clock_bits() -> u64 {
 
 /// `builds review misses`: the candidate misses nobody has settled. With
 /// `--check`, the model check settles each one (`audit::check_open_misses`).
-fn misses(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["rules-root", "model", "reviewer"], &["check"])?;
-    args.exactly(
-        0,
-        &crate::command::Command::Review(crate::command::review::Misses).usage_text(),
-    )?;
+fn misses(tool: &Tool, args: &Args) -> Result<()> {
+    args.exactly(0)?;
     if args.switch("check") {
-        return audit::check_misses_command(tool, &args);
+        return audit::check_misses_command(tool, args);
     }
-    let (_, conn) = store_of(tool, &args)?;
+    let (_, conn) = store_of(tool, args)?;
     let open = audit::open_misses(&conn)?;
     for (landing, finding) in &open {
         crate::output::answer_line(format!("landing {landing}:"));
@@ -1926,14 +1869,10 @@ fn misses(tool: &Tool, args: &[String]) -> Result<()> {
 }
 
 /// `builds review rates`: each group's audited miss rate.
-fn rates(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["rules-root"], &[])?;
-    args.exactly(
-        0,
-        &crate::command::Command::Review(crate::command::review::Rates).usage_text(),
-    )?;
-    let (_, conn) = store_of(tool, &args)?;
-    let root = rules_root(&args)?;
+fn rates(tool: &Tool, args: &Args) -> Result<()> {
+    args.exactly(0)?;
+    let (_, conn) = store_of(tool, args)?;
+    let root = rules_root(args)?;
     for rate in audit::rates(&conn, &group_names(&root)?)? {
         crate::output::answer_line(format!(
             "{}: {} audits, {} confirmed misses; the latest {}: {}{}",
@@ -1950,13 +1889,9 @@ fn rates(tool: &Tool, args: &[String]) -> Result<()> {
 
 /// `builds review scores`: precision and recall per group and rule, for each
 /// setup, from the settled findings and audits in the store.
-fn scores(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
-    args.exactly(
-        0,
-        &crate::command::Command::Review(crate::command::review::Scores).usage_text(),
-    )?;
-    let (store, conn) = store_of(tool, &args)?;
+fn scores(tool: &Tool, args: &Args) -> Result<()> {
+    args.exactly(0)?;
+    let (store, conn) = store_of(tool, args)?;
     crate::output::answer(score::store_report(
         &store.project,
         &score::of_store(&conn)?,
@@ -1967,20 +1902,7 @@ fn scores(tool: &Tool, args: &[String]) -> Result<()> {
 /// `builds review case add`: the case a confirmed finding or a confirmed miss
 /// makes, written into the checkout named by --rules-root (never a default:
 /// the main checkout is the person's).
-fn case_add(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(
-        args,
-        &[
-            "repo-dir",
-            "rules-root",
-            "name",
-            "rule",
-            "file",
-            "commits",
-            "clean-for",
-        ],
-        &[],
-    )?;
+fn case_add(tool: &Tool, args: &Args) -> Result<()> {
     let Some(root) = args.value("rules-root")? else {
         fail!("name the agent-instructions worktree to write the case in with --rules-root");
     };
@@ -1989,7 +1911,7 @@ fn case_add(tool: &Tool, args: &[String]) -> Result<()> {
     let patch_of = |base: &str, head: &str| cases::patch_of(&repo_dir, base, head);
     let (project, patch, addition, default_name) = match args.positional() {
         [landing, finding] => {
-            let (store, conn) = store_of(tool, &args)?;
+            let (store, conn) = store_of(tool, args)?;
             let landing: i64 = landing
                 .parse()
                 .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;
@@ -2066,13 +1988,9 @@ fn case_add(tool: &Tool, args: &[String]) -> Result<()> {
 /// `--changed`, prints only the groups a change to those paths in repo
 /// `--repo` of project `--project` runs, reading the repo's design files from
 /// the project's store.
-fn list_groups(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["rules-root", "changed", "repo"], &[])?;
-    args.exactly(
-        0,
-        &crate::command::Command::Review(crate::command::review::Groups).usage_text(),
-    )?;
-    let root = rules_root(&args)?;
+fn list_groups(tool: &Tool, args: &Args) -> Result<()> {
+    args.exactly(0)?;
+    let root = rules_root(args)?;
     let groups = groups::Groups::load(&root)?;
     let every = rules::load(&root, None)?;
     groups::require_whole(&groups, &every)?;

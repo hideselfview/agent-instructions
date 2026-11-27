@@ -173,24 +173,9 @@ fn top_of(folder: &Path) -> Result<PathBuf> {
 }
 
 /// `builds shots check-program`, given the arguments after it.
-pub fn cmd(places: &Places, args: &[String]) -> Result<()> {
-    let (mut named, mut checkout) = (Vec::new(), None);
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        if arg == "--checkout" {
-            let Some(folder) = rest.next() else {
-                fail!(
-                    "{}",
-                    crate::command::Command::Shots(crate::command::shots::CheckProgram)
-                        .usage_text()
-                );
-            };
-            checkout = Some(PathBuf::from(folder));
-        } else {
-            named.push(arg);
-        }
-    }
-    let [repo, git_ref, lane, prefix] = named[..] else {
+pub fn cmd(places: &Places, args: &crate::args::Args) -> Result<()> {
+    let checkout = args.value("checkout")?.map(PathBuf::from);
+    let [repo, git_ref, lane, prefix] = args.positional() else {
         fail!(
             "{}",
             crate::command::Command::Shots(crate::command::shots::CheckProgram).usage_text()

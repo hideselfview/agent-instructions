@@ -133,6 +133,10 @@ fn no_ref_builds_the_origin_main_the_fetch_brought_not_a_stale_local_main() {
             .collect::<Vec<_>>()
     };
     let (no_ref, with_ref) = (args(&["demo", "mac"]), args(&["demo", "mac", "v1"]));
+    let (no_ref, with_ref) = (
+        crate::args::Args::of(crate::command::Command::BuildApp, &no_ref).unwrap(),
+        crate::args::Args::of(crate::command::Command::BuildApp, &with_ref).unwrap(),
+    );
     let (_, _, default) = parse_args(&no_ref).unwrap();
     let (_, _, explicit) = parse_args(&with_ref).unwrap();
     assert_eq!(explicit, "v1");

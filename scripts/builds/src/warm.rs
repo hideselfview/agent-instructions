@@ -412,8 +412,8 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
 /// `builds app-clone <app> <source> <dest>`: `clone_lane` for two
 /// checkouts of this machine, which a host runs for the new app checkout that
 /// this Mac's build makes there (app_remote.rs).
-pub fn cmd_app_clone(tool: &Tool, args: &[String]) -> Result<()> {
-    let [lane, source, dest] = args else {
+pub fn cmd_app_clone(tool: &Tool, args: &crate::args::Args) -> Result<()> {
+    let [lane, source, dest] = args.positional() else {
         fail!("{}", crate::command::Command::AppClone.usage_text())
     };
     let (source, dest) = (Checkout::find(source)?, Checkout::find(dest)?);

@@ -4,36 +4,35 @@
 //! worktree it runs in names, else --project's
 //! (`lists::store::project_of`). In a repo two projects hold, a command from a
 //! worktree whose claim names none therefore needs the flag, whatever the
-//! command does. A command that has no other use for a project does not
-//! read the flag: `split` takes it out of the arguments here.
+//! command does. A command that has no other use for a project does not read
+//! the flag, and main checks the project it names instead.
 
-use crate::command::{Command, Parsed};
-use crate::fail;
+use crate::args::Args;
 use crate::fail::Result;
 
 /// The flag that names a project.
 pub const PROJECT: &str = "--project";
 
-/// A command's arguments as `split` reads them.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Split {
-    pub flag: Flag,
-    /// The arguments the command reads.
-    pub args: Vec<String>,
-}
-
 /// The `--project` of a command.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Flag {
     Absent,
-    /// The command reads it, so its arguments hold it, and the command checks
-    /// the project it names.
+    /// The command reads it, and checks the project it names.
     Read(String),
-    /// The command does not read it, so its arguments lack it.
+    /// The command does not read it.
     Unread(String),
 }
 
 impl Flag {
+    /// The `--project` of <args>.
+    pub fn of(args: &Args) -> Result<Flag> {
+        Ok(match args.value("project")? {
+            None => Flag::Absent,
+            Some(project) if args.reads_project() => Flag::Read(project.to_string()),
+            Some(project) => Flag::Unread(project.to_string()),
+        })
+    }
+
     /// The project the flag names, for the acknowledgement check.
     pub fn project(&self) -> Option<&str> {
         match self {
@@ -43,73 +42,13 @@ impl Flag {
     }
 }
 
-/// The words after the command of <parsed>: without `--project` for a
-/// command that does not read it (`Parsed::reads_project`), and as they are
-/// for one that does. Only builds' own words hold the flag: the words of a
-/// command that builds runs stay as they are (`own_words`).
-pub fn split(parsed: &Parsed<'_, String>) -> Result<Split> {
-    let args = parsed.rest;
-    let (own, passed) = args.split_at(own_words(parsed.command, args));
-    if parsed.reads_project() {
-        let flag = own
-            .iter()
-            .position(|arg| arg == PROJECT)
-            .and_then(|at| own.get(at + 1))
-            .map_or(Flag::Absent, |project| Flag::Read(project.clone()));
-        return Ok(Split {
-            flag,
-            args: args.to_vec(),
-        });
-    }
-    let usage = format!("usage: builds {} ... [{PROJECT} P]", parsed.named.join(" "));
-    let (project, mut kept) = take(own, &usage)?;
-    kept.extend_from_slice(passed);
-    let flag = project.map_or(Flag::Absent, |project| Flag::Unread(project.to_string()));
-    Ok(Split { flag, args: kept })
-}
-
-/// The project that <args>' `--project` names, and <args> without it. A
-/// refusal ends with the command's <usage>.
-pub fn take<'a>(args: &'a [String], usage: &str) -> Result<(Option<&'a str>, Vec<String>)> {
-    let mut rest = args.to_vec();
-    let Some(at) = args.iter().position(|arg| arg == PROJECT) else {
-        return Ok((None, rest));
-    };
-    let value = args.get(at + 1).filter(|value| !value.starts_with('-'));
-    let Some(value) = value else {
-        fail!("{PROJECT} needs a project's name\n{usage}");
-    };
-    rest.drain(at..at + 2);
-    if rest.iter().any(|arg| arg == PROJECT) {
-        fail!("{PROJECT} is given twice\n{usage}");
-    }
-    Ok((Some(value), rest))
-}
-
-/// How many of <args> are builds' own words: those before the command that
-/// `builds lock` runs, which follows the repo and the lock's flags, and those
-/// before `--` for every other command.
-fn own_words(command: Command, args: &[String]) -> usize {
-    if command == Command::Lock {
-        let mut at = 1;
-        while args.get(at).is_some_and(|arg| arg.starts_with("--")) {
-            at += 2;
-        }
-        return at.min(args.len());
-    }
-    args.iter()
-        .position(|arg| arg == "--")
-        .unwrap_or(args.len())
-}
-
-impl<S: AsRef<str>> crate::command::Parsed<'_, S> {
+impl Args {
     /// Whether the command reads `--project` itself (project_flag.rs). Every
     /// word of `cargo` and `lake` is the tool's.
     pub fn reads_project(&self) -> bool {
         use crate::command::Command::*;
         use crate::command::*;
-        let word = |at: usize| self.rest.get(at).map(AsRef::as_ref);
-        match self.command {
+        match self.command() {
             Ack
             | Brief
             | Cargo
@@ -204,15 +143,14 @@ impl<S: AsRef<str>> crate::command::Parsed<'_, S> {
                 | review::CaseAdd,
             )
             | Checks(checks::Stats)
+            | AppBuild(app_build::DropShots)
             | Shots(shots::Picture) => true,
-            AppBuild => {
-                word(0) != Some(crate::app_landing::FLAG)
-                    && word(0) != Some(crate::handed_runs::FLAG)
-                    && word(1) != Some("--list")
-            }
+            // `--list` reads only the repo's steps.
+            AppBuild(app_build::Build) => !self.switch("list"),
             Help
             | Setup
             | Tool
+            | AppBuild(app_build::LandingCoverage | app_build::RecordHanded)
             | Note
             | Release
             | Retire

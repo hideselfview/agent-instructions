@@ -68,7 +68,17 @@ impl Held {
         let args: Vec<String> = ["--project", "demo", "--by", "judge"]
             .map(String::from)
             .to_vec();
-        listen_command(&self.tool, &args, &self.scratch.dir, caller, inbox)
+        listen_command(
+            &self.tool,
+            &crate::args::Args::of(
+                crate::command::Command::Judge(crate::command::judge::Listen),
+                &args,
+            )
+            .unwrap(),
+            &self.scratch.dir,
+            caller,
+            inbox,
+        )
     }
 
     /// The judge the store keeps: its socket, token, session and name.
@@ -132,7 +142,11 @@ fn only_a_sessions_main_agent_with_an_inbox_listens() {
     );
     let unnamed = listen_command(
         &h.tool,
-        &["--by".to_string(), "judge".to_string()],
+        &crate::args::Args::of(
+            crate::command::Command::Judge(crate::command::judge::Listen),
+            &["--by".to_string(), "judge".to_string()],
+        )
+        .unwrap(),
         &h.scratch.dir,
         Some(&caller("s1", "s1")),
         Some(&h.inbox()),
@@ -494,7 +508,15 @@ impl Reviewed {
         let mut args = vec![self.finding.to_string()];
         args.extend(words.iter().map(|w| w.to_string()));
         args.extend(["--project", "demo", "--by", by].map(String::from));
-        crate::review::settle(&self.demo.tool, &args, caller)
+        crate::review::settle(
+            &self.demo.tool,
+            &crate::args::Args::of(
+                crate::command::Command::Review(crate::command::review::Settle),
+                &args,
+            )
+            .unwrap(),
+            caller,
+        )
     }
 
     fn last_settle(&self) -> Option<String> {
@@ -624,8 +646,25 @@ impl Reviewed {
         .map(String::from)
         .to_vec();
         match command {
-            "dispute" => crate::review::dispute_command(&self.demo.tool, &args, caller, None),
-            "keep" => crate::review::keep_command(&self.demo.tool, &args, caller),
+            "dispute" => crate::review::dispute_command(
+                &self.demo.tool,
+                &crate::args::Args::of(
+                    crate::command::Command::Review(crate::command::review::Dispute),
+                    &args,
+                )
+                .unwrap(),
+                caller,
+                None,
+            ),
+            "keep" => crate::review::keep_command(
+                &self.demo.tool,
+                &crate::args::Args::of(
+                    crate::command::Command::Review(crate::command::review::Keep),
+                    &args,
+                )
+                .unwrap(),
+                caller,
+            ),
             other => panic!("no command {other}"),
         }
     }
@@ -776,7 +815,15 @@ fn keep_again(r: &Reviewed, caller: &Caller, why: &str) -> Result<()> {
     ]
     .map(String::from)
     .to_vec();
-    crate::review::keep_command(&r.demo.tool, &args, Some(caller))
+    crate::review::keep_command(
+        &r.demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Review(crate::command::review::Keep),
+            &args,
+        )
+        .unwrap(),
+        Some(caller),
+    )
 }
 
 #[test]

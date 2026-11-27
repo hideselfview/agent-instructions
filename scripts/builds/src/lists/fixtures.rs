@@ -16,6 +16,20 @@ use std::collections::BTreeMap;
 /// they stay within a day of this.
 pub const NOON: i64 = 1_794_571_200;
 
+/// <words>, the words after `builds <group>`, with `--by <who>` when their
+/// command takes --by: each command that records who wrote.
+pub fn with_by(group: &str, who: &str, mut words: Vec<String>) -> Vec<String> {
+    let line: Vec<String> = std::iter::once(group.to_string())
+        .chain(words.iter().cloned())
+        .collect();
+    if crate::command::Command::parse(&line)
+        .is_ok_and(|parsed| crate::args::declares(parsed.command, "by"))
+    {
+        words.extend(["--by".to_string(), who.to_string()]);
+    }
+    words
+}
+
 pub fn stamp(at: i64) -> Stamp {
     Stamp {
         at,

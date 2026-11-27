@@ -62,8 +62,7 @@ pub fn landing_key(db: &Connection, repo: &str, worktree: &Path) -> Result<Strin
 
 /// `builds review key DIR --project P`: prints the key of the change the
 /// worktree at DIR holds, which `builds land` names its review by.
-pub fn key_command(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["project"], &[])?;
+pub fn key_command(tool: &Tool, args: &Args) -> Result<()> {
     let [dir] = args.positional() else {
         crate::fail!(
             "{}",

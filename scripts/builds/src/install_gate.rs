@@ -853,7 +853,12 @@ impl crate::command::Command {
             | Release
             | Retire
             | Cargo
-            | AppBuild
+            | AppBuild(
+                app_build::Build
+                | app_build::LandingCoverage
+                | app_build::DropShots
+                | app_build::RecordHanded,
+            )
             | BuildApp
             | Lock
             | Queue

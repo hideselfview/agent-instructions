@@ -277,7 +277,12 @@ impl crate::command::Command {
             | Note
             | Release
             | Retire
-            | AppBuild
+            | AppBuild(
+                app_build::Build
+                | app_build::LandingCoverage
+                | app_build::DropShots
+                | app_build::RecordHanded,
+            )
             | Lock
             | Programs
             | Queue

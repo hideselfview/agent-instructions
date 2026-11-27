@@ -145,12 +145,13 @@ pub enum Prepare {
 }
 
 /// `builds setup [--no-prepare] [<checkout>]`.
-pub fn cmd_setup(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
-    let (prepare, rest) = match args {
-        [flag, rest @ ..] if flag == "--no-prepare" => (Prepare::No, rest),
-        rest => (Prepare::Yes, rest),
+pub fn cmd_setup(tool: &Tool, ssh: &Ssh, args: &crate::args::Args) -> Result<()> {
+    let prepare = if args.switch("no-prepare") {
+        Prepare::No
+    } else {
+        Prepare::Yes
     };
-    let arg = match rest {
+    let arg = match args.positional() {
         [] => ".",
         [arg] => arg.as_str(),
         _ => fail!("{}", crate::command::Command::Setup.usage_text()),

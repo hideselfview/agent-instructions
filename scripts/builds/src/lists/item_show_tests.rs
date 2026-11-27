@@ -83,7 +83,16 @@ fn next_order_is_first_then_area_order_and_leaves_out_waiting_running_and_design
         .map(|i| i.id.0)
         .collect();
     assert_eq!(order, [3, 2, 1]);
-    next(&demo.tool, &words(&[]), &demo.main).unwrap();
+    next(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Next,
+            &crate::lists::item_fixtures::read_words(&[]),
+        )
+        .unwrap(),
+        &demo.main,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -152,20 +161,27 @@ fn list_running_prints_the_marker_with_the_agent_from_the_claim() {
     item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
-        &words(&["list", "--running"]),
+        &crate::lists::item_fixtures::read_words(&["list", "--running"]),
     )
     .unwrap();
     item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
-        &words(&["list", "--ready", "--area", "Alpha", "--for", "coordinator"]),
+        &crate::lists::item_fixtures::read_words(&[
+            "list",
+            "--ready",
+            "--area",
+            "Alpha",
+            "--for",
+            "coordinator",
+        ]),
     )
     .unwrap();
     assert!(
         refusal(item_words(
             &demo.tool,
             &crate::testing::no_ssh(),
-            &words(&["list", "--area", "Nope"])
+            &crate::lists::item_fixtures::read_words(&["list", "--area", "Nope"])
         ))
         .contains("does not exist")
     );
@@ -396,7 +412,16 @@ fn next_without_a_project_lists_the_ready_items_of_every_project() {
         ]),
     )
     .unwrap();
-    let both = next_report(&demo.tool, &plain(&["--for", "design-session"]), &demo.main).unwrap();
+    let both = next_report(
+        &demo.tool,
+        &crate::args::Args::of(
+            crate::command::Command::Next,
+            &plain(&["--for", "design-session"]),
+        )
+        .unwrap(),
+        &demo.main,
+    )
+    .unwrap();
     let demo_at = both.find("project demo").expect(&both);
     let other_at = both.find("project other").expect(&both);
     assert!(
@@ -406,7 +431,11 @@ fn next_without_a_project_lists_the_ready_items_of_every_project() {
     );
     let one = next_report(
         &demo.tool,
-        &plain(&["--for", "design-session", "--project", "other"]),
+        &crate::args::Args::of(
+            crate::command::Command::Next,
+            &plain(&["--for", "design-session", "--project", "other"]),
+        )
+        .unwrap(),
         &demo.main,
     )
     .unwrap();
@@ -414,7 +443,12 @@ fn next_without_a_project_lists_the_ready_items_of_every_project() {
         one.contains("Draw the other screen now") && !one.contains("demo screen"),
         "{one}"
     );
-    let none = next_report(&demo.tool, &plain(&[]), &demo.main).unwrap();
+    let none = next_report(
+        &demo.tool,
+        &crate::args::Args::of(crate::command::Command::Next, &plain(&[])).unwrap(),
+        &demo.main,
+    )
+    .unwrap();
     assert_eq!(none, "nothing is ready to dispatch\n");
 }
 

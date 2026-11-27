@@ -86,7 +86,11 @@ fn new_fills_the_empty_target_with_a_clone_of_a_warm_one() {
     cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        &[main.display().to_string(), "--for".into(), "agent".into()],
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            &[main.display().to_string(), "--for".into(), "agent".into()],
+        )
+        .unwrap(),
     )
     .unwrap();
     let side = scratch.dir.join("demo-worktrees/side-1");
@@ -147,11 +151,23 @@ fn a_free_worktree_whose_target_was_deleted_is_filled_and_one_with_a_target_is_n
     cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        std::slice::from_ref(&main_arg),
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            std::slice::from_ref(&main_arg),
+        )
+        .unwrap(),
     )
     .unwrap();
     let target = tool.places.root.join("demo/side-1/target");
-    cmd_release(&scratch.places(), std::slice::from_ref(&side_arg)).unwrap();
+    cmd_release(
+        &scratch.places(),
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            std::slice::from_ref(&side_arg),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     // The agent built there: the folder holds its own state, which a new
     // hand-out leaves alone.
     fill_file(&target.join("debug/own"), 4);
@@ -159,27 +175,55 @@ fn a_free_worktree_whose_target_was_deleted_is_filled_and_one_with_a_target_is_n
     cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        std::slice::from_ref(&main_arg),
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            std::slice::from_ref(&main_arg),
+        )
+        .unwrap(),
     )
     .unwrap();
     assert!(target.join("debug/own").is_file());
     assert!(!target.join("debug/deps").exists());
 
-    cmd_release(&scratch.places(), std::slice::from_ref(&side_arg)).unwrap();
+    cmd_release(
+        &scratch.places(),
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            std::slice::from_ref(&side_arg),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     std::fs::remove_dir_all(&target).unwrap();
     std::fs::create_dir(&target).unwrap();
     cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        std::slice::from_ref(&main_arg),
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            std::slice::from_ref(&main_arg),
+        )
+        .unwrap(),
     )
     .unwrap();
     assert!(
         target.join("debug/deps/libdep-1.rlib").is_file(),
         "an emptied folder is filled again"
     );
-    cmd_release(&scratch.places(), std::slice::from_ref(&side_arg)).unwrap();
-    cmd_retire(&tool, &[side_arg]).unwrap();
+    cmd_release(
+        &scratch.places(),
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            std::slice::from_ref(&side_arg),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    cmd_retire(
+        &tool,
+        &crate::args::Args::of(crate::command::Command::Retire, &[side_arg]).unwrap(),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -191,7 +235,8 @@ fn with_nothing_warm_to_clone_the_target_stays_empty() {
     cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        &[main.display().to_string()],
+        &crate::args::Args::of(crate::command::Command::New, &[main.display().to_string()])
+            .unwrap(),
     )
     .unwrap();
     let target = tool.places.root.join("demo/side-1/target");
@@ -207,7 +252,8 @@ fn a_target_over_the_new_ones_cap_is_not_cloned() {
     cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        &[main.display().to_string()],
+        &crate::args::Args::of(crate::command::Command::New, &[main.display().to_string()])
+            .unwrap(),
     )
     .unwrap();
     let target = tool.places.root.join("demo/side-1/target");
@@ -364,7 +410,8 @@ fn lane_checkouts(scratch: &Scratch, tool: &Tool) -> (Checkout, Checkout) {
         cmd_new(
             tool,
             &crate::testing::no_ssh(),
-            &[main.display().to_string()],
+            &crate::args::Args::of(crate::command::Command::New, &[main.display().to_string()])
+                .unwrap(),
         )
         .unwrap();
     }
@@ -585,7 +632,11 @@ fn a_new_target_forgets_the_build_script_runs_that_name_the_sources_paths() {
     cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        &[main.display().to_string(), "--for".into(), "agent".into()],
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            &[main.display().to_string(), "--for".into(), "agent".into()],
+        )
+        .unwrap(),
     )
     .unwrap();
 
@@ -666,7 +717,11 @@ fn a_new_target_forgets_the_build_script_runs_that_name_any_other_checkout() {
     cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        &[main.display().to_string(), "--for".into(), "agent".into()],
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            &[main.display().to_string(), "--for".into(), "agent".into()],
+        )
+        .unwrap(),
     )
     .unwrap();
 

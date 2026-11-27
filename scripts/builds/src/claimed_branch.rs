@@ -114,7 +114,12 @@ impl crate::command::Command {
         use crate::command::Command::*;
         use crate::command::*;
         match self {
-            AppBuild
+            AppBuild(
+                app_build::Build
+                | app_build::LandingCoverage
+                | app_build::DropShots
+                | app_build::RecordHanded,
+            )
             | Land
             | Cargo
             | Review(

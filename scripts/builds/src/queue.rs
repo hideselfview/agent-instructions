@@ -794,32 +794,14 @@ pub fn repoint(places: &Places, repo: &str, lane: Lane) -> Result<()> {
     )
 }
 
-/// Splits `--lane <lane>` out of <args>.
-fn split_lane(args: &[String]) -> Result<(Vec<String>, Option<String>)> {
-    let mut rest = Vec::new();
-    let mut lane = None;
-    let mut args = args.iter();
-    while let Some(arg) = args.next() {
-        if arg == "--lane" {
-            let Some(word) = args.next() else {
-                fail!("--lane takes an app of the repo")
-            };
-            lane = Some(word.clone());
-        } else {
-            rest.push(arg.clone());
-        }
-    }
-    Ok((rest, lane))
-}
-
 /// `builds queue <repo> [--lane <lane>] [top <pid>]`.
-pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
-    let (args, lane) = split_lane(args)?;
-    match &args[..] {
+pub fn cmd_queue(places: &Places, args: &crate::args::Args) -> Result<()> {
+    let lane = args.value("lane")?;
+    match args.positional() {
         [repo] => {
             let lanes = match lane {
                 Some(word) => {
-                    let lane = crate::repo_lanes::parse(places, repo, &word)?;
+                    let lane = crate::repo_lanes::parse(places, repo, word)?;
                     check_repo(places, repo, lane)?;
                     vec![lane]
                 }
@@ -885,7 +867,7 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
             }
             Ok(())
         }
-        [repo, word, pid] if word == "top" && lane.is_none() => match pid.parse() {
+        [repo, _top, pid] => match pid.parse() {
             Ok(pid) => top(places, repo, pid),
             Err(_) => fail!("{}", crate::command::Command::Queue.usage_text()),
         },
@@ -894,14 +876,13 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
 }
 
 /// `builds takeover <repo> [--lane <lane>] [<pid>]`.
-pub fn cmd_takeover(places: &Places, args: &[String]) -> Result<()> {
-    let (args, lane) = split_lane(args)?;
+pub fn cmd_takeover(places: &Places, args: &crate::args::Args) -> Result<()> {
+    let lane = args.value("lane")?;
     let lane_of = |repo: &str| {
-        lane.as_deref()
-            .map(|word| crate::repo_lanes::parse(places, repo, word))
+        lane.map(|word| crate::repo_lanes::parse(places, repo, word))
             .transpose()
     };
-    match &args[..] {
+    match args.positional() {
         [repo] => takeover(places, repo, None, lane_of(repo)?),
         [repo, pid] => match pid.parse() {
             Ok(pid) => takeover(places, repo, Some(pid), lane_of(repo)?),

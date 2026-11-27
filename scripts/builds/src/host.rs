@@ -1304,8 +1304,8 @@ pub const REMOTE_ROOT: &str = "builds-root.noindex";
 pub const LINUX_ROOT: &str = "builds-root";
 
 /// `builds host add`.
-pub fn cmd_add(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
-    let [name, target] = args else {
+pub fn cmd_add(tool: &Tool, ssh: &Ssh, args: &crate::args::Args) -> Result<()> {
+    let [name, target] = args.positional() else {
         fail!(
             "{}",
             crate::command::Command::Host(crate::command::host::Add).usage_text()
@@ -1320,8 +1320,8 @@ pub fn cmd_add(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
 }
 
 /// `builds host setup`.
-pub fn cmd_setup(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
-    let [name] = args else {
+pub fn cmd_setup(tool: &Tool, ssh: &Ssh, args: &crate::args::Args) -> Result<()> {
+    let [name] = args.positional() else {
         fail!(
             "{}",
             crate::command::Command::Host(crate::command::host::Setup).usage_text()
@@ -1340,19 +1340,13 @@ pub fn cmd_setup_here(tool: &Tool, kept: &[String]) -> Result<()> {
 }
 
 /// `builds host speed-here`.
-pub fn cmd_speed_here(args: &[String]) -> Result<()> {
-    if !args.is_empty() {
-        fail!(
-            "{}",
-            crate::command::Command::Host(crate::command::host::SpeedHere).usage_text()
-        );
-    }
+pub fn cmd_speed_here() -> Result<()> {
     crate::host_setup::cmd_speed_here()
 }
 
 /// `builds host clear-xcode`.
-pub fn cmd_clear_xcode(tool: &Tool, args: &[String]) -> Result<()> {
-    let [name] = args else {
+pub fn cmd_clear_xcode(tool: &Tool, args: &crate::args::Args) -> Result<()> {
+    let [name] = args.positional() else {
         fail!(
             "{}",
             crate::command::Command::Host(crate::command::host::ClearXcode).usage_text()
@@ -1369,8 +1363,8 @@ pub fn cmd_clear_xcode(tool: &Tool, args: &[String]) -> Result<()> {
 }
 
 /// `builds host remove`.
-pub fn cmd_remove(tool: &Tool, args: &[String]) -> Result<()> {
-    let [name] = args else {
+pub fn cmd_remove(tool: &Tool, args: &crate::args::Args) -> Result<()> {
+    let [name] = args.positional() else {
         fail!(
             "{}",
             crate::command::Command::Host(crate::command::host::Remove).usage_text()
@@ -1382,24 +1376,12 @@ pub fn cmd_remove(tool: &Tool, args: &[String]) -> Result<()> {
 }
 
 /// `builds host cache`.
-pub fn cmd_cache(tool: &Tool, args: &[String]) -> Result<()> {
-    if !args.is_empty() {
-        fail!(
-            "{}",
-            crate::command::Command::Host(crate::command::host::Cache).usage_text()
-        );
-    }
+pub fn cmd_cache(tool: &Tool) -> Result<()> {
     crate::sccache_history::cmd_cache(tool)
 }
 
 /// `builds host list`.
-pub fn cmd_list(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
-    if !args.is_empty() {
-        fail!(
-            "{}",
-            crate::command::Command::Host(crate::command::host::List).usage_text()
-        );
-    }
+pub fn cmd_list(tool: &Tool, ssh: &Ssh) -> Result<()> {
     for (host, probe) in probe_all(&tool.places, ssh, all(&tool.places)?) {
         crate::output::answer_line(list_line(&host, &probe));
     }

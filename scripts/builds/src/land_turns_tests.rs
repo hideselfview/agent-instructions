@@ -7,7 +7,9 @@ fn argv(words: &[&str]) -> Vec<String> {
 #[test]
 fn a_land_command_names_its_worktree() {
     let line = argv(&["builds", "land", "/w/side-21", "--part", "7", "abc"]);
-    assert_eq!(requested(&line), Some("/w/side-21"));
+    assert_eq!(requested(&line).as_deref(), Some("/w/side-21"));
+    let flag_first = argv(&["builds", "land", "--part", "7", "/w/side-22", "abc"]);
+    assert_eq!(requested(&flag_first).as_deref(), Some("/w/side-22"));
     assert_eq!(requested(&argv(&["builds", "land", "--help"])), None);
     assert_eq!(requested(&argv(&["builds", "app-build", "bae", "x"])), None);
 }
@@ -24,9 +26,9 @@ fn a_global_agent_option_before_land_does_not_hide_the_landing() {
         "5",
         "abc",
     ]);
-    assert_eq!(requested(&line), Some("/w/side-20"));
+    assert_eq!(requested(&line).as_deref(), Some("/w/side-20"));
     let after = argv(&["builds", "land", ".", "--agent", "ab12", "--part", "5"]);
-    assert_eq!(requested(&after), Some("."));
+    assert_eq!(requested(&after).as_deref(), Some("."));
     assert_eq!(
         requested(&argv(&["builds", "--agent", "ab12", "land"])),
         None

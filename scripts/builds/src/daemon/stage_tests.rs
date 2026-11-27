@@ -326,16 +326,28 @@ fn a_fixture_with_the_wrong_shape_inside_a_section_fails_to_load() {
 
 #[test]
 fn the_stage_reads_its_folder_and_shot_in_either_order() {
-    let words = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+    let stage = |words: &[&str]| {
+        let words: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+        crate::args::Args::of(
+            crate::command::Command::Dashboard(crate::command::dashboard::Stage),
+            &words,
+        )
+        .and_then(|args| {
+            let [shot] = args.exactly(1)? else {
+                unreachable!("exactly one")
+            };
+            Ok((PathBuf::from(args.require("fixtures")?), shot.clone()))
+        })
+    };
     let expected = (PathBuf::from("shots"), "web.demo.page".to_string());
     assert_eq!(
-        stage_args(&words(&["--fixtures", "shots", "web.demo.page"])).unwrap(),
+        stage(&["--fixtures", "shots", "web.demo.page"]).unwrap(),
         expected
     );
     assert_eq!(
-        stage_args(&words(&["web.demo.page", "--fixtures", "shots"])).unwrap(),
+        stage(&["web.demo.page", "--fixtures", "shots"]).unwrap(),
         expected
     );
-    assert!(stage_args(&words(&["web.demo.page"])).is_err());
-    assert!(stage_args(&words(&["--fixtures", "shots"])).is_err());
+    assert!(stage(&["web.demo.page"]).is_err());
+    assert!(stage(&["--fixtures", "shots"]).is_err());
 }

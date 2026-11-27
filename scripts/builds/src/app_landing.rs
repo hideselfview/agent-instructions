@@ -549,9 +549,9 @@ impl<'a> BranchBuilds<'a> {
 /// refusal, failing, when some lane the landing changes has no covering build
 /// of the branch. A repo in no project records no runs, and a branch with no
 /// `.app-build` builds no apps, so neither needs a build.
-pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
-    let [worktree, branch, named, own @ ..] = args else {
-        fail!("{}", crate::command::Command::AppBuild.usage_text());
+pub fn cmd_landing_coverage(places: &Places, args: &crate::args::Args) -> Result<()> {
+    let [worktree, branch, named, own @ ..] = args.positional() else {
+        fail!("{}", args.command().usage_text());
     };
     let own = if own.is_empty() {
         std::slice::from_ref(branch)

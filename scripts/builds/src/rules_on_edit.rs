@@ -60,13 +60,7 @@ struct Delivery {
 
 /// Runs the hook. A failure exits with code 2 (`failure_code` in main.rs),
 /// which stops the edit and shows the agent the failure.
-pub fn cmd_rules_on_edit(places: &Places, rules_root: &Path, args: &[String]) -> Result<()> {
-    if !args.is_empty() {
-        fail!(
-            "{}   (a Claude Code PreToolUse hook runs it, with the hook's input on standard input)",
-            crate::command::Command::RulesOnEdit.usage_text()
-        );
-    }
+pub fn cmd_rules_on_edit(places: &Places, rules_root: &Path) -> Result<()> {
     let input = agent::hook_input_from_stdin()?;
     run(
         places,

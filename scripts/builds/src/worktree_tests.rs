@@ -32,7 +32,11 @@ fn new_claims_a_worktree_and_retire_removes_it() {
     cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        &[main.display().to_string(), "--for".into(), "agent A".into()],
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            &[main.display().to_string(), "--for".into(), "agent A".into()],
+        )
+        .unwrap(),
     )
     .unwrap();
     let side = scratch.dir.join("demo-worktrees/side-2");
@@ -48,22 +52,59 @@ fn new_claims_a_worktree_and_retire_removes_it() {
 
     let side_arg = side.display().to_string();
     assert!(
-        refusal(cmd_retire(&tool, std::slice::from_ref(&side_arg)))
-            .contains("is claimed by agent A since")
+        refusal(cmd_retire(
+            &tool,
+            &crate::args::Args::of(
+                crate::command::Command::Retire,
+                std::slice::from_ref(&side_arg)
+            )
+            .unwrap()
+        ))
+        .contains("is claimed by agent A since")
     );
-    cmd_release(&scratch.places(), std::slice::from_ref(&side_arg)).unwrap();
+    cmd_release(
+        &scratch.places(),
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            std::slice::from_ref(&side_arg),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     std::fs::write(side.join("stray"), "x").unwrap();
     assert!(
-        refusal(cmd_retire(&tool, std::slice::from_ref(&side_arg)))
-            .contains("1 file not committed: stray")
+        refusal(cmd_retire(
+            &tool,
+            &crate::args::Args::of(
+                crate::command::Command::Retire,
+                std::slice::from_ref(&side_arg)
+            )
+            .unwrap()
+        ))
+        .contains("1 file not committed: stray")
     );
     std::fs::remove_file(side.join("stray")).unwrap();
-    cmd_retire(&tool, std::slice::from_ref(&side_arg)).unwrap();
+    cmd_retire(
+        &tool,
+        &crate::args::Args::of(
+            crate::command::Command::Retire,
+            std::slice::from_ref(&side_arg),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     assert!(!side.exists());
     assert!(!tool.places.root.join("demo/side-2").exists());
     assert!(
-        refusal(cmd_retire(&tool, &[main.display().to_string()]))
-            .contains("only side worktrees retire")
+        refusal(cmd_retire(
+            &tool,
+            &crate::args::Args::of(
+                crate::command::Command::Retire,
+                &[main.display().to_string()]
+            )
+            .unwrap()
+        ))
+        .contains("only side worktrees retire")
     );
 }
 
@@ -89,7 +130,11 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
     cmd_app_checkout(
         &tool,
         &crate::testing::no_ssh(),
-        &["android".to_string(), arg.clone()],
+        &crate::args::Args::of(
+            crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+            &["android".to_string(), arg.clone()],
+        )
+        .unwrap(),
     )
     .unwrap();
     assert_eq!(
@@ -106,7 +151,11 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
         refusal(cmd_app_checkout(
             &tool,
             &crate::testing::no_ssh(),
-            &["mac".to_string(), arg.clone()]
+            &crate::args::Args::of(
+                crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+                &["mac".to_string(), arg.clone()]
+            )
+            .unwrap()
         ))
         .contains("android app checkout already")
     );
@@ -114,13 +163,24 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
         refusal(cmd_app_checkout(
             &tool,
             &crate::testing::no_ssh(),
-            &["ios".to_string(), arg]
+            &crate::args::Args::of(
+                crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+                &["ios".to_string(), arg]
+            )
+            .unwrap()
         ))
         .contains("is no app")
     );
     assert!(
-        refusal(cmd_retire(&tool, &[side.display().to_string()]))
-            .contains("only side worktrees retire")
+        refusal(cmd_retire(
+            &tool,
+            &crate::args::Args::of(
+                crate::command::Command::Retire,
+                &[side.display().to_string()]
+            )
+            .unwrap()
+        ))
+        .contains("only side worktrees retire")
     );
 }
 
@@ -151,13 +211,26 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
                 &side.display().to_string(),
             ],
         );
-        cmd_app_checkout(&tool, &crate::testing::no_ssh(), &args(&["android"], side)).unwrap();
+        cmd_app_checkout(
+            &tool,
+            &crate::testing::no_ssh(),
+            &crate::args::Args::of(
+                crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+                &args(&["android"], side),
+            )
+            .unwrap(),
+        )
+        .unwrap();
     }
     // Recording one again changes nothing.
     cmd_app_checkout(
         &tool,
         &crate::testing::no_ssh(),
-        &args(&["android"], &sides[0]),
+        &crate::args::Args::of(
+            crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+            &args(&["android"], &sides[0]),
+        )
+        .unwrap(),
     )
     .unwrap();
     assert_eq!(
@@ -171,8 +244,15 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
         );
     }
     assert!(
-        refusal(cmd_retire(&tool, &[sides[1].display().to_string()]))
-            .contains("only side worktrees retire")
+        refusal(cmd_retire(
+            &tool,
+            &crate::args::Args::of(
+                crate::command::Command::Retire,
+                &[sides[1].display().to_string()]
+            )
+            .unwrap()
+        ))
+        .contains("only side worktrees retire")
     );
 
     let lock = tool.places.app_lock_file("demo", Lane::ANDROID, "app-2");
@@ -184,7 +264,11 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
         refusal(cmd_app_checkout_remove(
             &tool,
             &crate::testing::no_ssh(),
-            &args(&["android"], &sides[1])
+            &crate::args::Args::of(
+                crate::command::Command::AppCheckout(crate::command::app_checkout::Remove),
+                &args(&["android"], &sides[1])
+            )
+            .unwrap()
         ))
         .contains("holds")
     );
@@ -204,7 +288,11 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     cmd_app_checkout_remove(
         &removing,
         &crate::testing::no_ssh(),
-        &args(&["android"], &sides[1]),
+        &crate::args::Args::of(
+            crate::command::Command::AppCheckout(crate::command::app_checkout::Remove),
+            &args(&["android"], &sides[1]),
+        )
+        .unwrap(),
     )
     .unwrap();
     // The root's lane changed, so its folders are measured and the
@@ -223,14 +311,22 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
         refusal(cmd_app_checkout_remove(
             &tool,
             &crate::testing::no_ssh(),
-            &args(&["android"], &sides[1])
+            &crate::args::Args::of(
+                crate::command::Command::AppCheckout(crate::command::app_checkout::Remove),
+                &args(&["android"], &sides[1])
+            )
+            .unwrap()
         ))
         .contains("not one of")
     );
     cmd_app_checkout_remove(
         &tool,
         &crate::testing::no_ssh(),
-        &args(&["android"], &sides[0]),
+        &crate::args::Args::of(
+            crate::command::Command::AppCheckout(crate::command::app_checkout::Remove),
+            &args(&["android"], &sides[0]),
+        )
+        .unwrap(),
     )
     .unwrap();
     assert!(
@@ -265,13 +361,17 @@ fn new_and_claim_record_the_project_and_release_forgets_it() {
         refusal(cmd_new(
             &tool,
             &crate::testing::no_ssh(),
-            &[
-                main.display().to_string(),
-                "--for".into(),
-                "agent A".into(),
-                "--project".into(),
-                "nope".into(),
-            ],
+            &crate::args::Args::of(
+                crate::command::Command::New,
+                &[
+                    main.display().to_string(),
+                    "--for".into(),
+                    "agent A".into(),
+                    "--project".into(),
+                    "nope".into(),
+                ]
+            )
+            .unwrap(),
         ))
         .contains("project nope holds no repo demo")
     );
@@ -280,13 +380,17 @@ fn new_and_claim_record_the_project_and_release_forgets_it() {
     cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        &[
-            main.display().to_string(),
-            "--for".into(),
-            "agent A".into(),
-            "--project".into(),
-            "demo".into(),
-        ],
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            &[
+                main.display().to_string(),
+                "--for".into(),
+                "agent A".into(),
+                "--project".into(),
+                "demo".into(),
+            ],
+        )
+        .unwrap(),
     )
     .unwrap();
     let side = scratch.dir.join("demo-worktrees/side-1");
@@ -297,29 +401,48 @@ fn new_and_claim_record_the_project_and_release_forgets_it() {
     );
     // Claiming again without --project keeps it; with a project that holds no repo here, refuses.
     let arg = side.display().to_string();
-    crate::claim::cmd_claim(&tool.places, &[arg.clone(), "agent A".into()], tool.now).unwrap();
+    crate::claim::cmd_claim(
+        &tool.places,
+        &crate::args::Args::of(
+            crate::command::Command::Claim,
+            &[arg.clone(), "agent A".into()],
+        )
+        .unwrap(),
+        tool.now,
+    )
+    .unwrap();
     assert!(checkout.project_file().is_file());
     assert!(
         refusal(crate::claim::cmd_claim(
             &tool.places,
-            &[
-                arg.clone(),
-                "agent A".into(),
-                "--project".into(),
-                "other".into()
-            ],
+            &crate::args::Args::of(
+                crate::command::Command::Claim,
+                &[
+                    arg.clone(),
+                    "agent A".into(),
+                    "--project".into(),
+                    "other".into()
+                ]
+            )
+            .unwrap(),
             tool.now,
         ))
         .contains("holds no repo demo")
     );
-    cmd_release(&tool.places, std::slice::from_ref(&arg)).unwrap();
+    cmd_release(
+        &tool.places,
+        &crate::args::Args::of(crate::command::Command::Release, std::slice::from_ref(&arg))
+            .unwrap(),
+    )
+    .unwrap();
     assert!(!checkout.project_file().exists());
     assert!(!checkout.claim_file().exists());
     // The next worktree handed out without --project has none.
     cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        &[main.display().to_string()],
+        &crate::args::Args::of(crate::command::Command::New, &[main.display().to_string()])
+            .unwrap(),
     )
     .unwrap();
     assert!(!checkout.project_file().exists());
@@ -366,7 +489,11 @@ fn a_repo_two_projects_hold_gets_no_worktree_or_claim_without_a_project() {
         refusal(cmd_new(
             &tool,
             &crate::testing::no_ssh(),
-            &[main_arg.clone(), "--for".into(), "agent A".into()]
+            &crate::args::Args::of(
+                crate::command::Command::New,
+                &[main_arg.clone(), "--for".into(), "agent A".into()]
+            )
+            .unwrap()
         ))
         .contains("repo demo is in two projects (demo, second); name the project")
     );
@@ -376,13 +503,17 @@ fn a_repo_two_projects_hold_gets_no_worktree_or_claim_without_a_project() {
     cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        &[
-            main_arg.clone(),
-            "--for".into(),
-            "agent A".into(),
-            "--project".into(),
-            "second".into(),
-        ],
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            &[
+                main_arg.clone(),
+                "--for".into(),
+                "agent A".into(),
+                "--project".into(),
+                "second".into(),
+            ],
+        )
+        .unwrap(),
     )
     .unwrap();
     let arg = scratch
@@ -392,15 +523,33 @@ fn a_repo_two_projects_hold_gets_no_worktree_or_claim_without_a_project() {
         .to_string();
     let checkout = Checkout::find(&arg).unwrap();
     // Claiming it again without --project keeps the project it has.
-    crate::claim::cmd_claim(&tool.places, &[arg.clone(), "agent A".into()], tool.now).unwrap();
-    cmd_release(&tool.places, std::slice::from_ref(&arg)).unwrap();
+    crate::claim::cmd_claim(
+        &tool.places,
+        &crate::args::Args::of(
+            crate::command::Command::Claim,
+            &[arg.clone(), "agent A".into()],
+        )
+        .unwrap(),
+        tool.now,
+    )
+    .unwrap();
+    cmd_release(
+        &tool.places,
+        &crate::args::Args::of(crate::command::Command::Release, std::slice::from_ref(&arg))
+            .unwrap(),
+    )
+    .unwrap();
     assert!(!checkout.project_file().exists());
 
     // A fresh claim of the released worktree must name the project too.
     assert!(
         refusal(crate::claim::cmd_claim(
             &tool.places,
-            &[arg.clone(), "agent B".into()],
+            &crate::args::Args::of(
+                crate::command::Command::Claim,
+                &[arg.clone(), "agent B".into()]
+            )
+            .unwrap(),
             tool.now,
         ))
         .contains("repo demo is in two projects")
@@ -417,8 +566,26 @@ fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
     crate::host::add(&tool.places, &ssh, "m1", "user@m1").unwrap();
     let words = |words: &[&str]| -> Vec<String> { words.iter().map(|w| w.to_string()).collect() };
     let path = "/Users/me/dev/demo-worktrees/app-1";
-    cmd_app_checkout(&tool, &ssh, &words(&["android", "--host", "m1", path])).unwrap();
-    cmd_app_checkout(&tool, &ssh, &words(&["android", "--host", "m1", path])).unwrap();
+    cmd_app_checkout(
+        &tool,
+        &ssh,
+        &crate::args::Args::of(
+            crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+            &words(&["android", "--host", "m1", path]),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    cmd_app_checkout(
+        &tool,
+        &ssh,
+        &crate::args::Args::of(
+            crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+            &words(&["android", "--host", "m1", path]),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         tool.places.app_checkouts_of("demo", Lane::ANDROID).unwrap(),
         vec!["m1:app-1"],
@@ -428,7 +595,11 @@ fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
         refusal(cmd_app_checkout(
             &tool,
             &ssh,
-            &words(&["mac", "--host", "m1", path])
+            &crate::args::Args::of(
+                crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+                &words(&["mac", "--host", "m1", path])
+            )
+            .unwrap()
         ))
         .contains("the lanes exist so that their builds share no checkout")
     );
@@ -436,7 +607,11 @@ fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
         refusal(cmd_app_checkout(
             &tool,
             &ssh,
-            &words(&["android", "--host", "gone", path])
+            &crate::args::Args::of(
+                crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+                &words(&["android", "--host", "gone", path])
+            )
+            .unwrap()
         ))
         .contains("no host named gone")
     );
@@ -444,11 +619,24 @@ fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
         refusal(cmd_app_checkout(
             &tool,
             &ssh,
-            &words(&["android", "--host", "m1", "/Users/me/app-1"])
+            &crate::args::Args::of(
+                crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+                &words(&["android", "--host", "m1", "/Users/me/app-1"])
+            )
+            .unwrap()
         ))
         .contains("-worktrees")
     );
-    cmd_app_checkout_remove(&tool, &ssh, &words(&["android", "--host", "m1", path])).unwrap();
+    cmd_app_checkout_remove(
+        &tool,
+        &ssh,
+        &crate::args::Args::of(
+            crate::command::Command::AppCheckout(crate::command::app_checkout::Remove),
+            &words(&["android", "--host", "m1", path]),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     assert!(
         tool.places
             .app_checkouts_of("demo", Lane::ANDROID)
@@ -492,13 +680,26 @@ fn a_hosts_app_checkout_has_its_lane_file_exactly_while_it_is_in_a_lane() {
     .unwrap();
     let words = |words: &[&str]| -> Vec<String> { words.iter().map(|w| w.to_string()).collect() };
     let path = wt.display().to_string();
-    cmd_app_checkout(&tool, &ssh, &words(&["android", "--host", "m1", &path])).unwrap();
+    cmd_app_checkout(
+        &tool,
+        &ssh,
+        &crate::args::Args::of(
+            crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+            &words(&["android", "--host", "m1", &path]),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(std::fs::read_to_string(&lane_file).unwrap(), "android\n");
     assert!(
         refusal(cmd_app_checkout(
             &tool,
             &ssh,
-            &words(&["android", "--host", "gone", &path])
+            &crate::args::Args::of(
+                crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+                &words(&["android", "--host", "gone", &path])
+            )
+            .unwrap()
         ))
         .contains("host gone")
     );
@@ -511,7 +712,11 @@ fn a_hosts_app_checkout_has_its_lane_file_exactly_while_it_is_in_a_lane() {
         refusal(cmd_app_checkout_remove(
             &tool,
             &ssh,
-            &words(&["mac", "--host", "m1", &path])
+            &crate::args::Args::of(
+                crate::command::Command::AppCheckout(crate::command::app_checkout::Remove),
+                &words(&["mac", "--host", "m1", &path])
+            )
+            .unwrap()
         ))
         .contains("not one of")
     );
@@ -531,7 +736,11 @@ fn a_hosts_app_checkout_has_its_lane_file_exactly_while_it_is_in_a_lane() {
         refusal(cmd_app_checkout_remove(
             &tool,
             &ssh,
-            &words(&["android", "--host", "gone", &path])
+            &crate::args::Args::of(
+                crate::command::Command::AppCheckout(crate::command::app_checkout::Remove),
+                &words(&["android", "--host", "gone", &path])
+            )
+            .unwrap()
         ))
         .contains("host gone")
     );
@@ -540,7 +749,16 @@ fn a_hosts_app_checkout_has_its_lane_file_exactly_while_it_is_in_a_lane() {
         vec!["m1:app-1", "gone:app-1"],
         "a removal the host did not answer took the checkout out"
     );
-    cmd_app_checkout_remove(&tool, &ssh, &words(&["android", "--host", "m1", &path])).unwrap();
+    cmd_app_checkout_remove(
+        &tool,
+        &ssh,
+        &crate::args::Args::of(
+            crate::command::Command::AppCheckout(crate::command::app_checkout::Remove),
+            &words(&["android", "--host", "m1", &path]),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     assert!(!lane_file.exists(), "the host keeps the lane file");
     assert!(wt.join(".git").exists(), "the worktree stays on the host");
     assert_eq!(
@@ -589,13 +807,17 @@ fn new_that_fails_after_adding_a_worktree_removes_the_worktree_and_its_branch() 
     let error = refusal(cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        &[
-            main.display().to_string(),
-            "-b".into(),
-            "work".into(),
-            "--for".into(),
-            "agent A".into(),
-        ],
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            &[
+                main.display().to_string(),
+                "-b".into(),
+                "work".into(),
+                "--for".into(),
+                "agent A".into(),
+            ],
+        )
+        .unwrap(),
     ));
     assert!(error.contains("post-checkout"), "{error}");
     assert!(!scratch.dir.join("demo-worktrees/side-1").exists());
@@ -617,23 +839,39 @@ fn new_that_fails_in_a_free_worktree_leaves_it_unclaimed_and_without_the_new_bra
     cmd_new(
         &tool,
         &ssh,
-        &[arg.clone(), "--for".into(), "agent A".into()],
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            &[arg.clone(), "--for".into(), "agent A".into()],
+        )
+        .unwrap(),
     )
     .unwrap();
     let side = scratch.dir.join("demo-worktrees/side-1");
-    cmd_release(&scratch.places(), &[side.display().to_string()]).unwrap();
+    cmd_release(
+        &scratch.places(),
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            &[side.display().to_string()],
+        )
+        .unwrap(),
+    )
+    .unwrap();
     push_failing_hook(&main);
 
     let error = refusal(cmd_new(
         &tool,
         &ssh,
-        &[
-            arg,
-            "-b".into(),
-            "work".into(),
-            "--for".into(),
-            "agent B".into(),
-        ],
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            &[
+                arg,
+                "-b".into(),
+                "work".into(),
+                "--for".into(),
+                "agent B".into(),
+            ],
+        )
+        .unwrap(),
     ));
     assert!(error.contains("post-checkout"), "{error}");
     let checkout = Checkout::find(&side.display().to_string()).unwrap();

@@ -15,7 +15,7 @@ use crate::lists::{Stamp, show};
 use crate::output::note;
 use crate::tool::Tool;
 
-pub fn cmd_lists(tool: &Tool, command: Subcommand, args: &[String]) -> Result<()> {
+pub fn cmd_lists(tool: &Tool, command: Subcommand, args: &Args) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
     match command {
         Subcommand::Init => init(tool, args, &cwd),
@@ -37,23 +37,8 @@ pub fn lists_words(tool: &Tool, words: &[String]) -> Result<()> {
     cmd_lists(tool, command, &args)
 }
 
-fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(
-        args,
-        &[
-            "repos",
-            "canvas",
-            "design-places",
-            "design-sources",
-            "spec-files",
-        ],
-        &[],
-    )?;
-    let [project] = args.exactly(
-        1,
-        &crate::command::Command::Lists(crate::command::lists::Init).usage_text(),
-    )?
-    else {
+fn init(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let [project] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let Some(repos) = args
@@ -68,14 +53,14 @@ fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     };
     let new = NewProject {
         name: project.to_string(),
-        canvas: canvas(&args)?.unwrap_or(false),
+        canvas: canvas(args)?.unwrap_or(false),
         repos,
         places: globs("design-places")?.unwrap_or_default(),
         sources: globs("design-sources")?.unwrap_or_default(),
         specs: globs("spec-files")?.unwrap_or_default(),
     };
     let store = Store::named(&tool.places, project)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.create(&new, &stamp, &format!("lists init {project}"))?;
     note(format!(
         "made the lists of project {project} in {}",
@@ -88,20 +73,15 @@ fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// repo. Two projects may hold the same repo (agent-instructions is in bae
 /// and builds); a worktree of such a repo says which project its work is in
 /// (`builds claim --project`).
-fn add_repo(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
-    let [project, repo] = args.exactly(
-        2,
-        &crate::command::Command::Lists(crate::command::lists::AddRepo).usage_text(),
-    )?
-    else {
+fn add_repo(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let [project, repo] = args.exactly(2)? else {
         unreachable!("exactly two")
     };
     if let Some(fault) = repo_name_fault(repo) {
         fail!("{fault}");
     }
     let store = Store::named(&tool.places, project)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("lists add-repo {project} {repo}"), |db| {
         project::add_repo(db, repo)
     })?;
@@ -123,17 +103,8 @@ fn canvas(args: &Args) -> Result<Option<bool>> {
 /// `lists design-globs PROJECT`: sets the design globs of each kind given,
 /// for each repo that kind names, and whether the project publishes its
 /// boards as a canvas, in a store that exists.
-fn design_globs(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(
-        args,
-        &["canvas", "design-places", "design-sources", "spec-files"],
-        &[],
-    )?;
-    let [project] = args.exactly(
-        1,
-        &crate::command::Command::Lists(crate::command::lists::DesignGlobs).usage_text(),
-    )?
-    else {
+fn design_globs(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let [project] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let mut given = Vec::new();
@@ -146,7 +117,7 @@ fn design_globs(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             given.push((kind, parse_globs(flag, text)?));
         }
     }
-    let canvas = canvas(&args)?;
+    let canvas = canvas(args)?;
     if given.is_empty() && canvas.is_none() {
         fail!(
             "design-globs needs --canvas, --design-places, --design-sources or --spec-files\n{usage}",
@@ -154,7 +125,7 @@ fn design_globs(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         );
     }
     let store = Store::named(&tool.places, project)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("lists design-globs {project}"), |db| {
         if let Some(canvas) = canvas {
             project::set_canvas(db, canvas)?;
@@ -167,13 +138,9 @@ fn design_globs(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["tag"], &["json"])?;
-    args.exactly(
-        0,
-        &crate::command::Command::Lists(crate::command::lists::Show).usage_text(),
-    )?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+fn show(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    args.exactly(0)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     let lists = store.load()?;
     let wanted = args.value("tag")?;
     if args.switch("json") {
@@ -192,13 +159,8 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-fn project_of_command(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
-    let [dir] = args.exactly(
-        1,
-        &crate::command::Command::Lists(crate::command::lists::ProjectOf).usage_text(),
-    )?
-    else {
+fn project_of_command(tool: &Tool, args: &Args) -> Result<()> {
+    let [dir] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let checkout = Checkout::find(dir)?;

@@ -39,7 +39,7 @@ pub struct DecisionRequest {
     pub no_work: Option<String>,
 }
 
-pub fn cmd_decision(tool: &Tool, command: Subcommand, args: &[String]) -> Result<()> {
+pub fn cmd_decision(tool: &Tool, command: Subcommand, args: &Args) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
     match command {
         Subcommand::Add => add(tool, args, &cwd),
@@ -61,17 +61,13 @@ pub fn decision_words(tool: &Tool, words: &[String]) -> Result<()> {
     cmd_decision(tool, command, &args)
 }
 
-fn add(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
-    let args = Args::parse(args, &["request"], &[])?;
-    args.exactly(
-        0,
-        &crate::command::Command::Decision(crate::command::decision::Add).usage_text(),
-    )?;
+fn add(tool: &Tool, args: &Args, cwd: &std::path::Path) -> Result<()> {
+    args.exactly(0)?;
     let request: DecisionRequest = read_request(args.require("request")?)?;
     let work = work_or_why(request.work, request.no_work)?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     require_draft_briefs(&tool.places, &store.repos()?, &work)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     let new = NewDecision {
         title: request.title,
         by: request.by,
@@ -104,13 +100,8 @@ fn add(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-fn edit(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
-    let args = Args::parse(args, &["title", "body-file"], &[])?;
-    let [id] = args.exactly(
-        1,
-        &crate::command::Command::Decision(crate::command::decision::Edit).usage_text(),
-    )?
-    else {
+fn edit(tool: &Tool, args: &Args, cwd: &std::path::Path) -> Result<()> {
+    let [id] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
@@ -127,8 +118,8 @@ fn edit(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     if body.as_deref().is_some_and(|b| b.trim().is_empty()) {
         fail!("the decision's body is empty; say what was decided and why");
     }
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("decision edit {}", id.0), |db| {
         decision::edit(db, id, title, body)
     })?;
@@ -157,16 +148,9 @@ pub fn matching<'a>(lists: &'a Lists, words: &[String]) -> Vec<&'a Decision> {
         .collect()
 }
 
-fn find(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
+fn find(tool: &Tool, args: &Args, cwd: &std::path::Path) -> Result<()> {
     let words = args.positional();
-    if words.is_empty() {
-        fail!(
-            "{}: say what to look for",
-            crate::command::Command::Decision(crate::command::decision::Find).usage_text()
-        );
-    }
-    let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
+    let lists = Store::resolve(&tool.places, args, cwd)?.load()?;
     for decision in matching(&lists, words) {
         crate::output::answer_line(line(decision));
     }
@@ -182,12 +166,8 @@ pub fn listed<'a>(lists: &'a Lists, plan: Option<&str>, since: Option<&str>) -> 
         .collect()
 }
 
-fn list(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
-    let args = Args::parse(args, &["plan", "since"], &[])?;
-    args.exactly(
-        0,
-        &crate::command::Command::Decision(crate::command::decision::List).usage_text(),
-    )?;
+fn list(tool: &Tool, args: &Args, cwd: &std::path::Path) -> Result<()> {
+    args.exactly(0)?;
     let since = args.value("since")?;
     if let Some(since) = since
         && day::parse(since).is_none()
@@ -195,7 +175,7 @@ fn list(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
         fail!("--since '{since}' is not a date: use YYYY-MM-DD");
     }
     let plan = args.value("plan")?;
-    let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
+    let lists = Store::resolve(&tool.places, args, cwd)?.load()?;
     for decision in listed(&lists, plan, since) {
         let number = match (&decision.plan, plan) {
             (Some(p), Some(_)) => format!(" [{}]", p.number),
@@ -247,17 +227,12 @@ pub fn render(lists: &Lists, decision: &Decision) -> String {
     out
 }
 
-fn show(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(
-        1,
-        &crate::command::Command::Decision(crate::command::decision::Show).usage_text(),
-    )?
-    else {
+fn show(tool: &Tool, args: &Args, cwd: &std::path::Path) -> Result<()> {
+    let [id] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
-    let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
+    let lists = Store::resolve(&tool.places, args, cwd)?.load()?;
     let Some(decision) = lists.decision(id) else {
         fail!("{id} is not a decision")
     };

@@ -255,15 +255,11 @@ pub fn dashboard_figures(path: &Path, now: i64) -> Waits {
 }
 
 /// `builds waits [--project P] [--since DATE]`.
-pub fn cmd_waits(args: &[String]) -> Result<()> {
-    let args = crate::args::Args::parse(args, &["since"], &[])?;
-    if !args.positional().is_empty() {
-        fail!("{}", crate::command::Command::Waits.usage_text());
-    }
+pub fn cmd_waits(args: &crate::args::Args) -> Result<()> {
     let since = args.value("since")?;
     let start = crate::text::since_start(since)?.unwrap_or(0);
     let places = crate::places::Places::from_env()?;
-    let store = crate::lists::store::Store::resolve(&places, &args, Path::new("."))?;
+    let store = crate::lists::store::Store::resolve(&places, args, Path::new("."))?;
     let waits = read(&store.dir.join(crate::db::DATABASE), start)?;
     crate::output::answer(report(
         &store.project,

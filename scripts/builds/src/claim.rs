@@ -319,14 +319,12 @@ pub fn require_project_named(places: &Places, repo: &str, named: Option<&str>) -
 /// state. --project names the project the work is in, for a repo that two
 /// projects hold, and a worktree of such a repo must have one; without it the
 /// worktree keeps the project it had.
-pub fn cmd_claim(places: &Places, args: &[String], now: i64) -> Result<()> {
+pub fn cmd_claim(places: &Places, args: &crate::args::Args, now: i64) -> Result<()> {
     let usage = crate::command::Command::Claim.usage_text();
-    let (positional, project) = match args {
-        [checkout, who] => ([checkout, who], None),
-        [checkout, who, flag, project] if flag == "--project" => ([checkout, who], Some(project)),
-        _ => fail!("{usage}"),
+    let [checkout, who] = args.positional() else {
+        fail!("{usage}")
     };
-    let [checkout, who] = positional;
+    let project = args.value("project")?;
     let checkout = Checkout::find(checkout)?;
     if who.is_empty() {
         fail!("{usage}");
@@ -371,23 +369,19 @@ pub fn cmd_claim(places: &Places, args: &[String], now: i64) -> Result<()> {
 /// the worktree waits on an open record (lists/held.rs). A note that makes
 /// the worktree held, or ends its hold, starts or ends at <now> the `held`
 /// span of each item that runs there (lists/held.rs).
-pub fn cmd_note(places: &Places, args: &[String], now: i64) -> Result<()> {
-    let usage = crate::command::Command::Note.usage_text();
-    let Some((checkout, mut rest)) = args.split_first() else {
-        fail!("{usage}")
+pub fn cmd_note(places: &Places, args: &crate::args::Args, now: i64) -> Result<()> {
+    let Some((checkout, rest)) = args.positional().split_first() else {
+        fail!("{}", crate::command::Command::Note.usage_text())
     };
     let checkout = Checkout::find(checkout)?;
-    let mut state = None;
-    if rest.first().map(String::as_str) == Some("--state") {
-        let named = rest.get(1).cloned().unwrap_or_default();
-        if !NOTE_STATES.contains(&named.as_str()) {
-            fail!(
-                "note: --state is one of {}, got '{named}'",
-                NOTE_STATES.join(", ")
-            );
-        }
-        state = Some(named);
-        rest = &rest[2.min(rest.len())..];
+    let state = args.value("state")?.map(str::to_string);
+    if let Some(named) = &state
+        && !NOTE_STATES.contains(&named.as_str())
+    {
+        fail!(
+            "note: --state is one of {}, got '{named}'",
+            NOTE_STATES.join(", ")
+        );
     }
     let text = rest.join(" ");
     require_one_line("a note", &text)?;
@@ -442,8 +436,8 @@ pub fn cmd_note(places: &Places, args: &[String], now: i64) -> Result<()> {
 /// the worktree, since the claim names the item's agent, and while the
 /// worktree holds work origin/main lacks that no item holds. `builds new`
 /// reads the same facts (kept.rs).
-pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
-    let [checkout] = args else {
+pub fn cmd_release(places: &Places, args: &crate::args::Args) -> Result<()> {
+    let [checkout] = args.positional() else {
         fail!("{}", crate::command::Command::Release.usage_text())
     };
     let checkout = Checkout::find(checkout)?;

@@ -15,11 +15,15 @@ fn demo_with_a_side(scratch: &Scratch) -> (crate::tool::Tool, PathBuf) {
     crate::worktree::cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        &[
-            main.display().to_string(),
-            "--for".to_string(),
-            "agent".to_string(),
-        ],
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            &[
+                main.display().to_string(),
+                "--for".to_string(),
+                "agent".to_string(),
+            ],
+        )
+        .unwrap(),
     )
     .unwrap();
     let top = scratch.dir.join("demo-worktrees/side-1");

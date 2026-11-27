@@ -14,14 +14,16 @@ use std::sync::Arc;
 
 use super::http::serve_staged;
 use super::pages::{Fixture, Pages};
-use crate::fail;
 use crate::fail::{Context, Result};
 
 /// Reads the fixture the arguments name, prints the page's address, and serves
 /// until stdin closes.
-pub fn cmd_stage(args: &[String]) -> Result<()> {
-    let (folder, shot) = stage_args(args)?;
-    let fixture = Fixture::load(&folder, &shot)?;
+pub fn cmd_stage(args: &crate::args::Args) -> Result<()> {
+    let [shot] = args.exactly(1)? else {
+        unreachable!("exactly one")
+    };
+    let folder = PathBuf::from(args.require("fixtures")?);
+    let fixture = Fixture::load(&folder, shot)?;
     let listener = bind()?;
     crate::output::answer_line(address(port_of(&listener)?, &fixture));
     crate::output::answer_handle()
@@ -38,38 +40,6 @@ pub fn cmd_stage(args: &[String]) -> Result<()> {
         .read_to_end(&mut sink)
         .context(|| "reading stdin".to_string())?;
     Ok(())
-}
-
-/// The fixtures' folder and the shot, from `--fixtures <folder> <shot>` in
-/// either order.
-fn stage_args(args: &[String]) -> Result<(PathBuf, String)> {
-    let mut folder = None;
-    let mut shot = None;
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        match arg.as_str() {
-            "--fixtures" => match rest.next() {
-                Some(value) if folder.is_none() => folder = Some(PathBuf::from(value)),
-                _ => fail!(
-                    "{}",
-                    crate::command::Command::Dashboard(crate::command::dashboard::Stage)
-                        .usage_text()
-                ),
-            },
-            word if !word.starts_with('-') && shot.is_none() => shot = Some(word.to_string()),
-            _ => fail!(
-                "{}",
-                crate::command::Command::Dashboard(crate::command::dashboard::Stage).usage_text()
-            ),
-        }
-    }
-    match (folder, shot) {
-        (Some(folder), Some(shot)) => Ok((folder, shot)),
-        _ => fail!(
-            "{}",
-            crate::command::Command::Dashboard(crate::command::dashboard::Stage).usage_text()
-        ),
-    }
 }
 
 /// Listens on a port the system picks.

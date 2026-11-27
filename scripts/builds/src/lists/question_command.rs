@@ -30,19 +30,19 @@ use crate::lists::{
 };
 use crate::tool::Tool;
 
-pub fn cmd_question(tool: &Tool, command: Subcommand, args: &[String]) -> Result<()> {
+pub fn cmd_question(tool: &Tool, command: Subcommand, args: &Args) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
     crate::output::answer(run(tool, command, args, &cwd)?);
     Ok(())
 }
 
 /// Runs one command and returns what it prints.
-pub fn run(tool: &Tool, command: Subcommand, args: &[String], cwd: &Path) -> Result<String> {
+pub fn run(tool: &Tool, command: Subcommand, args: &Args, cwd: &Path) -> Result<String> {
     // The words the store records the write with.
     let words = Command::Question(command).words()[0]
         .iter()
         .copied()
-        .chain(args.iter().map(String::as_str))
+        .chain(args.words().iter().map(String::as_str))
         .collect::<Vec<_>>()
         .join(" ");
     match command {
@@ -68,7 +68,7 @@ pub fn run_words(tool: &Tool, words: &[String], cwd: &Path) -> Result<String> {
 }
 
 fn question_id(args: &Args) -> Result<Id> {
-    let [id] = args.exactly(1, &crate::command::Command::group_usage_text("question"))? else {
+    let [id] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     Id::parse(id)
@@ -106,29 +106,8 @@ fn open_question(lists: &Lists, id: Id) -> Result<&Question> {
     }
 }
 
-fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
-    let args = Args::parse(
-        args,
-        &[
-            "title",
-            "kind",
-            "effect",
-            "details-file",
-            "blocks",
-            "blocks-nothing",
-            "first",
-            "plan",
-            "plan-number",
-            "from-item",
-            "origin",
-            "tag",
-        ],
-        &[],
-    )?;
-    args.exactly(
-        0,
-        &crate::command::Command::Question(crate::command::question::Ask).usage_text(),
-    )?;
+fn ask(tool: &Tool, args: &Args, cwd: &Path, words: &str) -> Result<String> {
+    args.exactly(0)?;
     let tags = tag::parse_tags(args.values("tag"))?;
     let title = args.require("title")?.to_string();
     if let Some(fault) = title_fault(&title) {
@@ -175,8 +154,8 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
         }
         _ => fail!("--plan and --plan-number go together, each with a value"),
     };
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     let id = store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         if let Some(from) = from_item {
@@ -405,16 +384,15 @@ fn add_drafts(db: &rusqlite::Connection, drafts: &[ItemDraft], stamp: &Stamp) ->
         .collect()
 }
 
-fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) -> Result<String> {
-    let args = Args::parse(args, &["request"], &[])?;
-    let id = question_id(&args)?;
+fn resolve(tool: &Tool, args: &Args, cwd: &Path, words: &str, verb: Verb) -> Result<String> {
+    let id = question_id(args)?;
     let mut request: Request = read_request(args.require("request")?)?;
     let closing = closing_of(verb, &mut request)?;
     let drafts = work_or_why(request.work, request.no_work)?;
     let blocked = request.blocked;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     require_draft_briefs(&tool.places, &store.repos()?, &drafts)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     // In a repo two projects hold, an item of either project may run in a
     // worktree an answer's dropped item keeps, so the drop reads the other
     // projects' items too.
@@ -505,16 +483,15 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
 }
 
 /// `drop`: the question leaves with nothing waiting on it.
-fn drop_question(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
-    let args = Args::parse(args, &["why"], &[])?;
-    let id = question_id(&args)?;
+fn drop_question(tool: &Tool, args: &Args, cwd: &Path, words: &str) -> Result<String> {
+    let id = question_id(args)?;
     let why = args.require("why")?;
     if why.trim().is_empty() {
         fail!("--why is empty");
     }
     let how = How::Dropped(why.to_string());
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         open_question(lists, id)?;
@@ -525,8 +502,7 @@ fn drop_question(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Resul
     Ok(format!("dropped question {id}\n{}\n", stack_top(&lists)?))
 }
 
-fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
-    let args = Args::parse(args, &["why", "above", "below"], &["by-person"])?;
+fn place(tool: &Tool, args: &Args, cwd: &Path, words: &str) -> Result<String> {
     let (id, spot) = match (args.positional(), args.id("above")?, args.id("below")?) {
         ([_], Some(_), Some(_)) => fail!(
             "--above and --below contradict each other: name one question to place it next to"
@@ -558,8 +534,8 @@ fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String
             "--by-person goes with first, last, --above or --below; with auto, the stack orders the question by what it unblocks and its effect"
         );
     }
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         open_question(lists, id)?;
@@ -585,21 +561,8 @@ fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String
 /// `question edit N`: changes an open question's fields, and gives any
 /// question, open or closed, the origin `--origin` names and the tags `--tag`
 /// names, and removes the tags `--untag` names.
-fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> {
-    let args = Args::parse(
-        args,
-        &[
-            "title",
-            "details-file",
-            "effect",
-            "blocks-nothing",
-            "origin",
-            "tag",
-            "untag",
-        ],
-        &[],
-    )?;
-    let id = question_id(&args)?;
+fn edit(tool: &Tool, args: &Args, cwd: &Path, words: &str) -> Result<String> {
+    let id = question_id(args)?;
     let origin = args.id("origin")?;
     let tags = tag::parse_tags(args.values("tag"))?;
     let untags = tag::parse_tags(args.values("untag"))?;
@@ -629,8 +592,8 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
             "the edit changes nothing: name --title, --details-file, --effect, --blocks-nothing, --origin, --tag or --untag"
         );
     }
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         if fields {
@@ -670,10 +633,9 @@ pub fn set_effect(store: &Store, id: Id, effect: Effect, stamp: &Stamp) -> Resul
     })
 }
 
-fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
-    let id = question_id(&args)?;
-    let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
+fn show(tool: &Tool, args: &Args, cwd: &Path) -> Result<String> {
+    let id = question_id(args)?;
+    let lists = Store::resolve(&tool.places, args, cwd)?.load()?;
     let stack = derive::stack_order(&lists);
     if let Some(at) = stack.iter().position(|entry| entry.question.id == id) {
         let entry = &stack[at];
@@ -712,14 +674,10 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 /// The stack in the order it is asked, one line per question; with `--tag
 /// T`, only the questions whose trail has T, each keeping its place in the
 /// stack.
-fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(args, &["tag"], &[])?;
-    args.exactly(
-        0,
-        &crate::command::Command::Question(crate::command::question::List).usage_text(),
-    )?;
+fn list(tool: &Tool, args: &Args, cwd: &Path) -> Result<String> {
+    args.exactly(0)?;
     let wanted = args.value("tag")?;
-    let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
+    let lists = Store::resolve(&tool.places, args, cwd)?.load()?;
     let stack = derive::stack_order(&lists);
     if stack.is_empty() {
         return Ok("the stack is empty\n".to_string());

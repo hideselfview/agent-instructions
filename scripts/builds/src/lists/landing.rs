@@ -126,8 +126,7 @@ struct Landing {
 }
 
 /// <args> of the command whose refusals say <usage>.
-fn parse(args: &[String], usage: &str) -> Result<Landing> {
-    let args = Args::parse(args, &["done", "part"], &[])?;
+fn parse(args: &Args, usage: &str) -> Result<Landing> {
     let Some((dir, shas)) = args.positional().split_first() else {
         fail!("{usage}")
     };
@@ -159,7 +158,7 @@ fn parse(args: &[String], usage: &str) -> Result<Landing> {
         checkout,
         items,
         shas: shas.to_vec(),
-        args,
+        args: args.clone(),
     })
 }
 
@@ -271,7 +270,7 @@ fn require_changes_read(lists: &Lists, item: &Item) -> Result<()> {
     fail!("{said}")
 }
 
-pub fn check_landing(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn check_landing(tool: &Tool, args: &Args) -> Result<()> {
     let landing = parse(
         args,
         &crate::command::Command::Item(crate::command::item::CheckLanding).usage_text(),
@@ -419,7 +418,7 @@ fn record(
     Ok(did)
 }
 
-pub fn landed(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn landed(tool: &Tool, args: &Args) -> Result<()> {
     let landing = parse(
         args,
         &crate::command::Command::Item(crate::command::item::Landed).usage_text(),

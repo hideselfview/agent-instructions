@@ -742,11 +742,10 @@ fn ask(tool: &Tool, args: &Args, usage: &str) -> Result<Asked> {
 
 /// `builds review check-landing DIR --project P SHA...`: says why the commits
 /// can't land, exit 1, or that the review takes them.
-pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["landing", "rules-root"], &["squashed"])?;
+pub fn check_landing_command(tool: &Tool, args: &Args) -> Result<()> {
     let asked = ask(
         tool,
-        &args,
+        args,
         &crate::command::Command::Review(crate::command::review::CheckLanding).usage_text(),
     )?;
     let verdict = judge(
@@ -852,9 +851,8 @@ fn record_landing(tool: &Tool, args: &Args) -> Result<Option<(Asked, i64)>> {
 /// the landing as landed unless commits of the branch still wait to land,
 /// then starts the audit of a sampled one, never of a landing of design files
 /// only. The audit never fails the landing.
-pub fn landed_command(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["landing", "rules-root"], &["more-to-land"])?;
-    let Some((asked, landing)) = record_landing(tool, &args)? else {
+pub fn landed_command(tool: &Tool, args: &Args) -> Result<()> {
+    let Some((asked, landing)) = record_landing(tool, args)? else {
         return Ok(());
     };
     let roll = (super::clock_bits() % 1_000_000) as f64 / 1_000_000.0;

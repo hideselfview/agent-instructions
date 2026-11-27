@@ -30,7 +30,11 @@ fn told_sessions(r: &Reviewed, finding: i64, matter: &str) -> Vec<String> {
 fn listen(r: &Reviewed, session: &str, inbox: &Messaging) -> String {
     crate::review::judge::listen_command(
         &r.demo.tool,
-        &args(&["--project", "demo", "--by", "judge"]),
+        &crate::args::Args::of(
+            crate::command::Command::Judge(crate::command::judge::Listen),
+            &args(&["--project", "demo", "--by", "judge"]),
+        )
+        .unwrap(),
         &r.demo.scratch.dir,
         Some(&caller(session, session)),
         Some(inbox),
@@ -170,16 +174,20 @@ fn another_review(r: &Reviewed, n: usize, branch: &str) -> i64 {
 fn settle_as_judge(r: &Reviewed, finding: i64) {
     crate::review::settle(
         &r.demo.tool,
-        &args(&[
-            &finding.to_string(),
-            "dropped",
-            "--why",
-            "the rule allows it here",
-            "--project",
-            "demo",
-            "--by",
-            "judge",
-        ]),
+        &crate::args::Args::of(
+            crate::command::Command::Review(crate::command::review::Settle),
+            &args(&[
+                &finding.to_string(),
+                "dropped",
+                "--why",
+                "the rule allows it here",
+                "--project",
+                "demo",
+                "--by",
+                "judge",
+            ]),
+        )
+        .unwrap(),
         Some(&caller("s-judge", "s-judge")),
     )
     .unwrap();

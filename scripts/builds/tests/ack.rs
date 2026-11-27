@@ -210,15 +210,15 @@ fn an_agent_without_a_current_acknowledgement_gets_a_refusal_from_cargo_and_no_o
     for args in [
         &[
             "cargo",
-            "nextest",
-            "run",
             "--project",
             "bae",
+            "nextest",
+            "run",
             "--agent",
             "s1",
         ][..],
-        &["cargo", "test", "--project", "bae", "--agent", "s1"][..],
-        &["cargo", "clippy", "--project", "bae", "--agent", "s1"][..],
+        &["cargo", "--project", "bae", "test", "--agent", "s1"][..],
+        &["cargo", "--project", "bae", "clippy", "--agent", "s1"][..],
     ] {
         let refused = builds(&dir, Some("s1"), args);
         assert_eq!(refused.status.code(), Some(1), "{args:?}: {refused:?}");
@@ -261,7 +261,7 @@ exec /usr/bin/git "$@"
     )
     .unwrap();
     let captured = dir.join("captured");
-    let output = command(&dir, None, &["dashboard", "--unknown"])
+    let output = command(&dir, None, &["dashboard", "--port", "none"])
         .env("CODEX_SESSION_ID", "00000000-0000-4000-8000-000000000001")
         .env("CODEX_THREAD_ID", "00000000-0000-4000-8000-000000000002")
         .env("CAPTURED_IDENTITY", &captured)
@@ -271,7 +271,7 @@ exec /usr/bin/git "$@"
     // Stop before binding a server. The actual dashboard startup already ran
     // the git child that lists git's local environment variables.
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("usage: builds dashboard"),
+        String::from_utf8_lossy(&output.stderr).contains("--port takes a port number"),
         "{output:?}"
     );
     let inherited = std::fs::read_to_string(captured).unwrap();

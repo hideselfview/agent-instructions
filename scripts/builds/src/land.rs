@@ -168,7 +168,7 @@ fn usage() -> String {
 /// How many times a refused push is tried again from a fresh fetch.
 const ATTEMPTS: usize = 5;
 
-pub fn cmd_land(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
+pub fn cmd_land(tool: &crate::tool::Tool, args: &crate::args::Args) -> Result<()> {
     let stores = hold_stores()?;
     let mut stdout = crate::output::answer_handle().lock();
     land_recorded(
@@ -204,7 +204,7 @@ fn hold_stores() -> Result<Option<crate::install_gate::Holding<'static>>> {
 fn land_recorded(
     places: &crate::places::Places,
     program: &Path,
-    args: &[String],
+    args: &crate::args::Args,
     out: &mut Report,
     stores: Option<crate::install_gate::Holding<'_>>,
 ) -> Result<()> {
@@ -591,70 +591,34 @@ fn branch_commits(dir: &Path, start: &Start, out: &mut Report) -> Result<Vec<Str
     Ok(waiting.into_iter().map(|c| c.full).collect())
 }
 
-fn parse(args: &[String], out: &mut Report) -> Result<Request> {
-    let mut items = Vec::new();
+/// The request of <args>, the landing's arguments.
+fn parse(args: &crate::args::Args, out: &mut Report) -> Result<Request> {
+    let items = args
+        .given_flags()
+        .filter(|(flag, _)| ["--done", "--part"].contains(flag))
+        .flat_map(|(flag, values)| std::iter::once(flag.to_string()).chain(values.iter().cloned()))
+        .collect();
     let mut designs: Vec<Id> = Vec::new();
-    let mut project: Option<String> = None;
-    let mut rest = args;
-    while let Some(arg) = rest.first() {
-        match arg.as_str() {
-            "--done" | "--part" => {
-                if rest.len() < 2 {
-                    return Err(refuse(out, format!("refusing: {arg} needs an item number")));
-                }
-                items.push(arg.clone());
-                items.push(rest[1].clone());
-                rest = &rest[2..];
+    for word in args.values("design") {
+        let id = match Id::parse(word) {
+            Ok(id) => id,
+            Err(error) => {
+                return Err(refuse(out, format!("refusing: --design: {}", error.text())));
             }
-            "--project" => {
-                if rest.len() < 2 {
-                    return Err(refuse(out, "refusing: --project needs a project name"));
-                }
-                if project.replace(rest[1].clone()).is_some() {
-                    return Err(refuse(out, "refusing: the landing names --project twice"));
-                }
-                rest = &rest[2..];
-            }
-            "--design" => {
-                if rest.len() < 2 {
-                    return Err(refuse(
-                        out,
-                        "refusing: --design needs a design change number",
-                    ));
-                }
-                let id = match Id::parse(&rest[1]) {
-                    Ok(id) => id,
-                    Err(error) => {
-                        return Err(refuse(out, format!("refusing: --design: {}", error.text())));
-                    }
-                };
-                if designs.contains(&id) {
-                    return Err(refuse(
-                        out,
-                        format!("refusing: the landing names --design {} twice", id.0),
-                    ));
-                }
-                designs.push(id);
-                rest = &rest[2..];
-            }
-            "--" => {
-                rest = &rest[1..];
-                break;
-            }
-            flag if flag.starts_with("--") => {
-                return Err(refuse(out, format!("refusing: unknown option {flag}")));
-            }
-            _ => break,
+        };
+        if designs.contains(&id) {
+            return Err(refuse(
+                out,
+                format!("refusing: the landing names --design {} twice", id.0),
+            ));
         }
-    }
-    if let Some(flag) = rest.iter().find(|arg| arg.starts_with("--")) {
-        return Err(refuse(out, format!("refusing: unknown option {flag}")));
+        designs.push(id);
     }
     Ok(Request {
         items,
         designs,
-        project,
-        shas: rest.to_vec(),
+        project: args.value("project")?.map(str::to_string),
+        shas: args.positional()[1..].to_vec(),
     })
 }
 
@@ -1407,12 +1371,13 @@ impl Ended {
 /// The landing, with the program that answers the `builds` commands it runs
 /// (this program; tests pass a stand-in) and <out> for what it says. Land
 /// holds the worktree's lock only until it has run.
-fn land_profiled(program: &Path, args: &[String], out: &mut Report) -> Ended {
+fn land_profiled(program: &Path, args: &crate::args::Args, out: &mut Report) -> Ended {
     let started_at = crate::app_timing::now();
     let began = Moment::now();
-    let Some((worktree, rest)) = args.split_first() else {
+    let Some(worktree) = args.positional().first() else {
         return Ended::before_landing(Err(refuse(out, usage())));
     };
+    let rest = args.words();
     let waiting = (crate::app_timing::now(), Moment::now());
     let (workdir, (mut lock, turn_file)) = match std::path::absolute(worktree)
         .context(|| format!("resolving {worktree}"))
@@ -1426,7 +1391,7 @@ fn land_profiled(program: &Path, args: &[String], out: &mut Report) -> Ended {
         started_at: waiting.0,
         ms: waiting.1.elapsed().as_millis() as u64,
     };
-    let mut landing = match open_landing(program, workdir, rest, out) {
+    let mut landing = match open_landing(program, workdir, args, out) {
         Ok(landing) => landing,
         Err(error) => return Ended::before_landing(Err(error)),
     };
@@ -1458,7 +1423,7 @@ fn land_profiled(program: &Path, args: &[String], out: &mut Report) -> Ended {
 fn open_landing<'a>(
     program: &'a Path,
     workdir: PathBuf,
-    args: &[String],
+    args: &crate::args::Args,
     out: &mut Report,
 ) -> Result<Landing<'a>> {
     let mut request = parse(args, out)?;

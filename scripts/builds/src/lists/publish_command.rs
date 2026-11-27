@@ -5,7 +5,6 @@
 use std::path::Path;
 
 use crate::args::Args;
-use crate::command::design::Design as Subcommand;
 use crate::fail;
 use crate::fail::Result;
 use crate::inbox::Messaging;
@@ -26,17 +25,8 @@ fn request_id(text: &str) -> Result<i64> {
 /// `listen --project P`: keeps the inbox of the session running the command,
 /// <session>, as the one the dashboard wakes for project P's publish
 /// requests, in place of any earlier one.
-pub fn listen(
-    tool: &Tool,
-    args: &[String],
-    cwd: &Path,
-    session: Option<&Messaging>,
-) -> Result<String> {
-    let args = Args::parse(args, &["project", "by"], &[])?;
-    args.exactly(
-        0,
-        &crate::command::Command::Design(crate::command::design::Listen).usage_text(),
-    )?;
+pub fn listen(tool: &Tool, args: &Args, cwd: &Path, session: Option<&Messaging>) -> Result<String> {
+    args.exactly(0)?;
     let Some(project) = args.value("project")? else {
         fail!("say which project's publish requests the session listens for with --project");
     };
@@ -46,7 +36,7 @@ pub fn listen(
         );
     };
     let store = Store::named(&tool.places, project)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, "design listen", |db| {
         publish::listen(db, session, &stamp)
     })?;
@@ -57,26 +47,19 @@ pub fn listen(
 
 /// The request <args> name, with the store and the stamp of its write: the
 /// arguments of `publish take N`, `publish done N` and `publish failed N`.
-fn request(
-    tool: &Tool,
-    command: Subcommand,
-    args: &[String],
-    cwd: &Path,
-) -> Result<(i64, Args, Store, Stamp)> {
-    let args = Args::parse(args, &["project", "by", "why", "link"], &[])?;
-    let usage = crate::command::Command::Design(command).usage_text();
-    let [id] = args.exactly(1, &usage)? else {
+fn request(tool: &Tool, args: &Args, cwd: &Path) -> Result<(i64, Store, Stamp)> {
+    let [id] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let id = request_id(id)?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    Ok((id, args, store, stamp))
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
+    Ok((id, store, stamp))
 }
 
 /// `publish take N`.
-pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let (id, _, store, stamp) = request(tool, Subcommand::PublishTake, args, cwd)?;
+pub fn take(tool: &Tool, args: &Args, cwd: &Path) -> Result<String> {
+    let (id, store, stamp) = request(tool, args, cwd)?;
     let taken = store.write(&stamp, &format!("design publish take {id}"), |db| {
         publish::take(db, id, &stamp)
     })?;
@@ -89,8 +72,8 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 }
 
 /// `publish done N`.
-pub fn done(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let (id, args, store, stamp) = request(tool, Subcommand::PublishDone, args, cwd)?;
+pub fn done(tool: &Tool, args: &Args, cwd: &Path) -> Result<String> {
+    let (id, store, stamp) = request(tool, args, cwd)?;
     let links = args
         .values("link")
         .into_iter()
@@ -106,8 +89,8 @@ pub fn done(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 }
 
 /// `publish failed N --why WHY`.
-pub fn failed(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let (id, args, store, stamp) = request(tool, Subcommand::PublishFailed, args, cwd)?;
+pub fn failed(tool: &Tool, args: &Args, cwd: &Path) -> Result<String> {
+    let (id, store, stamp) = request(tool, args, cwd)?;
     let Some(why) = args.value("why")? else {
         fail!("say what stopped the publish with --why");
     };

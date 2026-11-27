@@ -451,10 +451,7 @@ fn claims_keep_their_notes_and_a_notes_state_until_a_plain_note_clears_it() {
         "is one of waiting-on-you, winding-down, held, got 'done'",
         &["note", &side, "--state", "done", "finished"],
     );
-    demo.refuses(
-        "is one of waiting-on-you, winding-down, held, got ''",
-        &["note", &side, "--state"],
-    );
+    demo.refuses("--state needs a value", &["note", &side, "--state"]);
     assert_eq!(
         claim_fields(&file)[3],
         "waiting-on-you",

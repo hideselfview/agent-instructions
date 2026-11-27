@@ -49,82 +49,47 @@ use crate::step_failure::RunResult;
 use boards::{git, git_text};
 
 /// The worktree `builds checks run <args>` runs the pre-commit hook's checks
-/// in when <args> is `[<worktree>]`: <worktree>, else the current directory.
-/// None for a range run (`--since`).
-pub fn run_worktree(args: &[String]) -> Option<&Path> {
-    match args {
-        [] => Some(Path::new(".")),
-        [worktree] if !worktree.starts_with("--") => Some(Path::new(worktree.as_str())),
-        _ => None,
-    }
+/// in: the one <args> name, else the current directory. None for a range
+/// run (`--since`).
+pub fn run_worktree(args: &Args) -> Option<&Path> {
+    (!args.switch("since")).then(|| worktree_of(args))
 }
 
 /// `builds checks run`: the hook's checks, or with `--since` the checks of
 /// every file changed since a commit.
-pub fn cmd_run(args: &[String]) -> Result<()> {
-    if let Some(worktree) = run_worktree(args) {
-        return hook(&top_of(worktree)?);
+pub fn cmd_run(args: &Args) -> Result<()> {
+    match args.value("since")? {
+        None => hook(&top_of(worktree_of(args))?),
+        Some(since) => run_range(&top_of(worktree_of(args))?, since),
     }
-    let args = Args::parse(args, &["since"], &[])?;
-    let Some(since) = args.value("since")? else {
-        fail!(
-            "{}",
-            crate::command::Command::Checks(crate::command::checks::Run).usage_text()
-        )
-    };
-    let worktree = match args.positional() {
-        [] => Path::new("."),
-        [worktree] => Path::new(worktree.as_str()),
-        _ => fail!(
-            "{}",
-            crate::command::Command::Checks(crate::command::checks::Run).usage_text()
-        ),
-    };
-    run_range(&top_of(worktree)?, since)
 }
 
 /// `builds checks whole`.
-pub fn cmd_whole(args: &[String]) -> Result<()> {
-    whole(&top_of(worktree_of(args)?)?)
+pub fn cmd_whole(args: &Args) -> Result<()> {
+    whole(&top_of(worktree_of(args))?)
 }
 
 /// `builds checks list`.
-pub fn cmd_list(args: &[String]) -> Result<()> {
-    crate::output::answer(list_staged(&top_of(worktree_of(args)?)?)?);
+pub fn cmd_list(args: &Args) -> Result<()> {
+    crate::output::answer(list_staged(&top_of(worktree_of(args))?)?);
     Ok(())
 }
 
 /// The worktree that <args>, `[<worktree>]`, name: the current directory
 /// when they name none.
-fn worktree_of(args: &[String]) -> Result<&Path> {
-    match args {
-        [] => Ok(Path::new(".")),
-        [worktree] => Ok(Path::new(worktree.as_str())),
-        _ => fail!("{}", crate::command::Command::group_usage_text("checks")),
-    }
+fn worktree_of(args: &Args) -> &Path {
+    args.positional()
+        .first()
+        .map_or(Path::new("."), |worktree| Path::new(worktree.as_str()))
 }
 
 /// `builds checks tests`.
-pub fn cmd_tests(args: &[String]) -> Result<()> {
-    let (mut since, mut run) = (None, false);
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        match arg.as_str() {
-            "--since" => since = rest.next(),
-            "--run" => run = true,
-            _ => fail!(
-                "{}",
-                crate::command::Command::Checks(crate::command::checks::Tests).usage_text()
-            ),
-        }
-    }
-    let Some(since) = since else {
-        fail!(
-            "{}",
-            crate::command::Command::Checks(crate::command::checks::Tests).usage_text()
-        )
-    };
-    tests(&top_of(Path::new("."))?, since, run)
+pub fn cmd_tests(args: &Args) -> Result<()> {
+    tests(
+        &top_of(Path::new("."))?,
+        args.require("since")?,
+        args.switch("run"),
+    )
 }
 
 /// `whole`: the checks `builds land` runs on a landing's result, run on the
@@ -173,8 +138,7 @@ fn hook_database(top: &Path) -> Result<Option<PathBuf>> {
 
 /// `builds checks stats [--project P] [--repo R] [--since DATE] [--change REV]`.
 /// `builds checks stats`.
-pub fn stats(args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["since", "change", "repo"], &[])?;
+pub fn stats(args: &Args) -> Result<()> {
     if !args.positional().is_empty() {
         fail!(
             "{}",
@@ -184,7 +148,7 @@ pub fn stats(args: &[String]) -> Result<()> {
     let since = args.value("since")?;
     let start = crate::text::since_start(since)?;
     let places = Places::from_env()?;
-    let store = Store::resolve(&places, &args, Path::new("."))?;
+    let store = Store::resolve(&places, args, Path::new("."))?;
     if let Some(rev) = args.value("change")? {
         if since.is_some() {
             fail!("--change splits all the runs; it does not take --since");

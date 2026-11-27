@@ -191,7 +191,12 @@ impl crate::command::Command {
         use crate::command::*;
         match self {
             Land
-            | AppBuild
+            | AppBuild(
+                app_build::Build
+                | app_build::LandingCoverage
+                | app_build::DropShots
+                | app_build::RecordHanded,
+            )
             | BuildApp
             | Programs
             | New

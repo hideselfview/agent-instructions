@@ -115,18 +115,15 @@ pub fn allow_named_lanes(db: &Connection) -> Result<()> {
 /// `builds app-build --drop-shots`: records the drop of <prefix>, which the
 /// app builds of <branch> in <lane> ran since the branch left origin/main,
 /// and says so. Runs in the branch's worktree.
-pub fn cmd_drop_shots(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn cmd_drop_shots(tool: &Tool, args: &Args) -> Result<()> {
     let cwd = &tool.dir;
-    let args = Args::parse(args, &["why"], &[])?;
-    let [repo, branch, lane, prefix] =
-        args.exactly(4, &crate::command::Command::AppBuild.usage_text())?
-    else {
+    let [repo, branch, lane, prefix] = args.exactly(4)? else {
         unreachable!("exactly four")
     };
     let lane = crate::repo_lanes::parse(&tool.places, repo, lane)?;
     let why = args.why()?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     let Some(checkout) = crate::checkout::Checkout::at(cwd)? else {
         fail!("{} is in no git checkout", cwd.display());
     };

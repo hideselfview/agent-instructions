@@ -118,6 +118,15 @@ impl Demo {
     }
 }
 
+/// <args> with `--project demo`, for a command that writes no record.
+pub fn read_words(args: &[&str]) -> Vec<String> {
+    let mut all: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    all.extend(["--project".into(), "demo".into()]);
+    all
+}
+
+/// <args> with `--project demo` and `--by tester`, for a command that writes
+/// records.
 pub fn words(args: &[&str]) -> Vec<String> {
     let mut all: Vec<String> = args.iter().map(|a| a.to_string()).collect();
     all.extend([

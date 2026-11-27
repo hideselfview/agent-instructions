@@ -61,9 +61,9 @@ impl Band {
 }
 
 /// `builds host band <name> <low> <high>` and `builds host band <name> clear`.
-pub fn cmd_band(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
-    let (name, band) = match args {
-        [name, word] if word == "clear" => (name, None),
+pub fn cmd_band(tool: &crate::tool::Tool, args: &crate::args::Args) -> Result<()> {
+    let (name, band) = match args.positional() {
+        [name, _clear] => (name, None),
         [name, low, high] => (name, Some(Band::parse(low, high)?)),
         _ => fail!(
             "{}",

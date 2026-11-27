@@ -26,13 +26,26 @@ fn side(scratch: &Scratch, n: usize) -> std::path::PathBuf {
 }
 
 fn release(scratch: &Scratch, n: usize) {
-    cmd_release(&scratch.places(), &[side(scratch, n).display().to_string()]).unwrap();
+    cmd_release(
+        &scratch.places(),
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            &[side(scratch, n).display().to_string()],
+        )
+        .unwrap(),
+    )
+    .unwrap();
 }
 
 fn new(tool: &Tool, main: &Path, extra: &[&str]) {
     let mut args = vec![main.display().to_string()];
     args.extend(extra.iter().map(|arg| arg.to_string()));
-    cmd_new(tool, &crate::testing::no_ssh(), &args).unwrap();
+    cmd_new(
+        tool,
+        &crate::testing::no_ssh(),
+        &crate::args::Args::of(crate::command::Command::New, &args).unwrap(),
+    )
+    .unwrap();
 }
 
 /// A worktree of <main> that is no side worktree, recorded as its mac app
@@ -53,7 +66,11 @@ fn app_checkout(tool: &Tool, scratch: &Scratch, main: &Path) -> std::path::PathB
     crate::worktree::cmd_app_checkout(
         tool,
         &crate::testing::no_ssh(),
-        &["mac".to_string(), top.display().to_string()],
+        &crate::args::Args::of(
+            crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+            &["mac".to_string(), top.display().to_string()],
+        )
+        .unwrap(),
     )
     .unwrap();
     assert!(
@@ -132,12 +149,20 @@ fn new_adds_a_worktree_when_none_is_free() {
     // A dirty one is not free, and an app checkout is no side worktree.
     cmd_release(
         &scratch.places(),
-        &[side(&scratch, 1).display().to_string()],
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            &[side(&scratch, 1).display().to_string()],
+        )
+        .unwrap(),
     )
     .unwrap();
     cmd_release(
         &scratch.places(),
-        &[side(&scratch, 2).display().to_string()],
+        &crate::args::Args::of(
+            crate::command::Command::Release,
+            &[side(&scratch, 2).display().to_string()],
+        )
+        .unwrap(),
     )
     .unwrap();
     std::fs::write(side(&scratch, 1).join("stray"), "x").unwrap();
@@ -198,7 +223,15 @@ fn a_worktree_whose_commit_only_another_branch_has_is_kept() {
         find_free(&tool, &main).unwrap().is_none(),
         "a worktree whose branch is past origin/main counted as free"
     );
-    let error = crate::worktree::cmd_retire(&tool, &[top.display().to_string()]).unwrap_err();
+    let error = crate::worktree::cmd_retire(
+        &tool,
+        &crate::args::Args::of(
+            crate::command::Command::Retire,
+            &[top.display().to_string()],
+        )
+        .unwrap(),
+    )
+    .unwrap_err();
     let said = error.text();
     assert!(said.contains("unlanded"), "{said}");
     assert!(top.join("unlanded").is_file());
@@ -406,14 +439,22 @@ fn two_concurrent_news_never_get_the_same_worktree() {
             cmd_new(
                 &tool,
                 &crate::testing::no_ssh(),
-                &[main.display().to_string(), "--for".into(), "A".into()],
+                &crate::args::Args::of(
+                    crate::command::Command::New,
+                    &[main.display().to_string(), "--for".into(), "A".into()],
+                )
+                .unwrap(),
             )
         });
         let b = scope.spawn(|| {
             cmd_new(
                 &other,
                 &crate::testing::no_ssh(),
-                &[main.display().to_string(), "--for".into(), "B".into()],
+                &crate::args::Args::of(
+                    crate::command::Command::New,
+                    &[main.display().to_string(), "--for".into(), "B".into()],
+                )
+                .unwrap(),
             )
         });
         (a.join().unwrap(), b.join().unwrap())
@@ -458,7 +499,11 @@ fn a_side_worktree_is_never_recorded_as_an_app_checkout() {
     let result = crate::worktree::cmd_app_checkout(
         &tool,
         &crate::testing::no_ssh(),
-        &["mac".to_string(), side(&scratch, 1).display().to_string()],
+        &crate::args::Args::of(
+            crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+            &["mac".to_string(), side(&scratch, 1).display().to_string()],
+        )
+        .unwrap(),
     );
     assert!(
         result.is_err(),
@@ -515,7 +560,15 @@ fn a_harness_worktree_is_never_retired() {
     let harness = harness_worktree(&tool, &main);
     retire_free(&tool, &tool.roots().unwrap(), Run::Real).unwrap();
     assert!(harness.exists(), "prune retired a harness worktree");
-    let error = crate::worktree::cmd_retire(&tool, &[harness.display().to_string()]).unwrap_err();
+    let error = crate::worktree::cmd_retire(
+        &tool,
+        &crate::args::Args::of(
+            crate::command::Command::Retire,
+            &[harness.display().to_string()],
+        )
+        .unwrap(),
+    )
+    .unwrap_err();
     assert!(
         harness.exists(),
         "retire removed a harness worktree: {error:?}"
@@ -530,7 +583,11 @@ fn a_harness_worktree_is_never_recorded_as_an_app_checkout() {
     let result = crate::worktree::cmd_app_checkout(
         &tool,
         &crate::testing::no_ssh(),
-        &["mac".to_string(), harness.display().to_string()],
+        &crate::args::Args::of(
+            crate::command::Command::AppCheckout(crate::command::app_checkout::Add),
+            &["mac".to_string(), harness.display().to_string()],
+        )
+        .unwrap(),
     );
     assert!(
         result.is_err(),
@@ -606,7 +663,11 @@ fn new_refuses_to_resume_a_missing_or_checked_out_branch() {
     let refused = |extra: &[&str]| {
         let mut args = vec![main.display().to_string()];
         args.extend(extra.iter().map(|arg| arg.to_string()));
-        match cmd_new(&tool, &crate::testing::no_ssh(), &args) {
+        match cmd_new(
+            &tool,
+            &crate::testing::no_ssh(),
+            &crate::args::Args::of(crate::command::Command::New, &args).unwrap(),
+        ) {
             Err(crate::fail::Fail::Message(message)) => message,
             other => panic!("new did not refuse {extra:?}: {other:?}"),
         }
@@ -729,13 +790,17 @@ fn new_never_moves_a_branch_that_holds_work() {
     let result = cmd_new(
         &tool,
         &crate::testing::no_ssh(),
-        &[
-            main.display().to_string(),
-            "-b".into(),
-            "taken".into(),
-            "--for".into(),
-            "agent".into(),
-        ],
+        &crate::args::Args::of(
+            crate::command::Command::New,
+            &[
+                main.display().to_string(),
+                "-b".into(),
+                "taken".into(),
+                "--for".into(),
+                "agent".into(),
+            ],
+        )
+        .unwrap(),
     );
     assert!(result.is_err(), "new took a branch name that exists");
     let after = git_text(

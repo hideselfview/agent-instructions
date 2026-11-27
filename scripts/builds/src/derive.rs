@@ -234,45 +234,36 @@ fn lane_of_prefix(prefix: &str, lanes: &[Lane]) -> Result<Lane> {
     }
 }
 
-/// <args> after the repo and the ref: the picks, each with the lane it runs
-/// in (an `--all-shots <lane>` names its lane), and whether `--fresh` was
-/// given.
+/// The picks of <args>, each `--test <Class>`, `--shots <prefix>` and
+/// `--all-shots <lane>` in the order given, with the lane each runs in (an
+/// `--all-shots <lane>` names its lane).
 fn parse_picks(
-    args: &[String],
+    args: &crate::args::Args,
     lanes: &[Lane],
     mut lane_of: impl FnMut(PickKind, &str) -> Result<Lane>,
-) -> Result<(Vec<Pick>, bool)> {
-    let (mut picks, mut fresh) = (Vec::new(), false);
-    let mut rest = args;
-    while let Some((flag, after)) = rest.split_first() {
-        if flag == "--fresh" {
-            fresh = true;
-            rest = after;
-            continue;
-        }
+) -> Result<Vec<Pick>> {
+    let mut picks = Vec::new();
+    for (flag, values) in args.given_flags() {
         if flag == app_build::ALL_SHOTS {
-            let (pick, after) = app_build::all_shots_flag(
-                after,
-                &crate::command::Command::AppBuild.usage_text(),
-                lanes,
-            )?;
-            picks.push(pick);
-            rest = after;
+            let [lane] = values else {
+                fail!(
+                    "{} takes one app\n{}",
+                    app_build::ALL_SHOTS,
+                    args.command().usage_text()
+                );
+            };
+            picks.push(app_build::all_shots(Lane::parse_in_or_fail(lanes, lane)?));
             continue;
         }
         let Some(kind) = PickKind::ALL.into_iter().find(|kind| flag == kind.flag()) else {
-            fail!(
-                "{flag:?} where --test, --shots, {} or --fresh goes\n{usage}",
-                app_build::ALL_SHOTS,
-                usage = crate::command::Command::AppBuild.usage_text(),
-            );
+            continue;
         };
-        let [arg, after @ ..] = after else {
+        let [arg] = values else {
             fail!(
-                "{} needs a {}\n{usage}",
+                "{} needs a {}\n{}",
                 kind.flag(),
                 kind.what(),
-                usage = crate::command::Command::AppBuild.usage_text()
+                args.command().usage_text()
             );
         };
         if arg.is_empty() || arg.starts_with('-') || arg.contains(char::is_whitespace) {
@@ -290,9 +281,8 @@ fn parse_picks(
         }
         let lane = lane_of(kind, arg)?;
         picks.push(Pick::from_flag(lane, kind, arg)?);
-        rest = after;
     }
-    Ok((picks, fresh))
+    Ok(picks)
 }
 
 /// A branch cut before the repo declared the `on`, `needs` and `sources` lines
@@ -319,23 +309,20 @@ fn adopt_main_rules(top: &Path, config: &mut Config) -> Result<()> {
     Ok(())
 }
 
-pub fn derive_and_run(places: &Places, args: &[String], project: Option<&str>) -> Result<()> {
-    let [repo, git_ref, tail @ ..] = args else {
-        fail!("{}", crate::command::Command::AppBuild.usage_text());
+pub fn derive_and_run(
+    places: &Places,
+    args: &crate::args::Args,
+    project: Option<&str>,
+) -> Result<()> {
+    let [repo, git_ref] = args.positional() else {
+        fail!("{}", args.command().usage_text());
     };
-    if git_ref.starts_with('-') {
-        fail!("{}", crate::command::Command::AppBuild.usage_text());
-    }
     let (top, commit, mut config) = app_build::commit_and_config(places, repo, git_ref)?;
     let mut declarations = ShotDeclarations::new(&top);
     adopt_main_rules(&top, &mut config)?;
-    let design_shots = tail.iter().any(|arg| arg == DESIGN_SHOTS);
-    let tail: Vec<String> = tail
-        .iter()
-        .filter(|arg| *arg != DESIGN_SHOTS)
-        .cloned()
-        .collect();
-    let (mut picks, fresh) = parse_picks(&tail, &config.lanes, |kind, arg| match kind {
+    let design_shots = args.switch("design-shots");
+    let fresh = args.switch("fresh");
+    let mut picks = parse_picks(args, &config.lanes, |kind, arg| match kind {
         PickKind::Shots => lane_of_prefix(arg, &config.lanes),
         PickKind::Class => lane_of_class(&lanes_declaring(&top, &config, &commit, arg)?, arg),
     })?;

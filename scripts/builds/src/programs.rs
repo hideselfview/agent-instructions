@@ -260,15 +260,12 @@ pub fn remove_others(home: &Path, also: &[String]) -> Result<()> {
 pub fn cmd_programs(
     places: &crate::places::Places,
     system: &crate::system::System,
-    args: &[String],
+    args: &crate::args::Args,
 ) -> Result<()> {
     let home = &places.home;
-    let [hold, dashes, command @ ..] = args else {
+    let [_hold, _dashes, command @ ..] = args.positional() else {
         fail!("{}", crate::command::Command::Programs.usage_text());
     };
-    if hold != "hold" || dashes != "--" || command.is_empty() {
-        fail!("{}", crate::command::Command::Programs.usage_text());
-    }
     let pinned = match pin_this(home)? {
         Pin::Pinned(pinned) => pinned,
         Pin::Replaced(why) => fail!("{why}"),

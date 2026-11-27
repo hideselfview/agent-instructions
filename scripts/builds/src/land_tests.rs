@@ -5,7 +5,13 @@ use crate::testing::{Scratch, git_out};
 /// <f>'s places, when there is one.
 fn land(f: &Fixture, program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> {
     let places = f.scratch.places();
-    land_recorded(&places, program, args, &mut Report::to(out), None)
+    land_recorded(
+        &places,
+        program,
+        &crate::args::Args::of(crate::command::Command::Land, args).unwrap(),
+        &mut Report::to(out),
+        None,
+    )
 }
 
 /// A fixture: a bare origin and the repo's main checkout, cloned from it,
@@ -189,7 +195,11 @@ fn profiled(f: &Fixture, dir: &Path, args: &[&str], cues: Cues) -> (i32, Option<
     let mut all = vec![dir.display().to_string()];
     all.extend(args.iter().map(|a| a.to_string()));
     let mut out = Vec::new();
-    let Ended { result, run, .. } = land_profiled(&stub, &all, &mut Report::to(&mut out));
+    let Ended { result, run, .. } = land_profiled(
+        &stub,
+        &crate::args::Args::of(crate::command::Command::Land, &all).unwrap(),
+        &mut Report::to(&mut out),
+    );
     let code = match result {
         Ok(()) => 0,
         Err(Fail::Exit(code)) => code,
@@ -960,16 +970,16 @@ fn an_argument_that_names_no_commit_is_refused_before_anything_moves() {
 }
 
 #[test]
-fn an_option_after_the_commits_is_refused_by_name() {
+fn an_option_after_the_commits_is_read_as_one_before_them() {
     let f = fixture("land-late-option", "true\n", None);
     let (one, a, _two, _b) = two_branches(&f);
     let before = main_of(&f);
     let (code, out, calls) = run_land(&f, &one, &[&a[..8], "--project", "builds"], project());
     assert!(
-        code == 1 && out.contains("unknown option --project"),
+        code == 1 && out.contains("--project builds does not match"),
         "{out}"
     );
-    assert!(calls.is_empty(), "{calls:?}");
+    assert_eq!(calls, [format!("lists project-of {}", one.display())]);
     assert_eq!(main_of(&f), before);
 }
 
@@ -1005,16 +1015,13 @@ fn a_worktree_with_uncommitted_changes_is_refused_before_anything_moves() {
 fn unknown_options_and_missing_numbers_are_refused() {
     let f = fixture("land-options", "true\n", None);
     let (one, a, _two, _b) = two_branches(&f);
-    let (code, out, _) = run_land(&f, &one, &["--bogus", &a], Cues::default());
+    let refused = refusal(&[&one.display().to_string(), "--bogus", &a]);
     assert!(
-        code == 1 && out.contains("refusing: unknown option --bogus"),
-        "{out}"
+        refused.starts_with("builds land has no flag --bogus"),
+        "{refused}"
     );
-    let (code, out, _) = run_land(&f, &one, &["--done"], Cues::default());
-    assert!(
-        code == 1 && out.contains("--done needs an item number"),
-        "{out}"
-    );
+    let refused = refusal(&[&one.display().to_string(), "--done"]);
+    assert!(refused.starts_with("--done needs a value"), "{refused}");
     let (code, out, _) = run_land(
         &f,
         &one,
@@ -1027,14 +1034,16 @@ fn unknown_options_and_missing_numbers_are_refused() {
     );
     let (code, out, _) = run_land(&f, &one, &["--design", "2,3", &a], Cues::default());
     assert!(code == 1 && out.contains("'2,3' is not an id"), "{out}");
-    let mut out = Vec::new();
-    let refused = land(&f, Path::new("unused"), &[], &mut out);
-    assert!(
-        matches!(refused, Err(Fail::Exit(1)))
-            && String::from_utf8_lossy(&out).contains("usage: builds land"),
-        "{}",
-        String::from_utf8_lossy(&out)
-    );
+    let refused = refusal(&[]);
+    assert!(refused.starts_with("usage: builds land"), "{refused}");
+}
+
+/// Why the words of `builds land <words>` do not fit the command.
+fn refusal(words: &[&str]) -> String {
+    let words: Vec<String> = words.iter().map(|word| word.to_string()).collect();
+    crate::args::Args::of(crate::command::Command::Land, &words)
+        .unwrap_err()
+        .text()
 }
 
 #[test]
@@ -1055,18 +1064,11 @@ fn project_is_a_check_against_the_worktrees_project() {
         "{out}"
     );
     assert_eq!(calls, [format!("lists project-of {}", one.display())]);
-    let (code, out, _) = run_land(&f, &one, &["--project"], project());
-    assert!(
-        code == 1 && out.contains("--project needs a project name"),
-        "{out}"
-    );
-    let (code, out, _) = run_land(
-        &f,
-        &one,
-        &["--project", "bae", "--project", "bae", &a],
-        project(),
-    );
-    assert!(code == 1 && out.contains("names --project twice"), "{out}");
+    let one_word = one.display().to_string();
+    let refused = refusal(&[&one_word, "--project"]);
+    assert!(refused.starts_with("--project needs a value"), "{refused}");
+    let refused = refusal(&[&one_word, "--project", "bae", "--project", "bae", &a]);
+    assert!(refused.starts_with("--project is given twice"), "{refused}");
     let (code, out, calls) = run_land(
         &f,
         &one,
@@ -1466,7 +1468,13 @@ read -t 60 mark <&4 || { echo "the landing in $other did not reach its check"; e
         let places = f.scratch.places();
         std::thread::spawn(move || {
             let mut out = Vec::new();
-            let result = land_recorded(&places, &stub, &args, &mut Report::to(&mut out), None);
+            let result = land_recorded(
+                &places,
+                &stub,
+                &crate::args::Args::of(crate::command::Command::Land, &args).unwrap(),
+                &mut Report::to(&mut out),
+                None,
+            );
             (result.is_ok(), String::from_utf8_lossy(&out).into_owned())
         })
     };
@@ -1494,7 +1502,13 @@ fn two_landings_started_together_in_one_worktree_run_one_after_the_other() {
         let places = f.scratch.places();
         std::thread::spawn(move || {
             let mut out = Vec::new();
-            let result = land_recorded(&places, &stub, &args, &mut Report::to(&mut out), None);
+            let result = land_recorded(
+                &places,
+                &stub,
+                &crate::args::Args::of(crate::command::Command::Land, &args).unwrap(),
+                &mut Report::to(&mut out),
+                None,
+            );
             (result.is_ok(), String::from_utf8_lossy(&out).into_owned())
         })
     };
@@ -1844,7 +1858,7 @@ fn an_install_that_moves_the_store_waits_until_the_landing_records_its_run() {
     let result = land_recorded(
         &places,
         &stub,
-        &args,
+        &crate::args::Args::of(crate::command::Command::Land, &args).unwrap(),
         &mut Report::to(&mut out),
         Some(stores),
     );
@@ -2214,7 +2228,13 @@ read -t 60 mark <&4 || { echo "the landing in $other did not reach its check"; e
         let (stub, places) = (stub.clone(), f.scratch.places());
         std::thread::spawn(move || {
             let mut out = Vec::new();
-            let result = land_recorded(&places, &stub, &args, &mut Report::to(&mut out), None);
+            let result = land_recorded(
+                &places,
+                &stub,
+                &crate::args::Args::of(crate::command::Command::Land, &args).unwrap(),
+                &mut Report::to(&mut out),
+                None,
+            );
             (result.is_ok(), String::from_utf8_lossy(&out).into_owned())
         })
     };

@@ -50,34 +50,20 @@ fn run_checked(command: &mut std::process::Command, what: &str) -> Result<()> {
 /// back into a worktree this way. When a step after the claim fails, `new`
 /// undoes what it made (the claim, a worktree it added with its branch and
 /// build root, or the checkout of a free one) and fails with that step's error.
-pub fn cmd_new(tool: &Tool, ssh: &crate::host::Ssh, args: &[String]) -> Result<()> {
-    let mut repo_path = ".".to_string();
-    let mut branch = None;
-    let mut resume = None;
-    let mut who = None;
-    let mut project = None;
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        match arg.as_str() {
-            "-b" | "--branch" => branch = rest.next().cloned(),
-            "--resume" => resume = rest.next().cloned(),
-            "--for" => who = rest.next().cloned(),
-            "--project" => project = rest.next().cloned(),
-            other if other.starts_with('-') => fail!("new: unknown option {other}"),
-            other => repo_path = other.to_string(),
-        }
-    }
-    if let Some(who) = &who {
+pub fn cmd_new(tool: &Tool, ssh: &crate::host::Ssh, args: &crate::args::Args) -> Result<()> {
+    let repo_path = args.positional().first().map_or(".", String::as_str);
+    let who = args.value("for")?;
+    if let Some(who) = who {
         require_one_line("--for <who>", who)?;
     }
-    let start = match (branch, resume) {
+    let start = match (args.value("-b")?, args.value("resume")?) {
         (Some(_), Some(_)) => fail!("new: name one branch, with -b or --resume"),
-        (Some(branch), None) => Start::Fresh(Some(branch)),
-        (None, Some(branch)) => Start::Resume(branch),
+        (Some(branch), None) => Start::Fresh(Some(branch.to_string())),
+        (None, Some(branch)) => Start::Resume(branch.to_string()),
         (None, None) => Start::Fresh(None),
     };
-    let who = who.unwrap_or_else(|| "builds new".to_string());
-    let handed = hand_out(tool, ssh, &repo_path, start, &who, project.as_deref())?;
+    let who = who.unwrap_or("builds new");
+    let handed = hand_out(tool, ssh, repo_path, start, who, args.value("project")?)?;
     crate::output::answer_line(handed.checkout.top.display());
     Ok(())
 }
@@ -381,8 +367,8 @@ pub fn is_executable(path: &Path) -> bool {
 
 /// `builds retire <checkout>`: removes an unclaimed side worktree that holds
 /// nothing origin/main lacks, and its build root.
-pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
-    let [arg] = args else {
+pub fn cmd_retire(tool: &Tool, args: &crate::args::Args) -> Result<()> {
+    let [arg] = args.positional() else {
         fail!("{}", crate::command::Command::Retire.usage_text())
     };
     let checkout = Checkout::find(arg)?;
@@ -440,19 +426,16 @@ pub(crate) fn retire_checkout(
 /// (or takes out) the app checkout `~/dev/<repo>-worktrees/<name>` on the host
 /// <path> names, as the entry `<host>:<name>` of the lane's set (app_remote.rs).
 /// The first build there makes the checkout.
-fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String], removing: bool) -> Result<()> {
-    let [lane, flag, host, path] = args else {
-        fail!(
-            "{}",
-            crate::command::Command::group_usage_text("app-checkout")
-        );
+fn app_checkout_on_host(
+    tool: &Tool,
+    ssh: &Ssh,
+    args: &crate::args::Args,
+    host: &str,
+    removing: bool,
+) -> Result<()> {
+    let [lane, path] = args.positional() else {
+        fail!("{}", args.command().usage_text());
     };
-    if flag != "--host" {
-        fail!(
-            "{}",
-            crate::command::Command::group_usage_text("app-checkout")
-        );
-    }
     if !crate::host::read_remote(&tool.places)?
         .iter()
         .any(|known| known.name == *host)
@@ -510,42 +493,38 @@ fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String], removing: bool)
 /// `builds app-checkout <app> <checkout>`: sets up the worktree <checkout>,
 /// one in <repo>-worktrees that is no side worktree, as `builds new` sets one
 /// up, and adds it to its repo's app checkouts for the lane.
-pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
+pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &crate::args::Args) -> Result<()> {
     add_or_remove(tool, ssh, args, false)
 }
 
 /// `builds app-checkout remove <app> <checkout>`: takes the checkout out of
 /// its lane again, while no build holds its lock.
-pub fn cmd_app_checkout_remove(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
+pub fn cmd_app_checkout_remove(tool: &Tool, ssh: &Ssh, args: &crate::args::Args) -> Result<()> {
     add_or_remove(tool, ssh, args, true)
 }
 
 /// `builds app-checkout reset <repo> <checkout>`: puts an app checkout on
 /// origin's main (app_reset.rs).
-pub fn cmd_app_checkout_reset(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
-    let (repo, name, matching) = match args {
-        [repo, name] => (repo, name, None),
-        [repo, name, flag, rev] if flag == "--matching" => (repo, name, Some(rev.as_str())),
-        _ => fail!(
+pub fn cmd_app_checkout_reset(tool: &Tool, ssh: &Ssh, args: &crate::args::Args) -> Result<()> {
+    let [repo, name] = args.positional() else {
+        fail!(
             "{}",
             crate::command::Command::AppCheckout(crate::command::app_checkout::Reset).usage_text()
-        ),
+        )
     };
+    let matching = args.value("matching")?;
     tool.places.require_volume()?;
     crate::app_reset::cmd_reset(&tool.places, ssh, repo, name, matching, &tool.changed)
 }
 
 /// Adds the app checkout <args> name to its lane, or removes it when
 /// <removing>.
-fn add_or_remove(tool: &Tool, ssh: &Ssh, args: &[String], removing: bool) -> Result<()> {
-    if args.iter().any(|arg| arg == "--host") {
-        return app_checkout_on_host(tool, ssh, args, removing);
+fn add_or_remove(tool: &Tool, ssh: &Ssh, args: &crate::args::Args, removing: bool) -> Result<()> {
+    if let Some(host) = args.value("host")? {
+        return app_checkout_on_host(tool, ssh, args, host, removing);
     }
-    let [lane, arg] = args else {
-        fail!(
-            "{}",
-            crate::command::Command::group_usage_text("app-checkout")
-        )
+    let [lane, arg] = args.positional() else {
+        fail!("{}", args.command().usage_text())
     };
     let checkout = Checkout::find(arg)?;
     if checkout.is_main() {

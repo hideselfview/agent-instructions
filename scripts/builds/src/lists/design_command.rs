@@ -26,7 +26,7 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-pub fn cmd_design(tool: &Tool, command: Subcommand, args: &[String]) -> Result<()> {
+pub fn cmd_design(tool: &Tool, command: Subcommand, args: &Args) -> Result<()> {
     crate::output::answer(run_with(
         tool,
         command,
@@ -77,7 +77,7 @@ pub fn run_as(
 pub(super) fn run_with(
     tool: &Tool,
     command: Subcommand,
-    args: &[String],
+    args: &Args,
     destinations: impl FnOnce() -> Result<Option<Destinations>>,
     runner: impl FnOnce() -> Result<Option<Caller>>,
 ) -> Result<String> {
@@ -222,8 +222,7 @@ fn lines(paths: impl IntoIterator<Item = String>) -> String {
 /// `deleted <path>` (a board file the commits delete, which needs no answer),
 /// `spec <path>#<heading>` (a spec section, when the commits are a design
 /// change) or `shared <path>`; nothing when none.
-fn places(tool: &Tool, args: &[String]) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
+fn places(tool: &Tool, args: &Args) -> Result<String> {
     let [dir, shas @ ..] = args.positional() else {
         fail!(
             "{}",
@@ -236,7 +235,7 @@ fn places(tool: &Tool, args: &[String]) -> Result<String> {
             crate::command::Command::Design(crate::command::design::Places).usage_text()
         );
     }
-    let scope = named_scope(tool, &args, dir, shas)?;
+    let scope = named_scope(tool, args, dir, shas)?;
     let c = scope.changes;
     let places = c.places.into_iter().map(|p| format!("place {p}"));
     let sources = c.sources.into_iter().map(|p| format!("source {p}"));
@@ -255,8 +254,7 @@ fn places(tool: &Tool, args: &[String]) -> Result<String> {
 /// `only DIR REV...`: prints nothing and succeeds when every path the
 /// commits change is a design file (boards, the design system, spec lines),
 /// so they carry no app work; otherwise names the paths that are not.
-fn only(tool: &Tool, args: &[String]) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
+fn only(tool: &Tool, args: &Args) -> Result<String> {
     let [dir, shas @ ..] = args.positional() else {
         fail!(
             "{}",
@@ -269,7 +267,7 @@ fn only(tool: &Tool, args: &[String]) -> Result<String> {
             crate::command::Command::Design(crate::command::design::Only).usage_text()
         );
     }
-    let scope = named_scope(tool, &args, dir, shas)?;
+    let scope = named_scope(tool, args, dir, shas)?;
     if !scope.changes.is_design_change() {
         fail!("the commits change no design files");
     }
@@ -480,24 +478,20 @@ fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, review: 
 
 fn record(
     tool: &Tool,
-    args: &[String],
+    args: &Args,
     cwd: &Path,
     session: Option<&Messaging>,
     coordinator: Option<&Messaging>,
     runner: impl FnOnce() -> Result<Option<Caller>>,
 ) -> Result<String> {
-    let args = Args::parse(args, &["request"], &[])?;
-    args.exactly(
-        0,
-        &crate::command::Command::Design(crate::command::design::Record).usage_text(),
-    )?;
+    args.exactly(0)?;
     let request: DesignRequest = read_request(args.require("request")?)?;
-    let scope = request_scope(tool, &args, &request)?;
+    let scope = request_scope(tool, args, &request)?;
     require_drafts(tool, &scope, &request)?;
     require_review_boards(&scope, &request)?;
     let affected = affected_components(&scope, &request)?;
     require_states_shown(tool, &scope)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     let repo = scope.checkout.repo();
     let worktree = scope.checkout.top.display().to_string();
     let words = format!("design record {}", request.title.as_deref().unwrap_or(""));
@@ -569,28 +563,23 @@ fn review_first(
 
 fn amend(
     tool: &Tool,
-    args: &[String],
+    args: &Args,
     cwd: &Path,
     session: Option<&Messaging>,
     coordinator: Option<&Messaging>,
     runner: impl FnOnce() -> Result<Option<Caller>>,
 ) -> Result<String> {
-    let args = Args::parse(args, &["request"], &[])?;
-    let [id] = args.exactly(
-        1,
-        &crate::command::Command::Design(crate::command::design::Amend).usage_text(),
-    )?
-    else {
+    let [id] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
     let request: DesignRequest = read_request(args.require("request")?)?;
-    let scope = request_scope(tool, &args, &request)?;
+    let scope = request_scope(tool, args, &request)?;
     require_drafts(tool, &scope, &request)?;
     require_review_boards(&scope, &request)?;
     let affected = affected_components(&scope, &request)?;
     require_states_shown(tool, &scope)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     let repo = scope.checkout.repo();
     let worktree = scope.checkout.top.display().to_string();
     let same_as = drawn_the_same(
@@ -679,24 +668,19 @@ fn drawn_the_same(scope: &Scope, id: Id, renders: &dyn Renders) -> Result<Option
 /// `approve N`: the design session's approval of its own change, or the
 /// person's, said in words to the session. The stamp names who approved. The
 /// same approval again writes nothing.
-fn approve(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(
-        1,
-        &crate::command::Command::Design(crate::command::design::Approve).usage_text(),
-    )?
-    else {
+fn approve(tool: &Tool, args: &Args, cwd: &Path) -> Result<String> {
+    let [id] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     if let Some(approved) = store.load()?.design(id).and_then(|d| d.approved.as_ref()) {
         return Ok(format!(
             "design change {id} was already approved ({})\n",
             local_minute(approved.at)
         ));
     }
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("design approve {id}"), |db| {
         design::approve(db, id, &stamp)
     })?;
@@ -709,8 +693,7 @@ fn approve(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 /// `check N[,N...] DIR REV...`: the changes together resolve every place the
 /// commits change, and the person has approved each. `check` reads the store
 /// and never writes to it.
-fn check(tool: &Tool, args: &[String]) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
+fn check(tool: &Tool, args: &Args) -> Result<String> {
     let [ids, dir, shas @ ..] = args.positional() else {
         fail!(
             "{}",
@@ -724,7 +707,7 @@ fn check(tool: &Tool, args: &[String]) -> Result<String> {
         );
     }
     let ids = Id::parse_list(ids)?;
-    let scope = named_scope(tool, &args, dir, shas)?;
+    let scope = named_scope(tool, args, dir, shas)?;
     let top = &scope.checkout.top;
     let drawn: BTreeSet<&String> = scope.changes.drawn().collect();
     let designs = design::open_named(&scope.lists, &ids, &scope.checkout.repo())?;
@@ -749,8 +732,7 @@ fn check(tool: &Tool, args: &[String]) -> Result<String> {
 /// `landed N DIR SHA...`: SHAs are on origin/main, as builds land calls it after
 /// the push; they are stored as full hashes. Who landed is `--by`, else the
 /// claim of DIR, the worktree builds land runs in.
-fn landed(tool: &Tool, args: &[String]) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
+fn landed(tool: &Tool, args: &Args) -> Result<String> {
     let [id, dir, shas @ ..] = args.positional() else {
         fail!(
             "{}",
@@ -765,7 +747,7 @@ fn landed(tool: &Tool, args: &[String]) -> Result<String> {
     }
     let id = Id::parse(id)?;
     let checkout = Checkout::find(dir)?;
-    let (store, lists) = open_store(tool, &args, &checkout)?;
+    let (store, lists) = open_store(tool, args, &checkout)?;
     let mut commits = Vec::new();
     for sha in shas {
         let full = design_paths::full_sha(&checkout.top, sha)?;
@@ -783,7 +765,7 @@ fn landed(tool: &Tool, args: &[String]) -> Result<String> {
             "design change {id} was already recorded as landed with these commits\n"
         ));
     }
-    let stamp = Stamp::resolve(tool.now, &args, &checkout.top)?;
+    let stamp = Stamp::resolve(tool.now, args, &checkout.top)?;
     let result = store.write(&stamp, &format!("design landed {id}"), |db| {
         design::landed(db, id, &repo, &commits, &stamp)
     })?;
@@ -803,19 +785,14 @@ fn landed(tool: &Tool, args: &[String]) -> Result<String> {
 
 /// `drop N --why WHY`: closes design change N, which will not land, and
 /// records the reason WHY.
-fn drop(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(args, &["why"], &[])?;
-    let [id] = args.exactly(
-        1,
-        &crate::command::Command::Design(crate::command::design::Drop).usage_text(),
-    )?
-    else {
+fn drop(tool: &Tool, args: &Args, cwd: &Path) -> Result<String> {
+    let [id] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
     let why = args.why()?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("design drop {id}"), |db| {
         design::drop(db, id, why, &stamp)
     })?;
@@ -824,17 +801,12 @@ fn drop(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 
 /// `show N`: design change N, and, for an open change that waits on the
 /// person's approval, where its rules review stands (`design_review`).
-fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(
-        1,
-        &crate::command::Command::Design(crate::command::design::Show).usage_text(),
-    )?
-    else {
+fn show(tool: &Tool, args: &Args, cwd: &Path) -> Result<String> {
+    let [id] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     let lists = store.load()?;
     let mut out = design::show(&lists, id)?;
     if let Some(design) = lists.design(id).filter(|d| d.awaits_approval()) {
@@ -863,17 +835,12 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 
 /// `title N`: the title of open design change N, which `builds land` gives
 /// the commit that squashes the change's commits.
-fn title(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(
-        1,
-        &crate::command::Command::Design(crate::command::design::Title).usage_text(),
-    )?
-    else {
+fn title(tool: &Tool, args: &Args, cwd: &Path) -> Result<String> {
+    let [id] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     let lists = store.load()?;
     match lists.design(id) {
         Some(design) => Ok(format!("{}\n", design.title)),
@@ -881,13 +848,9 @@ fn title(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     }
 }
 
-fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
-    args.exactly(
-        0,
-        &crate::command::Command::Design(crate::command::design::List).usage_text(),
-    )?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+fn list(tool: &Tool, args: &Args, cwd: &Path) -> Result<String> {
+    args.exactly(0)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     Ok(design::list(&store.load()?))
 }
 
@@ -906,16 +869,11 @@ fn theme_of(args: &Args) -> Result<crate::lists::Theme> {
 /// as it is; `--now` reads it as it stands on origin/main, and `--at REV` as
 /// it is at commit or branch REV (a change's branch, to look at its proposed
 /// board with nothing checked out).
-fn render(tool: &Tool, args: &[String]) -> Result<String> {
-    let args = Args::parse(args, &["theme", "at"], &["now"])?;
-    let [dir, board] = args.exactly(
-        2,
-        &crate::command::Command::Design(crate::command::design::Render).usage_text(),
-    )?
-    else {
+fn render(tool: &Tool, args: &Args) -> Result<String> {
+    let [dir, board] = args.exactly(2)? else {
         unreachable!("exactly two")
     };
-    let theme = theme_of(&args)?;
+    let theme = theme_of(args)?;
     let dir = Path::new(dir);
     let source = match (args.switch("now"), args.value("at")?) {
         (true, Some(_)) => fail!("--now and --at both say which drawing: give one"),
@@ -931,13 +889,8 @@ fn render(tool: &Tool, args: &[String]) -> Result<String> {
 
 /// `tokens-css DIR`: writes DIR's design/system/tokens.css from its
 /// tokens.json, as builds draws boards with it.
-fn tokens_css(args: &[String]) -> Result<String> {
-    let args = Args::parse(args, &[], &[])?;
-    let [dir] = args.exactly(
-        1,
-        &crate::command::Command::Design(crate::command::design::TokensCss).usage_text(),
-    )?
-    else {
+fn tokens_css(args: &Args) -> Result<String> {
+    let [dir] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let dir = Path::new(dir);
@@ -961,16 +914,11 @@ fn artifacts_listing(args: &Args) -> Result<String> {
 /// `publish-find DIR --artifacts FILE [--at REV]`: prints the link of each
 /// artifact that the designs of DIR's repo at origin/main or REV publish to,
 /// found by its title in FILE (`design_publish::locate`).
-fn publish_find(args: &[String]) -> Result<String> {
-    let args = Args::parse(args, &["at", "artifacts"], &[])?;
-    let [dir] = args.exactly(
-        1,
-        &crate::command::Command::Design(crate::command::design::PublishFind).usage_text(),
-    )?
-    else {
+fn publish_find(args: &Args) -> Result<String> {
+    let [dir] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
-    let listing = artifacts_listing(&args)?;
+    let listing = artifacts_listing(args)?;
     let rev = args.value("at")?.unwrap_or(crate::design_render::NOW);
     let located = crate::design_publish::locate(Path::new(dir), rev, &listing)?;
     Ok(crate::design_publish::locate_report(&located))
@@ -998,17 +946,12 @@ fn live_index(args: &Args) -> Result<Option<String>> {
 /// account that the listings in --artifacts show, with the uploads of each
 /// asset whose bytes the design system's live index records none of, and
 /// prints each artifact's folder and calls (`design_publish::write_all`).
-fn publish_files(tool: &Tool, args: &[String]) -> Result<String> {
-    let args = Args::parse(args, &["at", "index", "artifacts"], &["no-index"])?;
-    let [dir, out] = args.exactly(
-        2,
-        &crate::command::Command::Design(crate::command::design::PublishFiles).usage_text(),
-    )?
-    else {
+fn publish_files(tool: &Tool, args: &Args) -> Result<String> {
+    let [dir, out] = args.exactly(2)? else {
         unreachable!("exactly two")
     };
-    let listing = artifacts_listing(&args)?;
-    let index = live_index(&args)?;
+    let listing = artifacts_listing(args)?;
+    let index = live_index(args)?;
     let rev = args.value("at")?.unwrap_or(crate::design_render::NOW);
     let publish = crate::design_publish::write_all(
         Path::new(dir),
@@ -1030,13 +973,8 @@ fn publish_files(tool: &Tool, args: &[String]) -> Result<String> {
 /// standard input) and, for the design system, its live index and the id
 /// each upload got, a JSON object of each upload's path on the artifact and
 /// the url or id the Artifact tool gave for it (`design_publish::write_last`).
-fn publish_last(tool: &Tool, args: &[String]) -> Result<String> {
-    let args = Args::parse(args, &["listing", "index", "by", "uploaded"], &["no-index"])?;
-    let [folder] = args.exactly(
-        1,
-        &crate::command::Command::Design(crate::command::design::PublishLast).usage_text(),
-    )?
-    else {
+fn publish_last(tool: &Tool, args: &Args) -> Result<String> {
+    let [folder] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     let Some(listing) = args.value("listing")? else {
@@ -1058,7 +996,7 @@ fn publish_last(tool: &Tool, args: &[String]) -> Result<String> {
     let index = match (given, args.value("by")?) {
         (false, None) if uploaded.is_empty() => None,
         (false, None) => fail!("--uploaded goes with the design system's --index and --by"),
-        (true, Some(by)) => Some((live_index(&args)?, by.to_string())),
+        (true, Some(by)) => Some((live_index(args)?, by.to_string())),
         _ => fail!(
             "--index (or --no-index) and --by go together: the index to send, and who publishes it"
         ),

@@ -38,7 +38,7 @@ pub fn cmd_item(
     tool: &Tool,
     ssh: &crate::host::Ssh,
     command: Subcommand,
-    args: &[String],
+    args: &Args,
 ) -> Result<()> {
     let cwd = current_dir()?;
     match command {
@@ -75,7 +75,7 @@ pub fn item_words(tool: &Tool, ssh: &crate::host::Ssh, words: &[String]) -> Resu
 }
 
 /// `builds next`.
-pub fn cmd_next(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn cmd_next(tool: &Tool, args: &Args) -> Result<()> {
     item_show::next(tool, args, &current_dir()?)
 }
 
@@ -152,36 +152,15 @@ pub fn parse_waits(refs: &[&str], untils: &[&str]) -> Result<Vec<Wait>> {
     waits_of(&refs, untils)
 }
 
-fn one_id(args: &Args, usage: &str) -> Result<Id> {
-    let [id] = args.exactly(1, usage)? else {
+fn one_id(args: &Args) -> Result<Id> {
+    let [id] = args.exactly(1)? else {
         unreachable!("exactly one")
     };
     Id::parse(id)
 }
 
-fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(
-        args,
-        &[
-            "title",
-            "area",
-            "details-file",
-            "for",
-            "wait",
-            "until",
-            "brief",
-            "priority",
-            "why",
-            "origin",
-            "tag",
-            "backlog",
-        ],
-        &[],
-    )?;
-    args.exactly(
-        0,
-        &crate::command::Command::Item(crate::command::item::Add).usage_text(),
-    )?;
+fn add(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    args.exactly(0)?;
     let origin = args.id("origin")?;
     let priority = match (args.choice::<Level>("priority")?, args.value("why")?) {
         (Some(level), Some(why)) => Some(Priority {
@@ -206,12 +185,12 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         tags: tag::parse_tags(args.values("tag"))?,
         backlog: args.value("backlog")?.map(str::to_string),
     };
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     for wait in &draft.waits {
         item_wait_foreign::require_open(&tool.places.lists, &store.project, wait)?;
     }
     require_draft_briefs(&tool.places, &store.repos()?, std::slice::from_ref(&draft))?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     let (id, state) = store.write(&stamp, &format!("item add {}", draft.title), |db| {
         let id = add_item(db, &draft, origin, &stamp)?;
         let lists = store::read(db)?;
@@ -228,25 +207,8 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// `item edit N`: changes an open item's fields, and gives any item, open or
 /// closed, the origin `--origin` names and the tags `--tag` names, and removes
 /// the tags `--untag` names.
-fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(
-        args,
-        &[
-            "title",
-            "area",
-            "details-file",
-            "brief",
-            "for",
-            "origin",
-            "tag",
-            "untag",
-        ],
-        &[],
-    )?;
-    let id = one_id(
-        &args,
-        &crate::command::Command::Item(crate::command::item::Edit).usage_text(),
-    )?;
+fn edit(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let id = one_id(args)?;
     let origin = args.id("origin")?;
     let edit = ItemEdit {
         title: args.value("title")?.map(str::to_string),
@@ -264,11 +226,11 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             usage = crate::command::Command::Item(crate::command::item::Edit).usage_text(),
         );
     }
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     if let Some(brief) = &edit.brief {
         find_brief(&tool.places, &store.repos()?, brief)?;
     }
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("item edit {id}"), |db| {
         let lists = store::read(db)?;
         if fields {
@@ -301,14 +263,10 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 
 /// `item changes N`: prints each change of running item N made since its
 /// take that nobody read, whole, and records that the caller read them.
-fn changes(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
-    let id = one_id(
-        &args,
-        &crate::command::Command::Item(crate::command::item::Changes).usage_text(),
-    )?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+fn changes(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let id = one_id(args)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     let text = store.write(&stamp, &format!("item changes {id}"), |db| {
         let lists = store::read(db)?;
         let item = open_item(&lists, id)?;
@@ -334,8 +292,7 @@ fn changes(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-fn note_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
+fn note_item(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
     let Some((id, words)) = args.positional().split_first() else {
         fail!(
             "{}",
@@ -347,8 +304,8 @@ fn note_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     if text.trim().is_empty() {
         fail!("a note needs its text: builds item note {} TEXT", id.0);
     }
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("item note {id}"), |db| {
         open_item(&store::read(db)?, id)?;
         add_note(
@@ -376,12 +333,8 @@ fn require_state_holds(db: &Connection, what: &str) -> Result<()> {
     fail!("{what}: {}", found.join("; "));
 }
 
-fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["on", "off", "until", "blocks-nothing"], &[])?;
-    let id = one_id(
-        &args,
-        &crate::command::Command::Item(crate::command::item::Wait).usage_text(),
-    )?;
+fn wait(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let id = one_id(args)?;
     let (verb, reference, on) = match (args.value("on")?, args.value("off")?) {
         (Some(reference), None) => ("wait on", reference, true),
         (None, Some(reference)) => ("stop waiting on", reference, false),
@@ -411,11 +364,11 @@ fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             fail!("--blocks-nothing needs its why");
         }
     }
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     if let Some(new) = &new_wait {
         item_wait_foreign::require_open(&tool.places.lists, &store.project, new)?;
     }
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     let state = store.write(
         &stamp,
         &format!("item wait {id} {}", if on { "--on" } else { "--off" }),
@@ -466,16 +419,12 @@ fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-fn handoff(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["brief"], &[])?;
-    let id = one_id(
-        &args,
-        &crate::command::Command::Item(crate::command::item::Handoff).usage_text(),
-    )?;
+fn handoff(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let id = one_id(args)?;
     let brief = args.require("brief")?.to_string();
-    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
     find_brief(&tool.places, &store.repos()?, &brief)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("item handoff {id}"), |db| {
         open_item(&store::read(db)?, id)?;
         running::handoff(db, id, &brief)?;
@@ -494,15 +443,11 @@ fn handoff(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// failed) leaves the item kept, and the same stop again, which finds the
 /// item keeping the worktrees, removes the claims that are left and does
 /// nothing else. The next `item take` of the item runs it there again.
-fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["why"], &[])?;
-    let id = one_id(
-        &args,
-        &crate::command::Command::Item(crate::command::item::Stop).usage_text(),
-    )?;
+fn stop(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let id = one_id(args)?;
     let why = args.why()?.to_string();
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     let lists = store.load()?;
     let item = open_item(&lists, id)?;
     if item.running.is_empty() && !item.kept.is_empty() {
@@ -647,15 +592,11 @@ fn require_can_leave(lists: &Lists, id: Id, how: &str, work_goes: bool) -> Resul
 /// with no commits (an audit, research), saying what it made, and removes it
 /// from every worktree it runs in. Closing the item frees the items that wait
 /// on it, as a landing does.
-fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["made"], &[])?;
-    let id = one_id(
-        &args,
-        &crate::command::Command::Item(crate::command::item::Finished).usage_text(),
-    )?;
+fn finished(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let id = one_id(args)?;
     let made = args.require("made")?.to_string();
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("item finished {id}"), |db| {
         let lists = store::read(db)?;
         if let Some(item) = lists.item(id) {
@@ -680,15 +621,11 @@ fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// command to run again, and a drop of an item closed as dropped throws away
 /// what is left of its recorded work, since each git step does nothing to
 /// work already thrown away.
-fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["why"], &[])?;
-    let id = one_id(
-        &args,
-        &crate::command::Command::Item(crate::command::item::Drop).usage_text(),
-    )?;
+fn drop_item(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let id = one_id(args)?;
     let why = args.why()?.to_string();
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     if let Some(crate::lists::Closed {
         record: crate::lists::Record::Item(item),
         how: How::Dropped(_),
@@ -718,14 +655,11 @@ fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-fn backlog(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["why"], &[])?;
-    let ids = args.positional_ids(
-        &crate::command::Command::Item(crate::command::item::Backlog).usage_text(),
-    )?;
+fn backlog(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let ids = args.positional_ids()?;
     let why = args.why()?.to_string();
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     let named: Vec<String> = ids.iter().map(|id| id.0.to_string()).collect();
     let moves: Vec<(Id, String)> = ids.iter().map(|id| (*id, why.clone())).collect();
     store.write(&stamp, &format!("item backlog {}", named.join(" ")), |db| {
@@ -737,13 +671,11 @@ fn backlog(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-fn start(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["said"], &[])?;
-    let ids = args
-        .positional_ids(&crate::command::Command::Item(crate::command::item::Start).usage_text())?;
+fn start(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let ids = args.positional_ids()?;
     let said = args.require("said")?.to_string();
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     for (id, state) in start_items(&store, &ids, &said, &stamp)? {
         note(format!("started {id} ({})", state.label()));
     }
@@ -769,13 +701,8 @@ pub fn start_items(
     })
 }
 
-fn place(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["why"], &[])?;
-    let [id, at] = args.exactly(
-        2,
-        &crate::command::Command::Item(crate::command::item::Place).usage_text(),
-    )?
-    else {
+fn place(tool: &Tool, args: &Args, cwd: &Path) -> Result<()> {
+    let [id, at] = args.exactly(2)? else {
         unreachable!("exactly two")
     };
     let id = Id::parse(id)?;
@@ -787,8 +714,8 @@ fn place(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             why: why.to_string(),
         }),
     };
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let store = Store::resolve(&tool.places, args, cwd)?;
+    let stamp = Stamp::resolve(tool.now, args, cwd)?;
     store.write(&stamp, &format!("item place {id} {at}"), |db| {
         open_item(&store::read(db)?, id)?;
         set_priority(db, id, priority)
