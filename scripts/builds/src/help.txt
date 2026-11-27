@@ -1355,30 +1355,40 @@ A takeover ends the wait. Builds cannot tell whether a `builds remote run`
 command opens windows, so each remote job on a Mac holds the lock exclusively
 until it ends. Linux remote jobs and cargo jobs take no window lock.
 
-A --shots or --all-shots run whose prefix starts a scene shown in its window
-draws that scene on a shot display, and macOS makes the shot display only when the Mac
-has a display to add it to. A Mac whose lid is closed has none unless another
-display is attached. Before such a run takes a checkout on a host, builds asks
-the host once (`ioreg` for the lid, `system_profiler` for the displays) and
-takes no checkout of a host whose lid is closed with no display listed. Of the
-hosts that can draw, it takes the one with the least load. When none can, the
-run fails at once, naming each checkout it skipped and why ("its lid is closed
-and it lists no other display"), and a run that asks again after the lid opens
-goes through. A host that does not answer is skipped and named the same way.
-This Mac is never asked about its lid. Runs of UI tests and every other step ignore the lid.
+Before each mac lane step that opens windows, after it takes the host's
+window lock, the lane reads the host's display once, this Mac included:
+`ioreg` for the lid and the screen lock (IOConsoleLocked and
+CGSSessionScreenIsLocked), `system_profiler` for the displays, and
+`lsappinfo` for the app in front. While the reading gives a reason the host
+cannot show the step's windows, the lane holds the step, prints "waiting for
+host <name> to show windows, since <reason>" ("this Mac" on this Mac) once for
+each new reason, and reads the display again each time it changes, checking
+every 15 seconds; it starts the step once the reading gives none and prints
+"host <name> shows windows again". A takeover ends the wait. The reasons are:
 
-A locked screen keeps every window of a mac lane step from rendering, so a mac
-lane step that opens windows never starts on a host whose screen is locked,
-this Mac included. After it takes the host's window lock, the lane reads the
-host's screen (`ioreg`: IOConsoleLocked and CGSSessionScreenIsLocked). While
-the screen is locked, the lane prints "waiting for host <name>'s screen to
-unlock" ("this Mac's" on this Mac) once and reads the host's screen every 15
-seconds until it unlocks, then starts the step. A takeover ends the wait. While
-the step runs on the host, it runs under `caffeinate -d -u`, which holds a
-display assertion there, so the display neither sleeps nor locks during the
-step.
-`builds health` lists each Mac whose screen is locked (HEALTH CHECK in `builds
-help workflow`).
+  - its screen is locked, which keeps every window from rendering;
+  - a system alert (UserNotificationCenter, SecurityAgent or
+    CoreServicesUIAgent) is in front of every app, which keeps the focus from
+    every window the step brings forward;
+  - for a --shots or --all-shots run whose prefix starts a scene shown in its
+    window, its lid is closed and it lists no other display: the run draws
+    the scene on a shot display, which macOS makes only when the Mac has a
+    display to add it to. Before such a run takes a checkout on a host, it
+    reads each host's display and takes a host that can draw, the one with
+    the least load. When none can, it takes one that cannot, and its window
+    steps wait until the lid opens or a display is attached. A host that does
+    not answer is skipped and named. This Mac is never asked about its lid,
+    and runs of UI tests and every other step ignore the lid.
+
+builds holds a step in the same way while Chrome cannot start on the host
+(below): the person fixes each of these at the Mac. When the host's Xcode
+cannot start, or its UI tests time out turning on automation mode (below),
+builds instead records the host and runs the lane on another host.
+
+While the step runs on the host, it runs under `caffeinate -d -u`, which
+holds a display assertion there, so the display neither sleeps nor locks
+during the step. `builds health` lists each Mac whose screen is locked or
+that shows a system alert (HEALTH CHECK in `builds help workflow`).
 
 A shots run draws the boards it compares with Chrome, and on a Mac Chrome's
 main thread waits for the window server to answer before it prints the address
@@ -2502,8 +2512,8 @@ it cannot.
 
 builds lists in one table each program it runs that reads or changes more
 of the machine than the files builds names: ssh, claude, codex, launchctl,
-systemctl, ioreg, system_profiler, pmset, caffeinate, defaults, osascript,
-xcodebuild, xcrun, lsof, pgrep and sudo. builds finds each by name on PATH.
+systemctl, ioreg, system_profiler, lsappinfo, pmset, caffeinate, defaults,
+osascript, xcodebuild, xcrun, lsof, pgrep and sudo. builds finds each by name on PATH.
 When BUILDS_SYSTEM names a folder, as builds' own tests set it, builds runs
 each program from that folder instead, refuses to run one the folder lacks
 and names it, and writes each power assertion it would take and release to

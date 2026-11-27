@@ -31,14 +31,19 @@ struct Volume {
     started: Vec<Spawned>,
 }
 
-/// Writes `xcodebuild` and `ioreg` into the stand-in system <system>, and
-/// `sw_vers` into <bin>, which the builds commands find first on PATH: the mac
-/// lane reads the host's Xcode, macOS and screen lock from them, so a test
-/// never depends on the Mac it runs on (`stand_in::xcode`), or on whether its
-/// screen is locked.
+/// Writes `xcodebuild`, `ioreg` and `lsappinfo` into the stand-in system
+/// <system>, and `sw_vers` into <bin>, which the builds commands find first on
+/// PATH: the mac lane reads the host's Xcode, macOS and display from them, so
+/// a test never depends on the Mac it runs on (`stand_in::xcode`), or on
+/// whether its screen is locked.
 fn fake_apple_tools(system: &Path, bin: &Path) {
     stand_in::xcode(system);
     stand_in(system, "ioreg", "echo '\"IOConsoleLocked\" = No'");
+    stand_in(
+        system,
+        "lsappinfo",
+        r#"echo '"LSDisplayName"="Terminal" "pid"=1'"#,
+    );
     std::fs::create_dir_all(bin).unwrap();
     stand_in(
         bin,

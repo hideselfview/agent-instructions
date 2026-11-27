@@ -99,14 +99,19 @@ pub fn findings(locks: &[LockHealth]) -> Vec<Advice> {
         .filter_map(|lock| {
             let step = lock.holder.as_ref()?.run.as_ref()?.step.as_ref()?;
             let host = step.name.strip_prefix(HOLD_STEP)?.trim();
-            Some(Advice::said(format!(
-                "{} cannot start Chrome, so the {} app build of {} holds checkout {} and has built nothing for {} minutes: the window server there does not answer Chrome's start, and every build with shots there stays held until it does",
-                place(host),
-                lock.lane.word(),
-                lock.repo,
-                lock.checkout,
-                step.minutes
-            )))
+            Some(crate::host_display::finding(
+                host,
+                &crate::host_display::Reason::ChromeCannotStart,
+                "",
+                &format!(
+                    "The {} app build of {} holds checkout {} and has built nothing for {} minutes; it goes on once the window server there answers.",
+                    lock.lane.word(),
+                    lock.repo,
+                    lock.checkout,
+                    step.minutes
+                ),
+                None,
+            ))
         })
         .collect()
 }

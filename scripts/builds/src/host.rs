@@ -473,60 +473,6 @@ pub fn read_probe(ssh: &Ssh, target: Option<&str>) -> std::result::Result<Probe,
     parse_probe(&said).map_err(|fail| fail.text())
 }
 
-/// The lines a host runs to say whether it can draw a window scene (a shot
-/// of a screen): `lid=closed` with `screens=<n>`, how many displays
-/// `system_profiler` lists with a resolution, `lid=open`, or `lid=none` for a
-/// Mac with no lid (`ioreg` lists no clamshell state). A Mac whose lid is
-/// closed makes no virtual display for the shot renderer unless another
-/// display is attached. A command that fails fails the script.
-pub const SCREEN_SCRIPT: &str = r#"lid=$(ioreg -r -k AppleClamshellState -d 1) || exit 1
-case "$lid" in
-*'"AppleClamshellState" = Yes'*)
-    displays=$(system_profiler SPDisplaysDataType) || exit 1
-    echo lid=closed
-    echo "screens=$(printf '%s\n' "$displays" | grep -c 'Resolution:')";;
-*'"AppleClamshellState" = No'*) echo lid=open;;
-*) echo lid=none;;
-esac"#;
-
-/// Why the host that printed <text> for `SCREEN_SCRIPT` cannot draw a window
-/// scene: its lid is closed and it lists no display. None when it can, and
-/// an error when <text> is no answer of the script's.
-pub fn screen_lacking(text: &str) -> std::result::Result<Option<String>, String> {
-    let line = |key: &str| {
-        text.lines()
-            .find_map(|line| line.trim().strip_prefix(key))
-            .map(str::trim)
-    };
-    match line("lid=") {
-        Some("open" | "none") => Ok(None),
-        Some("closed") => {
-            let screens = line("screens=").and_then(|count| count.parse::<u32>().ok());
-            match screens {
-                Some(0) => Ok(Some(
-                    "its lid is closed and it lists no other display".to_string(),
-                )),
-                Some(_) => Ok(None),
-                None => Err(format!(
-                    "its answer to the lid script has no screens count: {text:?}"
-                )),
-            }
-        }
-        _ => Err(format!(
-            "its answer to the lid script names no lid: {text:?}"
-        )),
-    }
-}
-
-/// Asks <host> whether it can draw a window scene: None when it can, or the
-/// reason it cannot (`screen_lacking`), and what went wrong when it cannot
-/// say.
-pub fn screen_lacks(ssh: &Ssh, host: &Host) -> std::result::Result<Option<String>, String> {
-    let what = format!("asking host {} about its displays", host.name);
-    let said = output_at(ssh, host, SCREEN_SCRIPT, &what)?;
-    screen_lacking(&said).map_err(|why| format!("{what}: {why}"))
-}
-
 /// Asks <host>, and keeps its record of refusing jobs current with the
 /// answer: `probe` records a host whose git fails as refusing jobs, and
 /// removes the record of a host whose git runs. A host that does not answer
@@ -570,13 +516,14 @@ impl Refused {
         })
     }
 
-    /// Why a host recorded this way refuses mac app builds, or None for a
-    /// kind that leaves mac app builds alone.
-    pub fn mac_builds_cause(self) -> Option<&'static str> {
+    /// The reason a host recorded this way cannot run the mac lane's steps
+    /// that open windows (host_display.rs), or None for a kind that leaves
+    /// mac app builds alone.
+    pub fn display_reason(self) -> Option<crate::host_display::Reason> {
         match self {
             Refused::Jobs => None,
-            Refused::Xcode => Some("Xcode cannot start"),
-            Refused::UiAutomation => Some("UI tests time out turning on automation mode"),
+            Refused::Xcode => Some(crate::host_display::Reason::XcodeCannotStart),
+            Refused::UiAutomation => Some(crate::host_display::Reason::UiAutomationTimesOut),
         }
     }
 }
@@ -632,12 +579,17 @@ pub fn refusals(places: &Places) -> Result<Vec<Refusal>> {
     Ok(found)
 }
 
-/// The records of hosts that refuse mac app builds, of every kind that
-/// refuses them (`Refused::mac_builds_cause`).
+/// The records of hosts whose reason (`Refused::display_reason`) moves the
+/// mac lane to another host (`host_display::Rule::MoveLane`).
 pub fn refusing_mac_builds(places: &Places) -> Result<Vec<Refusal>> {
     Ok(refusals(places)?
         .into_iter()
-        .filter(|refusal| refusal.refused.mac_builds_cause().is_some())
+        .filter(|refusal| {
+            refusal
+                .refused
+                .display_reason()
+                .is_some_and(|reason| reason.rule() == crate::host_display::Rule::MoveLane)
+        })
         .collect())
 }
 
@@ -696,11 +648,12 @@ pub fn refusal_finding(refusal: &Refusal) -> crate::health::Advice {
                 Some(fix) => format!("Run sudo {fix} on {name}"),
                 None => format!("Fix what xcodebuild said on {name}"),
             };
-            crate::health::Advice::run(
-                format!(
-                    "host {name}'s Xcode cannot start (since {at}), so mac app builds skip its app checkouts. xcodebuild said: {said}. {fix}, then tell builds to use {name} again with"
-                ),
-                format!("builds host clear-xcode {name}"),
+            crate::host_display::finding(
+                name,
+                &crate::host_display::Reason::XcodeCannotStart,
+                &format!(" (since {at}; xcodebuild said: {said})"),
+                &format!("{fix}, then tell builds to use {name} again with"),
+                Some(format!("builds host clear-xcode {name}")),
             )
         }
         Refused::UiAutomation => crate::ui_test_settings::finding(name, Some(refusal), None),

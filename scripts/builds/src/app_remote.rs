@@ -143,7 +143,7 @@ pub fn shell_line(command: &[String]) -> String {
 /// <command>, run under <system>'s `caffeinate -d -u` in the mac lane,
 /// which holds a display assertion on the host for as long as the command
 /// runs, so the host's display neither sleeps nor locks during a step that
-/// opens windows (host_screen_lock.rs). Another lane's <command> stays as it
+/// opens windows (host_display.rs). Another lane's <command> stays as it
 /// is.
 pub fn keeping_display_on(
     system: &crate::system::System,

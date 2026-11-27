@@ -277,8 +277,8 @@ impl Where {
 }
 
 /// Which checkouts a build takes: where it may run, and whether it draws
-/// window scenes, so that it takes no host that cannot
-/// (`host::screen_lacking`). This Mac always can.
+/// window scenes, so that it takes a host that can when one can
+/// (host_display.rs `Reason::LidClosed`). This Mac always can.
 #[derive(Clone, Copy)]
 struct Takes {
     allowed: Where,
@@ -313,9 +313,9 @@ impl Held {
 
     /// Takes the window lock of this checkout's host for <step>, waiting
     /// while another run that opens windows holds it (window_lock.rs), and
-    /// then, in the mac lane, while the host's screen is locked
-    /// (host_screen_lock.rs). None when a takeover or an install stopped this
-    /// build while it waited.
+    /// then, in the mac lane, while the host's display gives a reason it
+    /// cannot show the step's windows (host_display.rs). None when a takeover
+    /// or an install stopped this build while it waited.
     pub fn take_window(
         &self,
         step: &str,
@@ -341,13 +341,27 @@ impl Held {
         } else {
             host::remote_named(&self.places, &self.checkout, host_name)?
         };
-        let unlocked = crate::host_screen_lock::wait_until_unlocked(
+        // This Mac always draws window scenes (`Takes`).
+        let draws = self.takes.screen && host.target.is_some();
+        let seen = std::cell::RefCell::new(None);
+        let ready = crate::host_display::wait_until_ready(
             host_name,
-            &|| crate::host_screen_lock::read(&self.ssh, &host),
+            &|| {
+                let reading = crate::host_display::read(&self.ssh, &host)?;
+                let reasons = reading.display.reasons(draws);
+                *seen.borrow_mut() = Some(reading);
+                Ok(reasons)
+            },
             &|words| note(words),
-            &|| crate::host_screen_lock::wait(&self.ssh, &host),
+            &|| {
+                let seen = seen.borrow();
+                let seen = seen
+                    .as_ref()
+                    .expect("the lane reads the display before it waits");
+                crate::host_display::wait(&self.ssh, &host, seen)
+            },
         )?;
-        Ok(unlocked.then_some(window))
+        Ok(ready.then_some(window))
     }
 
     /// Writes the record of this build's run beside its lock, naming <step>
@@ -444,7 +458,7 @@ impl Drop for Held {
 }
 
 /// What each host answered to one question, asked once for each when a build
-/// first needs it: its load average per core (`Loads`), or whether it can
+/// first needs it: its load average per core (`Loads`), or why it cannot
 /// draw a window scene (`Screens`).
 struct Asked<'a, T> {
     places: &'a Places,
@@ -453,7 +467,7 @@ struct Asked<'a, T> {
 }
 
 type Loads<'a> = Asked<'a, f64>;
-type Screens<'a> = Asked<'a, Option<String>>;
+type Screens<'a> = Asked<'a, Option<crate::host_display::Reason>>;
 
 impl<T: Clone> Asked<'_, T> {
     /// <host>'s answer to <ask>, or what went wrong asking it.
@@ -489,25 +503,47 @@ impl Loads<'_> {
 
 impl Screens<'_> {
     /// <entries> that can draw a window scene, and the others, each with why
-    /// not. An entry on this Mac can, and no question is asked for it.
+    /// not. An entry on this Mac can, and no question is asked for it. When
+    /// none can, the entries whose lid is closed come back in the first list:
+    /// the build takes one and holds its window steps until the host can
+    /// draw (`Reason::rule`).
     fn split(&mut self, entries: Vec<String>) -> (Vec<String>, Vec<String>) {
         let mut drawing = Vec::new();
-        let mut undrawn = Vec::new();
+        let mut waiting = Vec::new();
+        let mut closed = Vec::new();
+        let mut unanswered = Vec::new();
         for entry in entries {
             if crate::app_remote::split(&entry).is_none() {
                 drawing.push(entry);
                 continue;
             }
             let host = host_of(&entry).to_string();
-            match self.ask(&host, host::screen_lacks) {
+            let lid = self.ask(&host, |ssh, known| {
+                crate::host_display::read(ssh, known).map(|reading| {
+                    reading
+                        .display
+                        .reasons(true)
+                        .into_iter()
+                        .find(|reason| *reason == crate::host_display::Reason::LidClosed)
+                })
+            });
+            match lid {
                 Ok(None) => drawing.push(entry),
-                Ok(Some(why)) => undrawn.push(format!(
-                    "{entry} (on host {host}, {why}, so it cannot draw shots; open its lid or attach a display)"
-                )),
-                Err(said) => undrawn.push(format!("{entry} ({said})")),
+                Ok(Some(reason)) => {
+                    closed.push(format!(
+                        "{entry} (on host {host}, {}, so it cannot draw shots; open its lid or attach a display)",
+                        reason.words()
+                    ));
+                    waiting.push(entry);
+                }
+                Err(said) => unanswered.push(format!("{entry} ({said})")),
             }
         }
-        (drawing, undrawn)
+        if drawing.is_empty() {
+            return (waiting, unanswered);
+        }
+        unanswered.extend(closed);
+        (drawing, unanswered)
     }
 }
 
@@ -597,7 +633,8 @@ fn take_free_lock(
             broken
                 .iter()
                 .find(|refusal| refusal.host == host_of(entry))
-                .and_then(|refusal| refusal.refused.mac_builds_cause())
+                .and_then(|refusal| refusal.refused.display_reason())
+                .map(|reason| reason.words())
         };
         let (on_broken, checkouts): (Vec<String>, Vec<String>) = checkouts
             .into_iter()
@@ -725,8 +762,9 @@ pub fn take_where(
 
 /// `take_where` for a build that draws window scenes (a `--shots` run of a
 /// shots line that passes `--windows`): the checkouts <allowed> lets in, less
-/// the hosts that cannot draw them (`host::screen_lacking`), and it fails
-/// naming each host it skipped when none can.
+/// the hosts whose lid is closed with no display (host_display.rs) while
+/// another can draw them. When none can, it takes one of those, and its
+/// window steps wait until the host can draw.
 pub fn take_drawing(
     places: &Places,
     ssh: &Ssh,

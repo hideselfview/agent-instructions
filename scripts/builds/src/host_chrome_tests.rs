@@ -154,7 +154,8 @@ fn health_names_each_host_that_holds_a_build_for_chrome() {
     let lines: Vec<String> = found.iter().map(|advice| advice.line()).collect();
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(
-        lines[0].starts_with("host m1 cannot start Chrome, so the android app build of bae holds checkout m1:app-2 and has built nothing for 7 minutes"),
+        lines[0].starts_with("host m1 cannot run steps that open windows: Chrome cannot start there")
+            && lines[0].contains("The android app build of bae holds checkout m1:app-2 and has built nothing for 7 minutes"),
         "{lines:?}"
     );
 }

@@ -1814,9 +1814,8 @@ impl Scanned {
 /// `builds` differs from this Mac's or that builds could not ask, and each
 /// Mac whose sccache server launchd does not run (host_installed.rs), and
 /// each Mac that lacks a setting that UI tests need or whose UI tests timed out
-/// (ui_test_settings.rs), and each Mac whose front app is a system alert
-/// (host_front_app.rs), and each Mac whose screen is locked
-/// (host_screen_lock.rs). `assess` judges
+/// (ui_test_settings.rs), and each reason a Mac's display reading gives
+/// (host_display.rs). `assess` judges
 /// only what this Mac's process reading finds, which runs no ssh, so `builds
 /// health` and the dashboard each add these findings to the ones `assess`
 /// returns.
@@ -1855,8 +1854,7 @@ pub fn host_findings(
                 .map(crate::host::refusal_finding)
                 .chain(crate::host_installed::installed_findings(installed))
                 .chain(crate::ui_test_settings::findings(refusals, installed))
-                .chain(crate::host_front_app::findings(&scanned.scans))
-                .chain(crate::host_screen_lock::findings(&scanned.scans))
+                .chain(crate::host_display::findings(&scanned.scans))
                 .map(|advice| Finding::new(FindingKind::Host, advice)),
         )
         .collect()
@@ -3366,8 +3364,7 @@ mod tests {
                 cpu_idle: Ok(10.0),
                 jobs: Vec::new(),
                 sccache: Ok(None),
-                front_app: Ok(None),
-                screen_locked: Ok(None),
+                display: Ok(None),
             }),
         ));
         let busy = [crate::stuck::HostBusy {
@@ -3462,7 +3459,9 @@ esac"#,
         );
         let line = found[0].advice.line();
         assert!(
-            line.starts_with("host m1's Xcode cannot start")
+            line.starts_with(
+                "host m1 cannot run steps that open windows: its Xcode cannot start (since "
+            ) && line.contains("Mac app builds skip its app checkouts")
                 && line.contains("Run sudo xcodebuild -runFirstLaunch on m1"),
             "{line}"
         );

@@ -251,11 +251,6 @@ pub fn finding(name: &str, refusal: Option<&Refusal>, settings: Option<&UiTestSe
             setup,
         );
     };
-    let timed_out = format!(
-        "UI tests on {place} timed out turning on automation mode (since {}), so mac app builds skip its app checkouts. The step printed: {}.",
-        local_minute(refusal.at),
-        refusal.said.trim_end_matches('.')
-    );
     let next = match (lacking, settings) {
         (Some(settings), _) => format!(
             "{} lacks {}. To run {} there through sudo and then let mac app builds use {place} again, run this from a terminal:",
@@ -271,7 +266,17 @@ pub fn finding(name: &str, refusal: Option<&Refusal>, settings: Option<&UiTestSe
             "To check the settings that UI tests need on {place}, turn on the ones that are off through sudo and then let mac app builds use {place} again, run this from a terminal:"
         ),
     };
-    Advice::run(format!("{timed_out} {next}"), setup)
+    crate::host_display::finding(
+        name,
+        &crate::host_display::Reason::UiAutomationTimesOut,
+        &format!(
+            " (since {}; the step printed: {})",
+            local_minute(refusal.at),
+            refusal.said.trim_end_matches('.')
+        ),
+        &next,
+        Some(setup),
+    )
 }
 
 /// <text> with its first letter a capital, to start a sentence.

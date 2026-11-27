@@ -114,8 +114,7 @@ fn m1_with_server(
                 pid: 44790,
                 stats: stats(35361, 34774, size),
             })),
-            front_app: Ok(None),
-            screen_locked: Ok(None),
+            display: Ok(None),
         }),
     )
 }

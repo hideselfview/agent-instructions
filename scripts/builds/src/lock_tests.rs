@@ -425,40 +425,57 @@ fn a_holder_records_how_long_it_waited_and_the_step_it_runs() {
     free.send(()).unwrap();
 }
 
-/// An ssh that answers every command with a host's probe and <screen>, the
-/// lines `host::SCREEN_SCRIPT` prints.
-fn ssh_with_screen(dir: &std::path::Path, screen: &str) -> Ssh {
-    use std::os::unix::fs::PermissionsExt;
+/// An ssh that answers every command with a host's probe and display
+/// reading (host_display.rs `SCRIPT`): an unlocked screen, Terminal in front,
+/// and the lid lines <lids> gives the host's target, `lid=open` for a target
+/// it does not name.
+fn ssh_with_lids(dir: &std::path::Path, lids: &[(&str, &str)]) -> Ssh {
+    let arms: String = lids
+        .iter()
+        .map(|(target, lid)| format!("  *' {target} '*) lid='{lid}';;\n"))
+        .collect();
     std::fs::create_dir_all(dir).unwrap();
     let program = dir.join("ssh");
     std::fs::write(
         &program,
-        format!("#!/bin/sh\nprintf 'os=Darwin\\narch=arm64\\ncores=1\\nload=0.00 0 0\\nfree_kib=900000000\\nmemory_free_percent=80\\nswap_used_mib=0\\nmemory_pressure_level=1\\nprocs=300\\nmax_procs=8000\\n{screen}'\n"),
+        format!(
+            "#!/bin/sh\nlid='lid=open\\n'\ncase \" $* \" in\n{arms}esac\nprintf \"os=Darwin\\narch=arm64\\ncores=1\\nload=0.00 0 0\\nfree_kib=900000000\\nmemory_free_percent=80\\nswap_used_mib=0\\nmemory_pressure_level=1\\nprocs=300\\nmax_procs=8000\\n$lid\"\nprintf '%s\\n' 'screen_locked=\"IOConsoleLocked\" = No' 'front_app=\"LSDisplayName\"=\"Terminal\" \"pid\"=1'\n"
+        ),
     )
     .unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::set_permissions(
+        &program,
+        std::os::unix::fs::PermissionsExt::from_mode(0o755),
+    )
+    .unwrap();
     crate::testing::ssh_at(&program)
 }
 
+/// A build that draws window scenes takes a host that can draw them over one
+/// whose lid is closed with no display, and takes that one when no host left
+/// can draw: its window steps then wait until the host can (host_display.rs
+/// `Rule::Wait`).
 #[test]
-fn a_build_that_draws_takes_no_host_whose_lid_is_closed_and_says_so() {
+fn a_build_that_draws_takes_a_host_whose_lid_is_closed_only_when_no_other_can_draw() {
     let scratch = Scratch::new("lock-lid");
     let places = places_with_host(&scratch, "m1:app-1\n");
-    let closed = ssh_with_screen(&scratch.dir.join("closed"), "lid=closed\\nscreens=0\\n");
-    let Err(error) = take_drawing(&places, &closed, "demo", Lane::ANDROID, Where::Anywhere, 0)
-    else {
-        panic!("the only host cannot draw");
-    };
-    let text = error.text();
-    assert!(
-        text.contains("m1:app-1")
-            && text.contains("lid is closed")
-            && text.contains("cannot draw shots"),
-        "{text}"
+    let closed = ssh_with_lids(
+        &scratch.dir.join("closed"),
+        &[("user@m1", "lid=closed\\nscreens=0\\n")],
     );
-    // The same host takes a build that draws no scene.
-    let held = take_where(&places, &closed, "demo", Lane::ANDROID, Where::Anywhere, 0).unwrap();
-    assert_eq!(held.checkout, "m1:app-1");
+    let held = take_drawing(&places, &closed, "demo", Lane::ANDROID, Where::Anywhere, 0).unwrap();
+    assert_eq!(held.checkout, "m1:app-1", "no host left can draw");
+    held.release();
+
+    let ssh = ssh_with_load(&scratch.dir.join("add-m2"), "0.00");
+    crate::host::add(&places, &ssh, "m2", "user@m2").unwrap();
+    std::fs::write(
+        places.app_checkouts_file("demo", Lane::ANDROID),
+        "m1:app-1\nm2:app-2\n",
+    )
+    .unwrap();
+    let held = take_drawing(&places, &closed, "demo", Lane::ANDROID, Where::Anywhere, 0).unwrap();
+    assert_eq!(held.checkout, "m2:app-2", "m2 can draw");
     held.release();
 }
 
@@ -466,7 +483,10 @@ fn a_build_that_draws_takes_no_host_whose_lid_is_closed_and_says_so() {
 fn a_build_that_draws_takes_this_macs_checkout_without_asking_about_a_lid() {
     let scratch = Scratch::new("lock-lid-local");
     let places = places_with_host(&scratch, "app-2\n");
-    let closed = ssh_with_screen(&scratch.dir.join("closed"), "lid=closed\\nscreens=0\\n");
+    let closed = ssh_with_lids(
+        &scratch.dir.join("closed"),
+        &[("user@m1", "lid=closed\\nscreens=0\\n")],
+    );
     let held = take_drawing(&places, &closed, "demo", Lane::ANDROID, Where::Anywhere, 0).unwrap();
     assert_eq!(held.checkout, "app-2");
     held.release();
@@ -480,7 +500,7 @@ fn a_build_that_draws_takes_a_host_with_its_lid_open_or_another_display() {
         ("open", "lid=open\\n"),
         ("external", "lid=closed\\nscreens=1\\n"),
     ] {
-        let ssh = ssh_with_screen(&scratch.dir.join(name), screen);
+        let ssh = ssh_with_lids(&scratch.dir.join(name), &[("user@m1", screen)]);
         let held = take_drawing(&places, &ssh, "demo", Lane::ANDROID, Where::Anywhere, 0).unwrap();
         assert_eq!(held.checkout, "m1:app-1", "{name}");
         held.release();

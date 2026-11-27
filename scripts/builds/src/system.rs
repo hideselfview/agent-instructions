@@ -40,10 +40,12 @@ pub enum Program {
     /// The user's systemd, which runs it on Linux.
     Systemctl,
     /// The registry that says whether a Mac's screen is locked and its lid
-    /// closed (host_screen_lock.rs, host.rs `SCREEN_SCRIPT`).
+    /// closed (host_display.rs `SCRIPT`).
     Ioreg,
-    /// The displays a Mac lists (host.rs `SCREEN_SCRIPT`).
+    /// The displays a Mac lists (host_display.rs `SCRIPT`).
     SystemProfiler,
+    /// The app in front on a Mac's screen (host_display.rs `SCRIPT`).
+    Lsappinfo,
     /// The log of a Mac's sleeps (sleeps.rs).
     Pmset,
     /// Holds a host's display awake while a step opens windows
@@ -66,7 +68,7 @@ pub enum Program {
 }
 
 impl Program {
-    pub const ALL: [Program; 16] = [
+    pub const ALL: [Program; 17] = [
         Program::Ssh,
         Program::Claude,
         Program::Codex,
@@ -74,6 +76,7 @@ impl Program {
         Program::Systemctl,
         Program::Ioreg,
         Program::SystemProfiler,
+        Program::Lsappinfo,
         Program::Pmset,
         Program::Caffeinate,
         Program::Defaults,
@@ -95,6 +98,7 @@ impl Program {
             Program::Systemctl => "systemctl",
             Program::Ioreg => "ioreg",
             Program::SystemProfiler => "system_profiler",
+            Program::Lsappinfo => "lsappinfo",
             Program::Pmset => "pmset",
             Program::Caffeinate => "caffeinate",
             Program::Defaults => "defaults",

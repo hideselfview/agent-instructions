@@ -139,32 +139,23 @@ fn the_script_reads_the_last_second_of_the_cpu_and_the_jobs_that_run() {
     )
     .unwrap();
     std::fs::set_permissions(&top, std::fs::Permissions::from_mode(0o755)).unwrap();
-    // lsof's exit 1 with nothing printed: no server listens.
-    let lsof = bin.join("lsof");
-    std::fs::write(
-        &lsof,
-        "#!/bin/sh
-exit 1
-",
-    )
-    .unwrap();
-    std::fs::set_permissions(&lsof, std::fs::Permissions::from_mode(0o755)).unwrap();
-    // lsappinfo as macOS's prints it while the notification alert holds the
-    // focus: `front` names the app's ASN, and `info` describes it over
-    // several lines.
-    let lsappinfo = bin.join("lsappinfo");
-    std::fs::write(
-        &lsappinfo,
-        r#"#!/bin/sh
-case "$1 $4" in
+    // The stand-in system's lsof exits 1 with nothing printed: no server
+    // listens. Its lsappinfo prints as macOS's does while the notification
+    // alert holds the focus: `front` names the app's ASN, and `info`
+    // describes it over several lines. Its ioreg says the lid is open and the
+    // screen unlocked.
+    scratch.stand_in(
+        "lsappinfo",
+        r#"case "$1 $4" in
 front*) echo 'ASN:0x0-0x1a01a:' ;;
 'info ASN:0x0-0x1a01a:') printf '%s\n' '"UserNotificationCenter" ASN:0x0-0x1a01a: (in front) ' '    bundleID=[ NULL ] ' '    pid = 812 !cgsConnection !signalled' ;;
 *) exit 1 ;;
-esac
-"#,
-    )
-    .unwrap();
-    std::fs::set_permissions(&lsappinfo, std::fs::Permissions::from_mode(0o755)).unwrap();
+esac"#,
+    );
+    scratch.stand_in(
+        "ioreg",
+        r#"case "$*" in *AppleClamshellState*) echo '"AppleClamshellState" = No';; *) echo '"IOConsoleLocked" = No';; esac"#,
+    );
     let home = scratch.dir.join("home");
     let worktrees = home.join("dev/demo-worktrees");
     let (running, ended) = (
@@ -184,8 +175,9 @@ esac
     .unwrap();
     let local = crate::host::Host::local();
     let scan = || {
-        let output = std::process::Command::new("sh")
-            .args(["-c", &script(&local)])
+        let output = scratch
+            .system()
+            .sh(&script(&local))
             .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
             .env("HOME", &home)
             .output()
@@ -228,10 +220,14 @@ esac
     assert_eq!(scan_while_running.cpu_idle, Ok(40.0));
     assert_eq!(scan_while_running.sccache, Ok(None));
     assert_eq!(
-        scan_while_running.front_app,
-        Ok(Some(FrontApp {
-            name: Some("UserNotificationCenter".to_string()),
-            pid: 812,
+        scan_while_running.display,
+        Ok(Some(crate::host_display::Display {
+            lid: crate::host_display::Lid::Open,
+            locked: false,
+            front: crate::host_display::FrontApp {
+                name: Some("UserNotificationCenter".to_string()),
+                pid: 812,
+            }
         }))
     );
     assert_eq!(

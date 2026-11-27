@@ -306,10 +306,10 @@ fn a_host_whose_ui_tests_timed_out_is_one_finding_with_its_settings() {
         assert!(
             found[0]
                 .text
-                .starts_with("UI tests on host m1 timed out turning on automation mode (since ")
+                .starts_with("host m1 cannot run steps that open windows: its UI tests time out turning on automation mode (since ")
                 && found[0]
                     .text
-                    .contains("The step printed: Timed out while enabling automation mode. "),
+                    .contains("the step printed: Timed out while enabling automation mode). Mac app builds skip its app checkouts"),
             "{found:?}"
         );
         found[0].text.clone()

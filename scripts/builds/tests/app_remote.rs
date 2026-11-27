@@ -140,13 +140,18 @@ impl World {
                 second_home.join("dev/demo").to_str().unwrap(),
             ],
         );
-        // The hosts run on this Mac, so each reads its screen lock from the
-        // stand-in system's ioreg: whether this Mac's screen is locked never
-        // holds a window step. BUILDS_VOLUME names no folder, so each host's
+        // The hosts run on this Mac, so each reads its display from the
+        // stand-in system's ioreg and lsappinfo: whether this Mac's screen is
+        // locked never holds a window step. BUILDS_VOLUME names no folder, so each host's
         // builds root is in its own home, not on this Mac's build volume.
         script(
             &system.join("ioreg"),
             "#!/bin/sh\necho '\"IOConsoleLocked\" = No'\n",
+        );
+        stand_in::stand_in(
+            &system,
+            "lsappinfo",
+            r#"echo '"LSDisplayName"="Terminal" "pid"=1'"#,
         );
         // A step that opens windows runs under caffeinate, which here only
         // runs the step.
@@ -538,7 +543,7 @@ fn a_build_skips_and_records_a_host_whose_xcode_cannot_start() {
         err.contains("[mac m1:mac-1] A required plugin failed"),
         "{err}"
     );
-    assert!(err.contains("on host m1, Xcode cannot start"), "{err}");
+    assert!(err.contains("on host m1, its Xcode cannot start"), "{err}");
     assert!(
         out.contains("[mac m2:mac-1] built in remote-home-2"),
         "{out}"

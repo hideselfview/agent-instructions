@@ -764,60 +764,6 @@ fn a_mutants_run_passes_over_a_host_without_the_pinned_cargo_mutants() {
     assert_eq!(ranked.len(), 3);
 }
 
-#[test]
-fn a_host_with_its_lid_closed_and_no_display_cannot_draw_a_window_scene() {
-    assert_eq!(
-        screen_lacking("lid=closed\nscreens=0\n")
-            .unwrap()
-            .as_deref(),
-        Some("its lid is closed and it lists no other display")
-    );
-    assert_eq!(screen_lacking("lid=open\n").unwrap(), None);
-    assert_eq!(
-        screen_lacking("lid=none\n").unwrap(),
-        None,
-        "a Mac with no lid"
-    );
-    assert_eq!(
-        screen_lacking("lid=closed\nscreens=1\n").unwrap(),
-        None,
-        "another display is attached"
-    );
-}
-
-#[test]
-fn an_answer_that_names_no_lid_or_no_screens_count_is_an_error_not_a_yes() {
-    assert!(screen_lacking("").unwrap_err().contains("names no lid"));
-    assert!(screen_lacking("lid=ajar\n").is_err());
-    assert!(
-        screen_lacking("lid=closed\n")
-            .unwrap_err()
-            .contains("no screens count")
-    );
-    assert!(screen_lacking("lid=closed\nscreens=many\n").is_err());
-}
-
-/// The screen script reads the lid from the system's ioreg and the
-/// displays from its system_profiler.
-#[test]
-fn the_screen_script_reads_the_lid_and_the_displays() {
-    let scratch = Scratch::new("screen-script");
-    scratch.stand_in("ioreg", "echo '\"AppleClamshellState\" = Yes'");
-    scratch.stand_in(
-        "system_profiler",
-        "echo 'Resolution: 1920 x 1080'; echo 'Resolution: 3024 x 1964'",
-    );
-    let said = output_at(
-        &scratch.system().ssh(),
-        &Host::local(),
-        SCREEN_SCRIPT,
-        "running the screen script here",
-    )
-    .unwrap();
-    assert_eq!(said, "lid=closed\nscreens=2\n");
-    assert_eq!(screen_lacking(&said), Ok(None));
-}
-
 /// This Mac answers a probe with the script every host runs. A stand-in host,
 /// whose ssh runs the script on this Mac in another home, reads the same
 /// platform, cores and process limit, and the programs of its own home.

@@ -814,14 +814,13 @@ processes only with `--stop-junk`. The lines below are what remains to act on.
   - A process whose caller is gone that health leaves to run, such as a
     landing whose shell ended, does its work to its end: check what it did
     once it ends. Stop one whose stop failed with the command the line gives.
-  - A Mac that shows a system alert in front of every app
-    (UserNotificationCenter, SecurityAgent or CoreServicesUIAgent) fails every
-    Mac window shot there, because the alert keeps the focus. The line names
-    the alert and its pid. Answer or close the alert on that Mac, or end its
-    process with the command the line gives.
-  - A Mac host whose screen is locked renders no Mac window shot, and the mac
-    lane holds each window step for the host until it unlocks: unlock the
-    screen on that Mac (`builds help`, APP BUILDS).
+  - A Mac that cannot run steps that open windows because its screen is
+    locked, or because a system alert (UserNotificationCenter, SecurityAgent
+    or CoreServicesUIAgent) is in front of every app and keeps the focus: the
+    mac lane holds each such step there until it ends. The line names the
+    reason, and for an alert its name, its pid and the command that ends it.
+    Unlock the screen, or answer or close the alert, on that Mac (`builds
+    help`, APP BUILDS).
   - A host that holds an app build while Chrome cannot start there: a Mac
     whose window server does not answer starts no Chrome, so no shots run
     there can draw its boards. The line names the host, the held build's

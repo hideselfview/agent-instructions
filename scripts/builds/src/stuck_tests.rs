@@ -539,8 +539,7 @@ esac"#,
         cpu_idle: Ok(10.0),
         jobs: vec![],
         sccache: Ok(None),
-        front_app: Ok(None),
-        screen_locked: Ok(None),
+        display: Ok(None),
     });
 
     let answer = read(&ssh, &host, &scan, None);

@@ -59,8 +59,8 @@ pub trait Host {
     fn builds_with_xcode(&self) -> bool;
 
     /// Whether the platform's steps open windows on the host: they take the
-    /// window lock, wait for an unlocked screen and a lid that lets the shot
-    /// display draw (host_screen_lock.rs), and keep the display on
+    /// window lock, wait while the host gives a reason it cannot show their
+    /// windows (host_display.rs), and keep the display on
     /// (app_remote.rs).
     fn opens_windows(&self) -> bool;
 
