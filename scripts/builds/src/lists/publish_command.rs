@@ -4,12 +4,12 @@
 
 use std::path::Path;
 
+use crate::args::Args;
 use crate::command::design::Design as Subcommand;
 use crate::fail;
 use crate::fail::Result;
 use crate::inbox::Messaging;
 use crate::lists::Stamp;
-use crate::lists::args::Args;
 use crate::lists::publish;
 use crate::lists::store::Store;
 use crate::text::local_minute;

@@ -14,9 +14,9 @@ use rusqlite::Connection;
 
 use super::record::{self, Change};
 use super::{default_key, ended};
+use crate::args::Args;
 use crate::checkout::Checkout;
 use crate::fail::{Fail, Result};
-use crate::lists::args::Args;
 use crate::lists::store::Store;
 use crate::side_git::ask;
 use crate::tool::Tool;

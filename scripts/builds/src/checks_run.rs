@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use crate::args::Args;
 use crate::checkout::{Checkout, git_local_env_vars};
 use crate::checks::{CONFIG, Kind, Line, Planned, parse, plan};
 use crate::clock::Moment;
@@ -41,7 +42,6 @@ use crate::fail::{Context, Fail, Result};
 use crate::hook_impact;
 use crate::hook_stats::{self, Change, CheckRecord, Outcome, Run, StagedFile};
 use crate::host::Load;
-use crate::lists::args::Args;
 use crate::lists::store::{Store, database_of};
 use crate::output::note;
 use crate::places::Places;

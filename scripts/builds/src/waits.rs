@@ -256,7 +256,7 @@ pub fn dashboard_figures(path: &Path, now: i64) -> Waits {
 
 /// `builds waits [--project P] [--since DATE]`.
 pub fn cmd_waits(args: &[String]) -> Result<()> {
-    let args = crate::lists::args::Args::parse(args, &["since"], &[])?;
+    let args = crate::args::Args::parse(args, &["since"], &[])?;
     if !args.positional().is_empty() {
         fail!("{}", crate::command::Command::Waits.usage_text());
     }

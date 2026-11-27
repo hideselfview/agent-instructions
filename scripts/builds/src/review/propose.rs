@@ -10,10 +10,10 @@
 
 use std::path::Path;
 
+use crate::args::{Args, current_dir};
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::Result;
-use crate::lists::args::{Args, current_dir};
 use crate::lists::store::Store;
 use crate::review::audit::{candidate_misses, diff_read};
 use crate::review::cases::{self, Addition, SiteLabel, same_code, same_file};

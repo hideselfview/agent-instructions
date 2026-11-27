@@ -28,11 +28,11 @@ use std::process::Stdio;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
+use crate::args::Args;
 use crate::checkout::Checkout;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lists::args::Args;
 use crate::lists::item::{self, open_item};
 use crate::lists::record::close;
 use crate::lists::running::{Ended, Running, end, place_in_repo};

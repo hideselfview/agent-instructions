@@ -68,7 +68,7 @@ impl Ender {
                 "a condition cannot wait on the person: ask a your-step question (`builds question ask --kind your-step ...`) and wait on it with `--on question:N`, so that it shows under Waiting on you"
             );
         }
-        crate::lists::args::parse_named("--until", word, Ender::NAMES)
+        crate::args::parse_named("--until", word, Ender::NAMES)
     }
 }
 

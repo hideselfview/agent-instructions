@@ -7,10 +7,10 @@ use std::fmt::Write;
 
 use serde::Deserialize;
 
+use crate::args::{Args, read_input, read_request};
 use crate::command::decision::Decision as Subcommand;
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lists::args::{Args, read_input, read_request};
 use crate::lists::check::title_fault;
 use crate::lists::decision::{self, NewDecision, add_decision};
 use crate::lists::derive;

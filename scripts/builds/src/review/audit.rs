@@ -16,9 +16,9 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
+use crate::args::Args;
 use crate::fail::Result;
 use crate::lists::Stamp;
-use crate::lists::args::Args;
 use crate::lists::store::Store;
 use crate::review::check;
 use crate::review::files;

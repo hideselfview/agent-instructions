@@ -10,12 +10,12 @@
 use rusqlite::{Connection, params};
 
 use crate::app_landing::branch_since;
+use crate::args::Args;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lane::Lane;
 use crate::lists::Stamp;
-use crate::lists::args::Args;
 use crate::lists::store::Store;
 use crate::output::note;
 use crate::tool::Tool;

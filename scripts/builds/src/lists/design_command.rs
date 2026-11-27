@@ -11,12 +11,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::ack::agent::Caller;
+use crate::args::{Args, read_request};
 use crate::checkout::Checkout;
 use crate::command::design::Design as Subcommand;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::inbox::{Destinations, Messaging, Recipient};
-use crate::lists::args::{Args, read_request};
 use crate::lists::design::{self, DesignRequest, Drawn, Landed, PlaceAnswer, Settlement, Shown};
 use crate::lists::design_drawn::{ProgramRenders, Renders, Sameness};
 use crate::lists::design_paths::{self, Changes, Globs, PlaceKind};
@@ -955,7 +955,7 @@ fn artifacts_listing(args: &Args) -> Result<String> {
             "give the Artifact tool's listings of the account's artifacts of the Design and Design System types with --artifacts FILE, or - for standard input"
         )
     };
-    crate::lists::args::read_input(listing)
+    crate::args::read_input(listing)
 }
 
 /// `publish-find DIR --artifacts FILE [--at REV]`: prints the link of each
@@ -1042,11 +1042,11 @@ fn publish_last(tool: &Tool, args: &[String]) -> Result<String> {
     let Some(listing) = args.value("listing")? else {
         fail!("give the artifact's listing with --listing FILE, or - for standard input")
     };
-    let listing = crate::lists::args::read_input(listing)?;
+    let listing = crate::args::read_input(listing)?;
     let uploaded = match args.value("uploaded")? {
         None => BTreeMap::new(),
         Some(file) => {
-            let given: BTreeMap<String, String> = crate::lists::args::read_request(file)?;
+            let given: BTreeMap<String, String> = crate::args::read_request(file)?;
             let mut ids = BTreeMap::new();
             for (path, url) in given {
                 ids.insert(path, crate::design_system_assets::upload_id(&url)?);

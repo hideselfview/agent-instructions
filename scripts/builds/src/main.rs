@@ -38,6 +38,7 @@ mod app_site;
 mod app_timing;
 mod app_tree;
 mod app_waiting_shots;
+mod args;
 mod awake;
 mod branch_end;
 mod brief;
@@ -516,7 +517,7 @@ fn run(
         as_called(session)
     };
     let ssh = || system.ssh();
-    let cwd = crate::lists::args::current_dir;
+    let cwd = crate::args::current_dir;
     let out = &mut output::answer_handle();
     match command {
         // These run in the caller's environment as it is, which cargo

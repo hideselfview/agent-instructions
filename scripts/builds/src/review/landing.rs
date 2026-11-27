@@ -45,11 +45,11 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 
 use super::short;
+use crate::args::Args;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lists::Stamp;
-use crate::lists::args::Args;
 use crate::lists::design_paths::Globs;
 use crate::lists::store::{Store, resolve_by};
 use crate::review::check;

@@ -5,11 +5,11 @@ use std::path::Path;
 
 use rusqlite::{Connection, params};
 
+use crate::args::{Args, current_dir};
 use crate::command::area::Area as Subcommand;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
-use crate::lists::args::{Args, current_dir};
 use crate::lists::check::title_fault;
 use crate::lists::store::Store;
 use crate::lists::{Id, Stamp, item};

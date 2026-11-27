@@ -199,7 +199,7 @@ pub fn read_request<T: DeserializeOwned>(spec: &str) -> Result<T> {
 }
 
 #[cfg(test)]
-#[path = "args_tests.rs"]
+#[path = "mod_tests.rs"]
 mod tests;
 
 /// The directory the command runs in.

@@ -31,7 +31,7 @@ pub fn gate(command: Command, nested: bool, session: &Session) -> Result<()> {
     if !applies(command, nested) {
         return Ok(());
     }
-    require_claimed_branch(&crate::lists::args::current_dir()?, || session.caller())
+    require_claimed_branch(&crate::args::current_dir()?, || session.caller())
 }
 
 /// Does the check cover <command>, which <nested> says another builds command

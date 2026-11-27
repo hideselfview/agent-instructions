@@ -107,13 +107,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::ack::agent::Caller;
+use crate::args::Args;
 use crate::checkout::Checkout;
 use crate::command::review;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::inbox::{Messaging, Recipient};
 use crate::lists::Stamp;
-use crate::lists::args::Args;
 use crate::lists::design_paths::Globs;
 use crate::lists::spec_check::Brief;
 use crate::lists::store::{Store, project_of};

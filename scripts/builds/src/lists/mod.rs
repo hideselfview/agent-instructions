@@ -20,7 +20,6 @@
 //! `citation` what the `decision #N` citations in a question name, `args` the flag parsing every command uses.
 
 pub mod area;
-pub mod args;
 pub mod check;
 pub mod citation;
 mod command;

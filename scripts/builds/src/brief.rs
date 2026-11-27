@@ -3,9 +3,9 @@
 use std::io::Write;
 use std::path::{Component, Path};
 
+use crate::args::Args;
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lists::args::Args;
 use crate::lists::check::project_name_fault;
 use crate::review::rules;
 

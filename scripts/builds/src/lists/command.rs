@@ -2,11 +2,11 @@
 
 use std::path::Path;
 
+use crate::args::Args;
 use crate::checkout::Checkout;
 use crate::command::lists::Lists as Subcommand;
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lists::args::Args;
 use crate::lists::check::repo_name_fault;
 use crate::lists::project::{self, GlobKind, NewProject, parse_globs};
 use crate::lists::store::{Store, project_of};

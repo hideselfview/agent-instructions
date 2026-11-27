@@ -59,7 +59,7 @@ pub fn require_states_shown(tool: &Tool, top: &Path, tip: &str, base: &str) -> R
 /// shots checker takes board pictures from and keeps the ones it draws; none
 /// outside a git checkout.
 fn board_store(places: &Places) -> Result<Option<PathBuf>> {
-    let dir = crate::lists::args::current_dir()?;
+    let dir = crate::args::current_dir()?;
     Ok(crate::checkout::Checkout::at(&dir)?
         .map(|checkout| crate::shots_cache::pictures(places, &checkout.repo())))
 }

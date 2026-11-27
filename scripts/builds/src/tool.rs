@@ -49,7 +49,7 @@ impl Tool {
         changed: Changed,
         system: System,
     ) -> Result<Tool> {
-        let dir = crate::lists::args::current_dir()?;
+        let dir = crate::args::current_dir()?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("the clock is after 1970")

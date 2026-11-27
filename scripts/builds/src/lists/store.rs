@@ -13,12 +13,12 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, TransactionBehavior, params};
 
+use crate::args::Args;
 use crate::checkout::Checkout;
 use crate::claim::Claim;
 use crate::db::{self, DATABASE, Make, Sql};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::lists::args::Args;
 use crate::lists::check::{faults, project_name_fault};
 use crate::lists::project::NewProject;
 use crate::lists::record::{self, Closed, Record};

@@ -29,12 +29,12 @@ use std::path::Path;
 
 use rusqlite::TransactionBehavior;
 
+use crate::args::{Args, current_dir};
 use crate::checkout::Checkout;
 use crate::command::Parsed;
 use crate::db::{self, Make, Sql};
 use crate::fail;
 use crate::fail::Result;
-use crate::lists::args::{Args, current_dir};
 use crate::lists::store::{Store, project_of, stores};
 use crate::places::Places;
 use crate::text::shell_word;
