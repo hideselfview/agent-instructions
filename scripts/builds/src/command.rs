@@ -108,6 +108,9 @@ declare! {
         Setup => [["setup"]], ["builds setup [--no-prepare] [<checkout>]"];
         Lake => [["lake"]], ["builds lake build [<args>...]"];
         Tool => [["tool"]], ["builds tool <name> [<checkout>]"];
+        Toolchain => [["toolchain"]], [
+            "builds toolchain <channel> [--profile P] [--component C]... [--target T]...",
+        ];
         New => [["new"]], [
             "builds new [<repo>] [-b <branch> | --resume <branch>] [--for <who>] [--project P]",
         ];

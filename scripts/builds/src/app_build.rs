@@ -1052,14 +1052,22 @@ impl Site<'_> {
         }
     }
 
-    /// Switches the checkout to <commit> (which must have no changes) and
-    /// reads the repo's `.app-build` there.
+    /// Switches the checkout to <commit> (which must have no changes), reads
+    /// the repo's `.app-build` there, and has the checkout's machine install
+    /// the toolchain the commit pins when it lacks it, before any step runs.
     pub fn check_out(&mut self, places: &Places, repo: &str, commit: &str) -> Result<CheckedOut> {
         match self {
-            Site::Local(top, _, checkout, system) => check_out(top, system, commit, *checkout),
+            Site::Local(top, _, checkout, system) => {
+                let checked = check_out(top, system, commit, *checkout)?;
+                crate::rust_toolchain::ensure_in(places, system, top, top)?;
+                Ok(checked)
+            }
             Site::Remote(remote) => {
                 let source = fetched_local_source(places, repo)?;
                 let sha = resolve(&source, commit)?;
+                if let Some(toolchain) = crate::rust_toolchain::at_commit(&source, &sha)? {
+                    remote.ensure_toolchain(&toolchain)?;
+                }
                 remote.switch_to(&source, &sha)?;
                 let config = config_in(&source, &sha)?;
                 Ok(CheckedOut { sha, config })

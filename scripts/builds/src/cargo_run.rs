@@ -301,8 +301,12 @@ pub fn cmd_cargo(system: &crate::system::System, args: &[String], changed: &Chan
         .first()
         .map(String::as_str)
     {
-        Some("update") => return crate::cargo_update::run(args),
+        Some("update") => {
+            ensure_toolchain_here(system)?;
+            return crate::cargo_update::run(args);
+        }
         Some(read) if crate::cargo_read::SUBCOMMANDS.contains(&read) => {
+            ensure_toolchain_here(system)?;
             return crate::cargo_read::run(args);
         }
         Some(
@@ -425,7 +429,7 @@ pub fn cmd_cargo(system: &crate::system::System, args: &[String], changed: &Chan
     let watch = crate::cargo_run_outcome::Watch::default();
     let exited = match job {
         None if tool == cargo_place::CargoTool::Mutants => {
-            prepare_here(&places, &ssh, checkout.as_ref(), &env)
+            prepare_here(&places, &ssh, checkout.as_ref(), &dir, &env)
                 .and_then(|()| run_before_here(checkout.as_ref(), &env))
                 .and_then(|()| {
                     // A host's job comes capped by this Mac (`CAPPED_VARIABLE`).
@@ -436,7 +440,7 @@ pub fn cmd_cargo(system: &crate::system::System, args: &[String], changed: &Chan
                     run_mutants_here(&places, checkout.as_ref(), &args, &env)
                 })?
         }
-        None => prepare_here(&places, &ssh, checkout.as_ref(), &env)
+        None => prepare_here(&places, &ssh, checkout.as_ref(), &dir, &env)
             .and_then(|()| run_before_here(checkout.as_ref(), &env))
             .and_then(|()| build_runner_here(&places, checkout.as_ref(), runner.as_ref(), &env))
             .and_then(|runner| {
@@ -605,8 +609,22 @@ pub fn in_hook(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> bool {
     env(HOOK_CHECK_VARIABLE).is_some_and(|value| !value.is_empty())
 }
 
-/// Runs the checkout's `prepare` programs (setup.rs) on the Mac that runs
-/// cargo, before cargo, and puts each tool its manifest declares in place
+/// Installs, for a subcommand that runs on this Mac as given, the toolchain
+/// the checkout it runs in pins, when this Mac lacks it.
+fn ensure_toolchain_here(system: &crate::system::System) -> Result<()> {
+    let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
+    match Checkout::at_keeping_env(&dir)? {
+        Some(checkout) => {
+            crate::rust_toolchain::ensure_in(&Places::from_env()?, system, &checkout.top, &dir)
+        }
+        None => Ok(()),
+    }
+}
+
+/// On the Mac that runs cargo, before cargo in <dir>: installs the toolchain
+/// the checkout pins when the Mac lacks it (rust_toolchain.rs), for every
+/// run, a hook check's too. Then runs the checkout's `prepare` programs
+/// (setup.rs) and puts each tool its manifest declares in place
 /// for the checkout's key (`built_tools::ensure_all`): a commit that changes
 /// a tool's sources changes its key, and the pre-commit hook builds no tool,
 /// so the first cargo run after the change builds it. A host that runs cargo
@@ -619,18 +637,21 @@ fn prepare_here(
     places: &Places,
     ssh: &Ssh,
     checkout: Option<&Checkout>,
+    dir: &Path,
     env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
 ) -> Result<()> {
-    match checkout {
-        Some(checkout) if !in_hook(env) => {
-            crate::setup::prepare(&checkout.top)?;
-            if env(crate::built_tools::WORK_VARIABLE).is_none() {
-                crate::built_tools::ensure_all(places, ssh, &checkout.top)?;
-            }
-            Ok(())
-        }
-        _ => Ok(()),
+    let Some(checkout) = checkout else {
+        return Ok(());
+    };
+    crate::rust_toolchain::ensure_in(places, ssh.system(), &checkout.top, dir)?;
+    if in_hook(env) {
+        return Ok(());
     }
+    crate::setup::prepare(places, &checkout.top)?;
+    if env(crate::built_tools::WORK_VARIABLE).is_none() {
+        crate::built_tools::ensure_all(places, ssh, &checkout.top)?;
+    }
+    Ok(())
 }
 
 /// Runs the program `BUILDS_CARGO_BEFORE` names, if any, in the checkout.
@@ -1045,19 +1066,48 @@ mod tests {
         std::fs::write(&program, "#!/bin/sh\necho ran >> prepared.txt\n").unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
         let checkout = Checkout::at(&top).unwrap();
-        prepare_here(&places, &ssh, checkout.as_ref(), &|_| None).unwrap();
+        prepare_here(&places, &ssh, checkout.as_ref(), &top, &|_| None).unwrap();
         assert_eq!(
             std::fs::read_to_string(top.join("prepared.txt")).unwrap(),
             "ran\n"
         );
-        prepare_here(&places, &ssh, None, &|_| None).unwrap();
+        prepare_here(&places, &ssh, None, &top, &|_| None).unwrap();
 
         // A run a hook check started runs none.
         let hook = |name: &str| (name == HOOK_CHECK_VARIABLE).then(|| "1700000000:2".into());
-        prepare_here(&places, &ssh, checkout.as_ref(), &hook).unwrap();
+        prepare_here(&places, &ssh, checkout.as_ref(), &top, &hook).unwrap();
         assert_eq!(
             std::fs::read_to_string(top.join("prepared.txt")).unwrap(),
             "ran\n"
+        );
+    }
+
+    #[test]
+    fn a_run_here_installs_the_pinned_toolchain_even_for_a_hook_check() {
+        let scratch = Scratch::new("cargo-toolchain");
+        let places = scratch.places();
+        let asked = scratch.dir.join("rustup-asked");
+        scratch.stand_in(
+            "rustup",
+            &format!(
+                "echo \"$*\" >> {}; echo 'no network' >&2; exit 1",
+                crate::host::sh_quote(&asked.to_string_lossy())
+            ),
+        );
+        let ssh = scratch.system().ssh();
+        let top = scratch.dir.join("demo");
+        repo(&top, "target 1G\n");
+        std::fs::write(top.join("rust-toolchain"), "1.100.1\n").unwrap();
+        let checkout = Checkout::at(&top).unwrap();
+        let hook = |name: &str| (name == HOOK_CHECK_VARIABLE).then(|| "1700000000:2".into());
+        let error = prepare_here(&places, &ssh, checkout.as_ref(), &top, &hook)
+            .unwrap_err()
+            .text();
+        assert!(error.contains("no network"), "{error}");
+        let asked = std::fs::read_to_string(asked).unwrap();
+        assert!(
+            asked.contains("toolchain install 1.100.1 --no-self-update"),
+            "{asked}"
         );
     }
 
@@ -1078,13 +1128,13 @@ mod tests {
         // A run a hook check started builds none, and neither does a run
         // inside a tool's own build.
         let hook = |name: &str| (name == HOOK_CHECK_VARIABLE).then(|| "1700000000:2".into());
-        prepare_here(&places, &ssh, checkout.as_ref(), &hook).unwrap();
+        prepare_here(&places, &ssh, checkout.as_ref(), &top, &hook).unwrap();
         let building =
             |name: &str| (name == crate::built_tools::WORK_VARIABLE).then(|| "/work".into());
-        prepare_here(&places, &ssh, checkout.as_ref(), &building).unwrap();
+        prepare_here(&places, &ssh, checkout.as_ref(), &top, &building).unwrap();
         assert!(std::fs::symlink_metadata(top.join("built")).is_err());
 
-        prepare_here(&places, &ssh, checkout.as_ref(), &|_| None).unwrap();
+        prepare_here(&places, &ssh, checkout.as_ref(), &top, &|_| None).unwrap();
         assert!(
             top.join("built/tool").is_file(),
             "the run built the key's tool"

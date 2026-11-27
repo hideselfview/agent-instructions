@@ -315,6 +315,15 @@ impl<'a> RemoteApp<'a> {
             .join(entry_of(&self.host.name, &self.name))
     }
 
+    /// Installs <toolchain> on the checkout's host when it lacks it, before
+    /// the build's steps run cargo there.
+    pub fn ensure_toolchain(&self, toolchain: &crate::rust_toolchain::Toolchain) -> Result<()> {
+        match crate::rust_toolchain::ensure_on(&self.transport(), toolchain)? {
+            crate::rust_toolchain::OnHost::Ready => Ok(()),
+            crate::rust_toolchain::OnHost::Unreachable(said) => fail!("{said}"),
+        }
+    }
+
     /// The checkout's folder on the host; it need not exist yet.
     pub fn locate(&mut self) -> Result<String> {
         if let Some(worktree) = &self.worktree {

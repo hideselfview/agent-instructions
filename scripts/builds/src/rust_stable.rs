@@ -176,41 +176,17 @@ fn pinned_version(text: &str) -> std::result::Result<Option<Pinned>, String> {
 /// rustup, `rust-toolchain` comes before `rust-toolchain.toml`. A file that
 /// can't be read is an error that names it.
 pub fn pin(clone: &Path) -> Result<Option<Pin>> {
-    for file in ["rust-toolchain", "rust-toolchain.toml"] {
-        let listed =
-            crate::app_config::run_git(clone, &["ls-tree", "--name-only", "origin/main", file])?;
-        if listed.trim().is_empty() {
-            continue;
-        }
-        let text = crate::app_config::run_git(clone, &["show", &format!("origin/main:{file}")])?;
-        let channel = pinned_channel(file, &text)
-            .map_err(|error| Fail::Message(format!("{file}: {error}")))?;
-        let version = match channel.as_deref().map(pinned_version) {
-            Some(Ok(version)) => version,
-            Some(Err(error)) => fail!("{file}: {error}"),
-            None => None,
-        };
-        return Ok(version.map(|version| Pin { file, version }));
-    }
-    Ok(None)
-}
-
-/// The channel that toolchain file <file> holding <text> names, if it names one.
-fn pinned_channel(file: &str, text: &str) -> std::result::Result<Option<String>, String> {
-    // The older `rust-toolchain` file may hold only the channel's name.
-    let legacy =
-        file == "rust-toolchain" && !text.contains(['[', '=']) && text.trim().lines().count() <= 1;
-    if legacy {
-        return Ok(Some(text.trim().to_string()));
-    }
-    match text.parse::<toml::Table>() {
-        Ok(table) => Ok(table
-            .get("toolchain")
-            .and_then(|toolchain| toolchain.get("channel"))
-            .and_then(toml::Value::as_str)
-            .map(str::to_string)),
-        Err(error) => Err(format!("is not TOML: {error}")),
-    }
+    let Some((file, text)) = crate::rust_toolchain::file_at(clone, "origin/main")? else {
+        return Ok(None);
+    };
+    let toolchain = crate::rust_toolchain::parse(file, &text)
+        .map_err(|error| Fail::Message(format!("{file}: {error}")))?;
+    let version = match toolchain.map(|toolchain| pinned_version(&toolchain.channel)) {
+        Some(Ok(version)) => version,
+        Some(Err(error)) => fail!("{file}: {error}"),
+        None => None,
+    };
+    Ok(version.map(|version| Pin { file, version }))
 }
 
 /// The repos of a project that pin a version older than <stable>, with their pins.

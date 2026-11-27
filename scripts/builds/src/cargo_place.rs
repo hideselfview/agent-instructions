@@ -24,7 +24,9 @@
 //! jobs (host.rs), is skipped. A host that refuses the job itself, before
 //! cargo starts there (the send of the commit or the claim of a worktree
 //! fails there), is recorded as refusing jobs, and the command runs on this
-//! Mac. A host that stops answering while cargo runs ends the command with an
+//! Mac. A failed install of the commit's toolchain on the host
+//! (rust_toolchain.rs), which comes before the send, fails the command and
+//! records no refusal. A host that stops answering while cargo runs ends the command with an
 //! error naming the host: nothing runs the command again here, since cargo
 //! may have run part of it there.
 //!
@@ -741,15 +743,10 @@ pub fn start<'a>(
     // A stop signal during the send or the claim stops the job once its
     // command starts, and the job removes what it left on the host.
     remote::stop_on_signals();
-    // A hook check copies no tool: `builds setup` copies this Mac's builds to
-    // every host, and the host's setup for a hook's job prepares nothing.
-    let hook = crate::cargo_run::in_hook(env);
-    if !hook {
-        crate::built_tools::send_to(places, ssh, &host, &checkout.top);
-    }
+    // The host's setup for a hook's job prepares nothing.
     let request = Request {
         repo: checkout.repo(),
-        prepare: if hook {
+        prepare: if crate::cargo_run::in_hook(env) {
             crate::setup::Prepare::No
         } else {
             crate::setup::Prepare::Yes

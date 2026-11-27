@@ -42,6 +42,7 @@ use crate::output::note;
 use crate::places::Places;
 use crate::prune::{Run, prune_listed};
 use crate::remote::{Transport, root_script};
+use crate::rust_toolchain::OnHost;
 use crate::setup::Prepare;
 
 /// The variable that names the toolchain's work folder to `<program> build`.
@@ -151,6 +152,8 @@ pub fn cmd_tool(places: &Places, ssh: &Ssh, args: &crate::args::Args) -> Result<
     } else {
         Prepare::Yes
     };
+    // The key and the build run the checkout's toolchain.
+    crate::rust_toolchain::ensure_in(places, ssh.system(), &checkout.top, &checkout.top)?;
     let dest = ensure(places, ssh, &checkout.top, line, prepare)?;
     crate::output::answer_line(dest.display());
     Ok(())
@@ -233,8 +236,8 @@ fn obtain(
                 line.name, line.program
             ));
             let staged = staging(toolchain)?;
-            let built =
-                build(top, line, &toolchain.join(WORK), &staged).and_then(|()| check(&staged));
+            let built = build(places, top, line, &toolchain.join(WORK), &staged)
+                .and_then(|()| check(&staged));
             if let Err(error) = built {
                 return Err(after_discard(&staged, error));
             }
@@ -278,11 +281,17 @@ fn discard(staged: &Path) -> Result<()> {
     }
 }
 
-/// Runs `<program> build <staged>` in <top>, its output on stderr.
-fn build(top: &Path, line: &BuiltTool, work: &Path, staged: &Path) -> Result<()> {
+/// Runs `<program> build <staged>` in <top>, its output on stderr, holding
+/// the pinned toolchain's prepare lock, since a build may add components to
+/// it (rust_toolchain.rs).
+fn build(places: &Places, top: &Path, line: &BuiltTool, work: &Path, staged: &Path) -> Result<()> {
     std::fs::create_dir_all(work).context(|| format!("creating {}", work.display()))?;
     let program = top.join(&line.program);
-    let status = Command::new(&program)
+    let toolchain = crate::rust_toolchain::in_checkout(top, top)?;
+    let preparing = crate::rust_toolchain::preparing(places, toolchain.as_ref())?;
+    let mut command = Command::new(&program);
+    preparing.pass_to(&mut command);
+    let status = command
         .arg("build")
         .arg(staged)
         .env(WORK_VARIABLE, work)
@@ -506,8 +515,9 @@ pub fn send_to_hosts(places: &Places, ssh: &Ssh, top: &Path) -> Result<()> {
 
 /// Before a job from <top> runs on <host>: copies there each key of the
 /// checkout's tools that this Mac has and the host lacks, when the host is
-/// of this Mac's platform, and checks it there. A failure is said on stderr and leaves the host to build the key
-/// when its setup runs.
+/// of this Mac's platform, and checks it there, once the host has the
+/// toolchain the checkout pins, which the check runs. A failure is said on
+/// stderr and leaves the host to build the key when its setup runs.
 pub fn send_to(places: &Places, ssh: &Ssh, host: &Host, top: &Path) {
     let tools = match built_tools(top) {
         Ok(tools) => tools,
@@ -522,15 +532,24 @@ pub fn send_to(places: &Places, ssh: &Ssh, host: &Host, top: &Path) {
     };
     let transport = Transport { places, ssh, host };
     for line in tools {
-        let sent = key(top, &line).and_then(|key| {
-            let here = key_dir(places, &line.name, &key);
-            let remote = key_dir_on(&line.name, &key);
-            if !here.is_dir() || host_has(&transport, host, &remote)? != Some(false) {
-                return Ok(false);
-            }
-            send_key(&transport, host, &line.name, &remote, &here)?;
-            Ok(true)
-        });
+        // The key runs the checkout's toolchain on this Mac.
+        let sent = crate::rust_toolchain::ensure_in(places, ssh.system(), top, top)
+            .and_then(|()| key(top, &line))
+            .and_then(|key| {
+                let here = key_dir(places, &line.name, &key);
+                let remote = key_dir_on(&line.name, &key);
+                if !here.is_dir() || host_has(&transport, host, &remote)? != Some(false) {
+                    return Ok(false);
+                }
+                if let Some(toolchain) = crate::rust_toolchain::in_checkout(top, top)?
+                    && let OnHost::Unreachable(said) =
+                        crate::rust_toolchain::ensure_on(&transport, &toolchain)?
+                {
+                    fail!("{said}");
+                }
+                send_key(&transport, host, &line.name, &remote, &here)?;
+                Ok(true)
+            });
         match sent {
             Ok(true) => note(format!("copied tool {} to host {}", line.name, host.name)),
             Ok(false) => {}

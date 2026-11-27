@@ -10,8 +10,9 @@
 //!   repos' `.build-dirs` name in `linux-package` lines, through sudo;
 //! - lingering services for the user (`loginctl enable-linger`), through
 //!   sudo, so systemd runs the sccache server while no one is logged in;
-//! - rustup with the stable toolchain, whose `rust-toolchain.toml` pins each
-//!   repo's own toolchain, which rustup installs on the first build;
+//! - rustup with the stable toolchain (builds installs the toolchain each
+//!   repo's `rust-toolchain.toml` pins before a job needs it,
+//!   rust_toolchain.rs);
 //! - sccache at the version builds pins (`SCCACHE_VERSION`), from its release;
 //! - a clone of each repo that has a build root on this Mac, made empty when
 //!   the host has none: each job sends its commit there.

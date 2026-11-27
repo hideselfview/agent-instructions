@@ -707,6 +707,42 @@ fn a_failing_builds_setup_fails_the_job_and_releases_the_claim() {
 }
 
 #[test]
+fn a_host_installs_the_commits_toolchain_before_its_setup_and_a_failed_install_fails_the_job() {
+    let s = setup("remote-toolchain");
+    std::fs::write(s.source.join("rust-toolchain"), "1.100.1\n").unwrap();
+    git(&s.source, &["add", "-A"]);
+    git(&s.source, &["commit", "-qm", "pin"]);
+    let places = s.scratch.places();
+    let job = request(What::Ref("main".to_string()), &["true"]);
+    assert_eq!(
+        run_job(&places, &s.ssh, &s.host, &s.source, &job).unwrap(),
+        0
+    );
+    let runs = std::fs::read_to_string(s.home.join("builds-runs.txt")).unwrap();
+    assert!(
+        runs.starts_with("builds toolchain 1.100.1\nbuilds setup "),
+        "{runs}"
+    );
+
+    host_builds(
+        &s.home,
+        "echo \"builds $*\" >> \"$HOME/failed-runs.txt\"; echo \"error: detected conflict: 'bin/cargo'\" >&2; exit 1",
+    );
+    // An error, and not `Start::Refused`, which would run the job elsewhere.
+    let Err(Fail::Message(message)) = start_job(&places, &s.ssh, &s.host, &s.source, &job) else {
+        panic!("expected a failed job");
+    };
+    assert!(message.contains("detected conflict"), "{message}");
+    assert_eq!(
+        std::fs::read_to_string(s.home.join("failed-runs.txt")).unwrap(),
+        "builds toolchain 1.100.1\n",
+        "nothing ran after the failed install"
+    );
+    assert!(!s.home.join("dev/demo-worktrees/remote-demo.job").exists());
+    assert_eq!(refs(&s.home.join("dev/demo")), "");
+}
+
+#[test]
 fn a_host_with_a_build_volume_uses_it_as_its_root() {
     let s = setup("remote-volume-root");
     std::fs::create_dir_all(s.home.join("volume")).unwrap();

@@ -203,6 +203,9 @@ pub fn plan(
     every: bool,
     base: Option<&str>,
 ) -> Result<Vec<Planned>> {
+    // Planning asks cargo for the workspace's crates, and the lines the plan
+    // picks run cargo and rustc.
+    ensure_toolchain(top)?;
     let mut metadata: Option<Vec<Crate>> = None;
     let mut lock: Option<Vec<String>> = None;
     let mut planned = Vec::new();
@@ -263,6 +266,19 @@ struct Crate {
     name: String,
     /// The crate's folder relative to the repo, empty for the repo itself.
     dir: String,
+}
+
+/// Installs the toolchain the checkout at <top> pins when this machine lacks
+/// it: the checks run cargo and rustc, and rustup installs nothing for them.
+fn ensure_toolchain(top: &Path) -> Result<()> {
+    match crate::rust_toolchain::in_checkout(top, top)? {
+        Some(toolchain) => crate::rust_toolchain::ensure(
+            &crate::places::Places::from_env()?,
+            &crate::system::System::from_env()?,
+            &toolchain,
+        ),
+        None => Ok(()),
+    }
 }
 
 fn workspace_crates(top: &Path) -> Result<Vec<Crate>> {

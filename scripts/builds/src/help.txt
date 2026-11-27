@@ -403,14 +403,17 @@ repo, and a `macos` line for the repo's packages that only a Mac builds:
                             again each time, so it notices a moved toolchain
                             pin, never runs `builds cargo`, which would run it
                             again, and never asks for a password, since nobody
-                            is at a host's screen. When it fails, setup and
+                            is at a host's screen. While it runs, builds holds
+                            a lock on the pinned toolchain, so no other
+                            program or install changes the toolchain meanwhile
+                            (RUST TOOLCHAINS). When it fails, setup and
                             `builds cargo` fail, naming it. A `builds cargo`
                             that a pre-commit hook check runs (COMMIT CHECKS)
-                            runs no prepare program, since a hook installs and
-                            fetches nothing: when a piece is missing, the
-                            check's build fails and the check names `builds
-                            setup` (coven: tools/typed-lints/cargo.sh names
-                            the missing path)
+                            runs no prepare program, since beyond the pinned
+                            toolchain a hook installs and fetches nothing:
+                            when a piece is missing, the check's build fails
+                            and the check names `builds setup` (coven:
+                            tools/typed-lints/cargo.sh names the missing path)
   tool <name> <program> <link>
                             a tool the repo builds from its own sources for
                             its toolchain, which builds keeps once per key on
@@ -493,7 +496,9 @@ started into target.
                               to the checkout, DerivedData and the shared
                               caches, delete idle build output in the
                               temporary folders, keep the free-space floor,
-                              and then run the checkout's `prepare` programs,
+                              and then install the Rust toolchain the checkout
+                              pins when the machine lacks it (RUST
+                              TOOLCHAINS), run the checkout's `prepare` programs,
                               install elan and the toolchain each of its Lean
                               packages pins (LEAN), put the build of each of
                               its tools in place and copy those builds to
@@ -501,9 +506,10 @@ started into target.
                               runs it when `builds new` hands out a worktree,
                               on a host before each job, and from each repo
                               script that calls it. --no-prepare leaves out
-                              the prepare programs, the Lean toolchains and
-                              the tools: a host's setup for a job that a
-                              pre-commit hook check started takes it
+                              the Rust toolchain, the prepare programs, the
+                              Lean toolchains and the tools: a host's setup
+                              for a job that a pre-commit hook check started
+                              takes it
 
 
 LEAN
@@ -595,16 +601,17 @@ has to each host of this Mac's platform that lacks it, and so does a `builds
 cargo` job before it runs on such a host, and each copy runs its check on the
 host; when that fails, builds says so and the host builds the key in the job's
 setup. A host of another platform, such as a Linux host, builds each key in
-the job's setup itself. A pre-commit hook
-check installs, fetches, copies and builds nothing, so the first `builds
-cargo` after a change to a tool's sources puts the new key's build in
-place on the Mac that runs cargo, before cargo, and the hook's checks find it
-(a run inside a tool's own build, BUILDS_TOOL_WORK set, builds no tool, since
-that build holds the key's lock): a `builds cargo` the hook runs
+the job's setup itself. Beyond the pinned toolchain (RUST TOOLCHAINS), a
+pre-commit hook check installs, fetches, copies and builds nothing, so the
+first `builds cargo` after a change to a tool's sources puts the new key's
+build in place on the Mac that runs cargo, before cargo, and the hook's checks
+find it (a run inside a tool's own build, BUILDS_TOOL_WORK set, builds no
+tool, since that build holds the key's lock): a `builds cargo` the hook runs
 sends no key to the host, the host's setup for its job prepares nothing, and
-`builds tool` only points the link at a build the Mac already has. `builds setup` and `builds prune` delete each key's folder,
-and each toolchain's folder with its work folder, that no live checkout's key
-names. They delete nothing of a tool whose key a checkout fails to print, and
+`builds tool` only points the link at a build the Mac already has. `builds
+setup` and `builds prune` delete each key's folder, and each toolchain's
+folder with its work folder, that no live checkout's key names. They delete
+nothing of a tool whose key a checkout fails to print, and
 nothing of any tool while a checkout's `.build-dirs` cannot be read.
 
 A repo's script may run a tool as cargo's workspace wrapper through the tool's
@@ -632,6 +639,57 @@ the command, naming `builds tool`.
                               link at the build this machine has for the key,
                               and when it has none it fails at once, naming
                               `builds setup`
+
+
+RUST TOOLCHAINS
+
+A checkout pins its Rust toolchain in rust-toolchain or rust-toolchain.toml
+(the nearest one from the folder a command runs in up to the checkout's top,
+as rustup picks it). Before cargo runs on a host, builds makes sure the host
+has that toolchain: its channel, each component and target the file names,
+rustc, cargo, and the program of each component that has one (rustfmt,
+clippy). rustup can list a component whose program is missing, so builds asks
+for each program too. When the host lacks any of them, builds installs them
+with `rustup toolchain install`.
+
+builds sets RUSTUP_AUTO_INSTALL=0 for itself, for everything it starts and for
+each script it runs on a host, so rustup never installs a toolchain during a
+job. rustup takes no lock of its own, and two installs of one toolchain at the
+same time can leave it without a program. One install of a channel runs on a
+host at a time, and every other job that needs the channel waits for it. When
+that install fails, the job that ran it and each job that waited for the same
+toolchain fail with rustup's error. A job that starts later installs again.
+When an install succeeds and the toolchain still lacks something, which
+happens when rustup lists a component whose program is missing, the job fails
+and names the command that repairs it, `rustup toolchain uninstall`.
+
+builds checks and installs:
+
+  - on the machine that runs cargo, before each `builds cargo`, reads and
+    updates included, before the checkout's `prepare` programs
+  - on a host, before a job's commit goes there: `builds cargo`, `builds lake`
+    and `builds remote run`. A failed install fails the job: builds does not
+    mark the host as refusing jobs, and runs the job on no other host
+  - before `builds setup` runs the `prepare` programs, and before `builds
+    tool` or setup puts a tool in place
+  - before builds copies a tool to a host, whose check runs the toolchain
+  - before `builds checks` picks and runs a repo's checks
+  - in an app checkout, on this Mac or a host, once builds switches it to the
+    commit it builds
+
+A run that a pre-commit hook check started installs the toolchain too, though
+it installs and fetches nothing else, since its cargo can't run without it.
+
+A repo's `prepare` programs and tool builds add components of their own
+(coven's add rustc-dev). So builds holds a second lock of the channel while
+each runs, and while it installs, and no two of them change one toolchain at
+the same time. Checking a complete toolchain never waits for that lock.
+
+  {toolchain}
+                              make sure this machine has the toolchain
+                              <channel> with the components and targets named,
+                              installing what it lacks; builds runs it on a
+                              host before a job there
 
 
 WORKTREES AND CLAIMS
@@ -856,6 +914,8 @@ CARGO
 
 Run every cargo command through `builds cargo`; in bae and coven,
 scripts/cargo.sh runs it, and the hooks and build scripts use that script.
+Before cargo runs on a host, builds installs there the toolchain the checkout
+pins when the host lacks it (RUST TOOLCHAINS).
 builds reads cargo's report of each build to record the build copies it used
 (DISK, below). cargo typed by hand records nothing, so builds deletes what only
 it uses three days after cargo last built it.
@@ -1053,7 +1113,9 @@ restart the server.
                               checkout's guard while cargo runs, and as it
                               exits starts `builds units after-build`, which
                               deletes the copies the build replaced.
-                              On the Mac that runs cargo it first runs the
+                              On the Mac that runs cargo it first installs
+                              the toolchain the checkout pins when the Mac
+                              lacks it (RUST TOOLCHAINS), then runs the
                               checkout's `prepare` programs (BUILD FOLDERS)
                               and puts each of its tools in place for the
                               checkout's key (BUILT TOOLS), unless a
@@ -2791,9 +2853,9 @@ volume's device>` (`df /Volumes/Builds` names it).
                               terminal to type the password; with nobody at the
                               terminal it fails and names the commands to run
                               on the host. Then setup installs rustup with the
-                              stable toolchain (each repo's
-                              rust-toolchain.toml names the toolchain rustup
-                              installs for its builds) and sccache 0.13.0
+                              stable toolchain (before a job, builds installs
+                              the toolchain the job's commit pins, RUST
+                              TOOLCHAINS) and sccache 0.13.0
                               into ~/.cargo/bin, makes an empty clone of each
                               repo that has none (each job sends its commit
                               there), and sends the sources this Mac's builds

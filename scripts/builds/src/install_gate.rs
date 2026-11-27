@@ -832,6 +832,7 @@ impl crate::command::Command {
             | Install
             | Programs
             | SccacheTmpdir
+            | Toolchain
             | Agent(agent::Start)
             | Dashboard(dashboard::Serve | dashboard::Stage)
             | Shots(shots::Checker)

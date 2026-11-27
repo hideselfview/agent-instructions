@@ -83,6 +83,7 @@ impl Scratch {
             uid: unsafe { libc::getuid() },
             lists: self.dir.join("lists"),
             fonts: None,
+            preparing: None,
         }
     }
 

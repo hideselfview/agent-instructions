@@ -65,10 +65,13 @@ pub enum Program {
     Pgrep,
     /// What `builds host setup` turns on as root.
     Sudo,
+    /// Installs and reads this machine's Rust toolchains
+    /// (rust_toolchain.rs).
+    Rustup,
 }
 
 impl Program {
-    pub const ALL: [Program; 17] = [
+    pub const ALL: [Program; 18] = [
         Program::Ssh,
         Program::Claude,
         Program::Codex,
@@ -86,6 +89,7 @@ impl Program {
         Program::Lsof,
         Program::Pgrep,
         Program::Sudo,
+        Program::Rustup,
     ];
 
     /// The name the OS gives it, which a stand-in folder's file has too.
@@ -108,6 +112,7 @@ impl Program {
             Program::Lsof => "lsof",
             Program::Pgrep => "pgrep",
             Program::Sudo => "sudo",
+            Program::Rustup => "rustup",
         }
     }
 }

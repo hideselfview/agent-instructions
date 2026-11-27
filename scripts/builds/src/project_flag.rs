@@ -162,6 +162,7 @@ impl Args {
             | Takeover
             | AppClone
             | SccacheTmpdir
+            | Toolchain
             | Prune
             | Du
             | Status

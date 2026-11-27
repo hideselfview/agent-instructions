@@ -284,6 +284,7 @@ impl crate::command::Command {
             | Takeover
             | AppClone
             | SccacheTmpdir
+            | Toolchain
             | Prune
             | Du
             | Status

@@ -102,6 +102,9 @@ pub struct Places {
     /// them draw mono text in: the Mac's Terminal.app ships them
     /// (`boards::fonts`).
     pub fonts: Option<PathBuf>,
+    /// The toolchain channel whose prepare lock the `builds` that started
+    /// this process holds (rust_toolchain.rs `PREPARING_VARIABLE`).
+    pub preparing: Option<String>,
 }
 
 impl Places {
@@ -153,6 +156,7 @@ impl Places {
             uid: unsafe { libc::getuid() },
             lists,
             fonts: cfg!(target_os = "macos").then(|| PathBuf::from(boards::fonts::TERMINAL_FONTS)),
+            preparing: std::env::var(crate::rust_toolchain::PREPARING_VARIABLE).ok(),
         })
     }
 

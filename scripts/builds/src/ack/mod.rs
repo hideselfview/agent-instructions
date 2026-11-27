@@ -644,6 +644,7 @@ impl Args {
             | Takeover
             | AppClone
             | SccacheTmpdir
+            | Toolchain
             | Prune
             | Du
             | Health

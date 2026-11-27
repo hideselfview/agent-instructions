@@ -36,6 +36,7 @@ use crate::job_claim::Holders;
 use crate::output::note;
 use crate::places::Places;
 use crate::process::{STOP_GRACE, stop_group};
+use crate::rust_toolchain::OnHost;
 use crate::setup::Prepare;
 use crate::tool::Tool;
 use boards::{git, git_text};
@@ -659,7 +660,8 @@ impl Transport<'_> {
 /// a build volume uses it as its root, as this Mac does; a Mac without one
 /// keeps the root in its home, in a folder Spotlight skips; a Linux host
 /// keeps it in its home (`LINUX_ROOT`), where the person can mount a disk of
-/// its own. `BUILDS_VOLUME` stands in for `/Volumes/Builds` so tests can name
+/// its own. They also keep rustup from installing a toolchain, which builds
+/// does itself (rust_toolchain.rs). `BUILDS_VOLUME` stands in for `/Volumes/Builds` so tests can name
 /// a volume that is there or is not. On this Mac builds already runs with its
 /// root and PATH.
 pub fn root_script(host: &Host) -> String {
@@ -670,9 +672,11 @@ Darwin) if [ -d "${{BUILDS_VOLUME:-{VOLUME}}}" ]; then BUILDS_ROOT="${{BUILDS_VO
 *) BUILDS_ROOT="$HOME/{LINUX_ROOT}" ;;
 esac
 export BUILDS_ROOT
+export {auto_install}=0
 PATH="$HOME/.cargo/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 export PATH
-"#
+"#,
+            auto_install = crate::rust_toolchain::AUTO_INSTALL_VARIABLE,
         ),
         None => String::new(),
     }
@@ -1061,10 +1065,13 @@ pub enum Start<'a> {
     Refused(String),
 }
 
-/// Sends the commit to <host> and claims a worktree there. A failure on this
-/// Mac (making the commit, starting git or ssh) is an error; a failure of the
-/// host is `Start::Refused`, except on this Mac, which never refuses its own
-/// jobs. Whatever the job left on the host when it did not start is removed.
+/// Installs on <host> the toolchain the commit pins when it lacks it
+/// (`rust_toolchain::ensure_on`), copies there this Mac's builds of the
+/// checkout's tools for a job that prepares its worktree, sends the commit
+/// and claims a worktree there. A failure on this Mac (making the commit,
+/// starting git or ssh) is an error, and so is a failed install on the host;
+/// any other failure of the host is `Start::Refused`, except on this Mac,
+/// which never refuses its own jobs. Whatever the job left on the host when it did not start is removed.
 pub fn start_job<'a>(
     places: &'a Places,
     ssh: &'a Ssh,
@@ -1083,6 +1090,18 @@ pub fn start_job<'a>(
     let transport = Transport { places, ssh, host };
     // The outer error is this Mac's; the inner one is the host's.
     let started = (|| -> Result<std::result::Result<String, String>> {
+        if let Some(toolchain) = crate::rust_toolchain::at_commit(source, &sha)?
+            && let OnHost::Unreachable(said) =
+                crate::rust_toolchain::ensure_on(&transport, &toolchain)?
+        {
+            return Ok(Err(said));
+        }
+        // A hook check copies no tool: `builds setup` copies this Mac's
+        // builds to every host. Only the checkout's own files have this
+        // Mac's key.
+        if request.prepare == Prepare::Yes && request.what == What::Working {
+            crate::built_tools::send_to(places, ssh, host, source);
+        }
         if let Err(said) = transport.push(source, &request.repo, &sha, &id)? {
             return Ok(Err(said));
         }

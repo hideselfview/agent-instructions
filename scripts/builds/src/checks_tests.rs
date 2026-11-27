@@ -230,7 +230,13 @@ fn the_root_toolchain_file_or_cargo_config_counts_as_every_crate() {
         ".cargo/config.toml",
         ".cargo/config",
     ] {
-        std::fs::write(top.join(config), "").unwrap();
+        // A toolchain file that names no channel, and a config that sets
+        // nothing.
+        let text = match config.starts_with("rust-toolchain") {
+            true => "[toolchain]\n",
+            false => "",
+        };
+        std::fs::write(top.join(config), text).unwrap();
         assert_eq!(crates_argv(&top, &[config]), every, "{config}");
     }
 }

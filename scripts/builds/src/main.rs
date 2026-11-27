@@ -173,6 +173,7 @@ mod rules_on_edit;
 mod run_end;
 mod run_tmp;
 mod rust_stable;
+mod rust_toolchain;
 mod rustc_wrapper;
 mod sccache;
 mod sccache_history;
@@ -242,6 +243,12 @@ fn run_program() -> ExitCode {
     let mut argv = std::env::args_os();
     let program = argv.next().unwrap_or_default();
     let args: Vec<std::ffi::OsString> = argv.collect();
+    // builds installs each Rust toolchain itself, under a lock, so rustup
+    // installs none for this command or for anything it starts
+    // (rust_toolchain.rs).
+    // SAFETY: no other thread runs yet, so none reads the environment while
+    // set_var writes it.
+    unsafe { std::env::set_var(rust_toolchain::AUTO_INSTALL_VARIABLE, "0") };
     let system = system::System::from_env();
     #[cfg(target_os = "macos")]
     if args.len() == 1 && args[0] == app_lock_guard::COMMAND {
@@ -637,5 +644,6 @@ fn run(
         Remote(remote::Run) => crate::remote::cmd_run(&tool(session)?, &ssh(), args),
         Remote(remote::Step) => crate::remote::cmd_step(&tool(session)?, &ssh(), args),
         Command::Tool => built_tools::cmd_tool(&tool(session)?.places, &ssh(), args),
+        Toolchain => rust_toolchain::cmd_toolchain(&Places::from_env()?, system, args),
     }
 }

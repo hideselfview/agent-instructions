@@ -1,5 +1,6 @@
 //! `builds setup`: links a checkout's build paths into its build root,
-//! bounds what builds left behind and keeps the free-space floor, then runs
+//! bounds what builds left behind and keeps the free-space floor, then
+//! installs the Rust toolchain the checkout pins (rust_toolchain.rs), runs
 //! the checkout's `prepare` programs, installs the Lean toolchains its Lean
 //! packages pin (lean.rs) and puts the builds of its tools in place
 //! (built_tools.rs).
@@ -21,6 +22,7 @@ use crate::fail::{Context, Result};
 use crate::host::Ssh;
 use crate::manifest::{MANIFEST, build_dirs, has_manifest};
 use crate::output::note;
+use crate::places::Places;
 use crate::prune::{
     Pruner, Run, prune_derived_data, prune_root, prune_shared, prune_tools_and_floor,
 };
@@ -207,7 +209,8 @@ pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare)
         return Ok(());
     }
     // Last, so what they install or build lands after the floor is kept.
-    self::prepare(&checkout.top)?;
+    crate::rust_toolchain::ensure_in(&tool.places, ssh.system(), &checkout.top, &checkout.top)?;
+    self::prepare(&tool.places, &checkout.top)?;
     crate::lean::ensure(&tool.places, &checkout.top)?;
     crate::built_tools::ensure_all(&tool.places, ssh, &checkout.top)?;
     crate::built_tools::send_to_hosts(&tool.places, ssh, &checkout.top)
@@ -216,13 +219,21 @@ pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare)
 /// Runs each program the `prepare` lines of <top>'s manifest name, in its
 /// top folder, its output on stderr: each puts in place what the checkout's
 /// builds need beyond their folders and finishes at once when that is in
-/// place. Setup runs them, and so does `builds cargo` on the Mac that runs
+/// place. Each runs holding the pinned toolchain's prepare lock, since a
+/// program may add components to it (rust_toolchain.rs). Setup runs them,
+/// and so does `builds cargo` on the Mac that runs
 /// cargo, unless a pre-commit hook check started it: the hook's checks only
 /// check that the pieces are there.
 /// A program never runs `builds cargo`, which would run it again. The first
 /// that fails stops the rest and fails, naming it.
-pub fn prepare(top: &Path) -> Result<()> {
-    for program in crate::manifest::prepare_programs(top)? {
+pub fn prepare(places: &Places, top: &Path) -> Result<()> {
+    let programs = crate::manifest::prepare_programs(top)?;
+    if programs.is_empty() {
+        return Ok(());
+    }
+    let toolchain = crate::rust_toolchain::in_checkout(top, top)?;
+    let preparing = crate::rust_toolchain::preparing(places, toolchain.as_ref())?;
+    for program in programs {
         let path = top.join(&program);
         let mut command = std::process::Command::new(&path);
         // A `builds cargo` that a hook check runs has git's variables for the
@@ -230,6 +241,7 @@ pub fn prepare(top: &Path) -> Result<()> {
         for name in crate::checkout::git_local_env_vars()? {
             command.env_remove(name);
         }
+        preparing.pass_to(&mut command);
         let status = command
             .current_dir(top)
             .stdin(std::process::Stdio::null())
