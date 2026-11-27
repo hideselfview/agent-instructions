@@ -15,6 +15,9 @@ mod common;
 mod programs;
 mod stand_in;
 
+mod test_dir;
+use test_dir::test_dir;
+
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 
 /// The hang step's limit counts from before the host's builds starts, so it
@@ -56,8 +59,7 @@ fn script(path: &Path, text: &str) {
 impl World {
     fn new(name: &str) -> World {
         // Short: the dashboard's socket path may not pass 104 bytes.
-        let dir = PathBuf::from(format!("/private/tmp/br-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = test_dir(&format!("br-{name}"));
         let source = dir.join("src/demo");
         let origin = dir.join("origin.git");
         let remote_home = dir.join("remote-home");

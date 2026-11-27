@@ -70,8 +70,7 @@ fn the_changed_roots_are_measured_once_the_command_ends_and_a_removed_one_loses_
 #[test]
 fn the_daemon_hears_once_of_a_removed_root_after_its_marker_is_gone() {
     // A socket's path must fit in SUN_LEN, which the scratch folder's does not.
-    let short = PathBuf::from(format!("/tmp/bt-roots-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&short);
+    let short = crate::testing::short_dir("bt-roots");
     std::fs::create_dir_all(&short).unwrap();
     let scratch = Scratch::new("roots-tell-daemon");
     let mut tool = scratch.tool(0);

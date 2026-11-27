@@ -6,11 +6,12 @@
 use std::path::PathBuf;
 
 mod common;
+mod test_dir;
+use test_dir::test_dir;
 
 #[test]
 fn a_child_of_builds_cargo_sees_a_tmpdir_on_the_build_volume_that_the_end_of_the_run_deletes() {
-    let dir = PathBuf::from(format!("/tmp/rt-cargo-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = test_dir("rt-cargo");
     let (volume, bin, work) = (dir.join("volume"), dir.join("bin"), dir.join("work"));
     for folder in [
         &volume,
@@ -28,7 +29,9 @@ fn a_child_of_builds_cargo_sees_a_tmpdir_on_the_build_volume_that_the_end_of_the
 echo "$TMPDIR" > "$RECORD"
 echo x > "$TMPDIR/tmpdir-file"
 echo "$SCCACHE_START_SERVER" > "$RECORD.sccache-mode"
-sccache /usr/bin/true > "$RECORD.sccache" 2>&1
+# sccache makes a socket in TMPDIR, and the run's folder here, inside the test
+# run's own, leaves its path no room: the test's folder stands in for it.
+TMPDIR="$(dirname "$RECORD")" sccache /usr/bin/true > "$RECORD.sccache" 2>&1
 test "$?" -ne 0
 "#,
     )

@@ -17,6 +17,9 @@ use fake_launchctl::FakeLaunchctl;
 mod spawned;
 use spawned::{Spawned, wait_for_free_lanes};
 
+mod test_dir;
+use test_dir::test_dir;
+
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 const PATIENCE: Duration = Duration::from_secs(30);
 
@@ -52,8 +55,7 @@ fn git(top: &Path, args: &[&str], date: Option<&str>) -> String {
 
 impl Demo {
     fn new(name: &str) -> Demo {
-        let dir = PathBuf::from(format!("/private/tmp/bl-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = test_dir(&format!("bl-{name}"));
         let main = dir.join("demo");
         let app = dir.join("demo-worktrees/mac-1");
         let side = dir.join("demo-worktrees/side-2");

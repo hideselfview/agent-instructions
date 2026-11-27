@@ -4,16 +4,17 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
 mod common;
 mod pruned;
+mod test_dir;
+use test_dir::test_dir;
 
 #[test]
 fn the_dashboard_reports_readiness_to_installs_startup_connection() {
-    let dir = PathBuf::from(format!("/private/tmp/builds-ready-{}", std::process::id()));
+    let dir = test_dir("ready");
     let volume = dir.join("volume");
     pruned::pruned_now(&volume);
     let log = dir.join("startup.log");

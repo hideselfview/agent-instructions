@@ -312,8 +312,7 @@ struct ShortVolume(PathBuf);
 
 impl ShortVolume {
     fn new(name: &str) -> (ShortVolume, Tool) {
-        let root = PathBuf::from(format!("/tmp/bt-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = crate::testing::short_dir(&format!("bt-{name}"));
         std::fs::create_dir_all(&root).unwrap();
         let mut tool = Scratch::new(name).tool(0);
         tool.places.root = root.clone();

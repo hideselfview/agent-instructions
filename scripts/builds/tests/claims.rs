@@ -18,6 +18,8 @@ mod pruned;
 use pruned::pruned_now;
 mod stand_in;
 use stand_in::stand_in;
+mod test_dir;
+use test_dir::test_dir;
 
 const PATIENCE: Duration = Duration::from_secs(30);
 
@@ -81,8 +83,7 @@ struct Demo {
 
 impl Demo {
     fn new(name: &str) -> Demo {
-        let dir = PathBuf::from(format!("/private/tmp/bc-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = test_dir(&format!("bc-{name}"));
         std::fs::create_dir_all(dir.join("temp")).unwrap();
         let output = Command::new("bash")
             .args(["-c", SETUP, "bash"])

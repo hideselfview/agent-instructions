@@ -5,18 +5,18 @@
 
 use std::os::fd::FromRawFd;
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 mod common;
+mod test_dir;
+use test_dir::test_dir;
 
 const PATIENCE: Duration = Duration::from_secs(20);
 
 #[test]
 fn a_build_that_sets_terminal_modes_finishes_when_builds_runs_on_a_terminal() {
-    let dir = PathBuf::from(format!("/private/tmp/bt-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = test_dir("bt");
     std::fs::create_dir_all(dir.join("volume/demo")).unwrap();
     std::fs::write(dir.join("volume/demo/app-mac-checkouts"), "mac-1\n").unwrap();
 

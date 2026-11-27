@@ -7,6 +7,22 @@ use std::process::Command;
 use crate::places::{Places, Rules};
 use crate::tool::Tool;
 
+/// The path of a folder named <name> for this test's process, in the run's
+/// temporary folder, with nothing there yet. A unix socket's path has room
+/// for about 100 bytes, which a scratch folder's path leaves too few of, so a
+/// test that makes a socket keeps its volume here, with a short <name>.
+pub fn short_dir(name: &str) -> PathBuf {
+    let dir = std::fs::canonicalize(std::env::temp_dir())
+        .expect("the temp dir resolves")
+        .join(format!("{name}-{}", std::process::id()));
+    match std::fs::remove_dir_all(&dir) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            panic!("removing {}: {error}", dir.display())
+        }
+        _ => dir,
+    }
+}
+
 pub struct Scratch {
     pub dir: PathBuf,
 }

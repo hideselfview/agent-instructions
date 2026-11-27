@@ -17,7 +17,7 @@ layout="${LAYOUT:?run through cargo test --test cargo_units}"
 export UNITS_CMD="$builds units"
 # The steps setup and prune run on cargo's folders, on the folders named.
 units() { $UNITS_CMD "$@"; }
-scratch="$(mktemp -d)"
+scratch="$(mktemp -d "${TMPDIR:?}/units.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 ws="$scratch/ws"
 profile="$ws/target/debug"

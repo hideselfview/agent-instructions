@@ -1,10 +1,11 @@
 //! Integration checks for the sccache server probe.
 
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 mod common;
+mod test_dir;
+use test_dir::test_dir;
 
 #[test]
 fn the_tmpdir_probe_preserves_spaces_equals_and_newlines_in_a_process_path() {
@@ -15,7 +16,7 @@ fn the_tmpdir_probe_preserves_spaces_equals_and_newlines_in_a_process_path() {
         return;
     }
 
-    let root = PathBuf::from(format!("/tmp/rt-probe-{}", std::process::id()));
+    let root = test_dir("rt-probe");
     let missing = root.join("cache FLAG=value\nrest");
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([

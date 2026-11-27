@@ -6,12 +6,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The variables a test's builds keeps from the test's own environment: the
-/// programs on PATH, the temporary folder, and the Rust toolchain that
+/// programs on PATH, the temporary folder, which Chrome reads from its own
+/// variable (tests/no-machine-temp.sh), and the Rust toolchain that
 /// `builds cargo` runs. Every other variable, such as a caller's session or
 /// agent, or a CARGO_* setting of the test run, never reaches it.
-const KEPT: [&str; 5] = [
+const KEPT: [&str; 6] = [
     "PATH",
     "TMPDIR",
+    "MAC_CHROMIUM_TMPDIR",
     "RUSTUP_HOME",
     "RUSTUP_TOOLCHAIN",
     "CARGO_HOME",

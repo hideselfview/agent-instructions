@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 mod common;
 mod pruned;
 use pruned::pruned_now;
+mod test_dir;
+use test_dir::test_dir;
 mod programs;
 use programs::programs_folder;
 mod spawned;
@@ -93,8 +95,7 @@ impl Volume {
     fn new(name: &str) -> Volume {
         // Short: the dashboard's socket path may not pass 104 bytes, which the
         // user's temp folder alone nearly does.
-        let dir = PathBuf::from(format!("/private/tmp/bq-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = test_dir(&format!("bq-{name}"));
         std::fs::create_dir_all(dir.join("volume/demo")).unwrap();
         std::fs::write(dir.join("volume/demo/app-mac-checkouts"), "mac-1\n").unwrap();
         let pinned_builds = programs_folder(&dir.join("home"));

@@ -1,0 +1,13 @@
+# On a Mac every test runs in a sandbox that refuses a write under
+# /private/tmp or the user's temporary folder, to the test and to each program
+# it starts: a real `builds prune` deletes old build output there, a test's
+# among it. A test makes its folders in the run's temporary folder.
+experimental = ["wrapper-scripts"]
+
+[scripts.wrapper.no-machine-temp]
+command = { command-line = "tests/no-machine-temp.sh", relative-to = "workspace-root" }
+
+[[profile.default.scripts]]
+platform = { host = "cfg(target_os = \"macos\")" }
+filter = "all()"
+run-wrapper = "no-machine-temp"
