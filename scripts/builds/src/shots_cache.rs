@@ -169,6 +169,19 @@ struct Ending {
     kind: RunKind,
 }
 
+impl Ending {
+    /// How a comparison ended that exited <exit_code> at <recorded_at>.
+    fn comparison(exit_code: i64, recorded_at: i64) -> Result<Ending> {
+        let exit_code = u8::try_from(exit_code)
+            .context(|| "recording the shots comparison's exit status".to_string())?;
+        Ok(Ending {
+            recorded_at,
+            exit_code,
+            kind: RunKind::Comparison,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum RunKind {
@@ -502,16 +515,7 @@ impl Staging {
         findings: &str,
         recorded_at: i64,
     ) -> Result<Cached> {
-        let exit_code = u8::try_from(exit_code)
-            .context(|| "recording the shots comparison's exit status".to_string())?;
-        self.finish_run(
-            Ending {
-                recorded_at,
-                exit_code,
-                kind: RunKind::Comparison,
-            },
-            findings,
-        )
+        self.finish_run(Ending::comparison(exit_code, recorded_at)?, findings)
     }
 
     pub fn finish_recheck(self, source: &Cached, passed: bool, findings: &str) -> Result<Cached> {
@@ -538,13 +542,7 @@ impl Staging {
     /// from: it is cached under no key, and ends with the folder
     /// (`discard`).
     pub fn unplaced(&self, exit_code: i64, findings: &str) -> Result<Cached> {
-        let exit_code = u8::try_from(exit_code)
-            .context(|| "recording the shots comparison's exit status".to_string())?;
-        let ending = Ending {
-            recorded_at: now(),
-            exit_code,
-            kind: RunKind::Comparison,
-        };
+        let ending = Ending::comparison(exit_code, now())?;
         self.write(ending, findings, self.inner.dir().to_path_buf())
     }
 

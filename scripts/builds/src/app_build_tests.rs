@@ -1455,7 +1455,7 @@ fn a_store(places: &Places) -> ShotsCache {
         app_tree: "0123456789abcdef".to_string(),
         no_capture: false,
         retake: false,
-        base_run: false,
+        base: None,
         bases: [
             "mac.",
             "mac.a.",
@@ -1467,7 +1467,6 @@ fn a_store(places: &Places) -> ShotsCache {
         ]
         .map(|prefix| (prefix.to_string(), BaseRun::Saved))
         .to_vec(),
-        held: BaseHeld::default(),
     }
 }
 
@@ -1481,7 +1480,10 @@ fn only_the_run_of_a_merge_base_passes_base_to_the_shots_program() {
             .command(&step, None, "pictures")
             .contains(&"--base".to_string())
     );
-    store.base_run = true;
+    store.base = Some(BaseHeld {
+        saved: Vec::new(),
+        declared: Vec::new(),
+    });
     assert!(
         store
             .command(&step, None, "pictures")
@@ -1969,8 +1971,7 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
             &a_screens(),
             false,
             false,
-            false,
-            &[],
+            Building::Commit { built: &[] },
             Path::new("/nonexistent/builds"),
         )
     };
@@ -2023,8 +2024,7 @@ fn a_prefix_that_starts_no_shot_declared_at_the_merge_base_compares_with_no_run(
         &new,
         false,
         false,
-        false,
-        &[],
+        Building::Commit { built: &[] },
         Path::new("/nonexistent/builds"),
     )
     .unwrap();
@@ -2101,8 +2101,7 @@ fn plans_over_a_base_without_the_lanes_shots(base_config: Option<&str>) {
         &a_screens(),
         false,
         false,
-        false,
-        &[],
+        Building::Commit { built: &[] },
         Path::new("/nonexistent/builds"),
     )
     .unwrap();
