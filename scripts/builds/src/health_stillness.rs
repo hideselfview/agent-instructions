@@ -6,7 +6,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::command::{Command, Parsed, agent, review};
+use crate::command::{Command, Parsed, review};
 use crate::db::Sql;
 use crate::design_run::DesignCommand;
 use crate::fail::{Fail, Result};
@@ -14,7 +14,7 @@ use crate::places::Places;
 
 use crate::health::{Advice, Finding, FindingKind, Health, LandingWait, Scanned, WorktreeHealth};
 use crate::host_scan::{Row, arguments, program};
-use crate::install_gate::InstallRead;
+use crate::install_gate::{InstallRead, Stores};
 use crate::lists::derive::{ItemState, item_state, unmet_waits, wait_met};
 use crate::lists::store::Loaded;
 use crate::lists::{Id, Item, Lists, Wait};
@@ -627,14 +627,17 @@ fn command_kind(row: &Row) -> Option<&'static str> {
     }
     let words = arguments(row);
     let parsed = Command::of(&words)?;
-    match parsed.command {
+    let command = parsed.command;
+    match command {
         AppBuild | BuildApp | Lock => Some("app build"),
         Land => Some("landing"),
         Install => Some("install"),
         Review(review::Wait) => Some("review wait"),
-        Review(review::Run | review::Copy | review::Replay | review::Audit) => Some("review"),
+        // The reviews that ask reviewers, which hold the stores for their
+        // whole run.
+        Review(_) if command.stores() == Stores::ForLife => Some("review"),
         Cargo | Lake | Remote(_) | Checks(_) => Some("process"),
-        Agent(agent::Run | agent::Resume) => Some("agent"),
+        _ if command.starts_agent() => Some("agent"),
         _ => DesignCommand::of_words(&words).map(DesignCommand::word),
     }
 }

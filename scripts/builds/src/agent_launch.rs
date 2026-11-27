@@ -29,9 +29,15 @@ pub fn is_log(path: &Path) -> bool {
 /// Whether <words>, a builds command line without the program, start or
 /// resume an agent.
 pub fn starts_agent(words: &[&str]) -> bool {
-    use crate::command::{Command, agent};
-    Command::of(words)
-        .is_some_and(|parsed| matches!(parsed.command, Command::Agent(agent::Run | agent::Resume)))
+    crate::command::Command::of(words).is_some_and(|parsed| parsed.command.starts_agent())
+}
+
+impl crate::command::Command {
+    /// Whether the command starts or resumes an agent.
+    pub fn starts_agent(self) -> bool {
+        use crate::command::{Command, agent};
+        matches!(self, Command::Agent(agent::Run | agent::Resume))
+    }
 }
 
 /// The eight tools of a dispatched agent. Claude Code starts no Skill tool
