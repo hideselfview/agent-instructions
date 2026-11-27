@@ -5,13 +5,15 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 mod common;
 use common::pruned_now;
 mod programs;
 use programs::programs_folder;
+mod spawned;
+use spawned::{Spawned, wait_for_free_lanes};
 
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -22,7 +24,7 @@ const LABELS: [&str; 5] = ["H", "A", "B", "C", "X"];
 struct Volume {
     dir: PathBuf,
     pinned_builds: PathBuf,
-    started: Vec<Child>,
+    started: Vec<Spawned>,
 }
 
 /// Writes `xcodebuild`, `sw_vers` and `ioreg` into <bin>: the mac lane reads
@@ -133,17 +135,16 @@ impl Volume {
 
     /// `lock` in the lane that <lane_args> (`--lane android`) names.
     fn lock_in(&mut self, lane_args: &[&str], label: &str) -> i32 {
-        let child = self
-            .builds()
-            .args(["lock", "demo"])
-            .args(lane_args)
-            .args(["sh", "-c", BUILD, label])
-            .arg(&self.dir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+        let child = Spawned::start(
+            self.builds()
+                .args(["lock", "demo"])
+                .args(lane_args)
+                .args(["sh", "-c", BUILD, label])
+                .arg(&self.dir)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null()),
+        );
         let pid = child.id() as i32;
         self.started.push(child);
         pid
@@ -152,14 +153,13 @@ impl Volume {
     /// Starts <args> as a `builds` command that is queued with the others;
     /// its pid.
     fn spawn(&mut self, args: &[&str]) -> i32 {
-        let child = self
-            .builds()
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+        let child = Spawned::start(
+            self.builds()
+                .args(args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null()),
+        );
         let pid = child.id() as i32;
         self.started.push(child);
         pid
@@ -333,11 +333,7 @@ impl Volume {
 
 impl Drop for Volume {
     fn drop(&mut self) {
-        for child in &mut self.started {
-            // SIGTERM: a running `builds lock` passes it to its build's group.
-            unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
-            let _ = child.wait();
-        }
+        self.started.clear();
         for label in LABELS {
             let text = std::fs::read_to_string(self.dir.join(format!("background-{label}")))
                 .unwrap_or_default();
@@ -345,6 +341,11 @@ impl Drop for Volume {
                 unsafe { libc::kill(pid, libc::SIGKILL) };
             }
         }
+        // A step whose lane the test killed runs until its gate opens.
+        for gate in LABELS.into_iter().chain(["one", "two", "droid"]) {
+            self.open_gate(gate);
+        }
+        wait_for_free_lanes(&self.dir.join("volume/demo"));
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
@@ -542,14 +543,14 @@ fn the_dashboard_moves_a_waiter_only_for_its_own_page() {
         .local_addr()
         .unwrap()
         .port();
-    let dashboard = volume
-        .builds()
-        .args(["dashboard", "--port", &port.to_string()])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+    let dashboard = Spawned::start(
+        volume
+            .builds()
+            .args(["dashboard", "--port", &port.to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    );
     volume.started.push(dashboard);
     until("the dashboard listening", || {
         TcpStream::connect(("127.0.0.1", port)).is_ok()
@@ -897,14 +898,14 @@ fn app_build_refuses_a_ci_only_step_in_each_form_and_lists_it_as_ci_only() {
 fn a_step_past_its_limit_fails_the_build_and_the_lock_goes_to_the_next_in_line() {
     let mut volume = Volume::new("limit");
     volume.app_repo_with("step mac one ./one.sh\nlimit one 1s\n");
-    let mut build = volume
-        .builds()
-        .args(["app-build", "demo", "main", "one"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut build = Spawned::start(
+        volume
+            .builds()
+            .args(["app-build", "demo", "main", "one"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped()),
+    );
     volume.until_logged("start one");
     volume.lock("W");
     volume.until_queued(2);
@@ -961,20 +962,20 @@ fn a_killed_android_lane_keeps_its_checkout_until_the_running_step_ends() {
 }
 
 /// Starts `builds app-build demo main <steps>`, its output piped.
-fn start_app_build(volume: &Volume, steps: &[&str]) -> Child {
-    volume
-        .builds()
-        .args(["app-build", "demo", "main"])
-        .args(steps)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap()
+fn start_app_build(volume: &Volume, steps: &[&str]) -> Spawned {
+    Spawned::start(
+        volume
+            .builds()
+            .args(["app-build", "demo", "main"])
+            .args(steps)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
 }
 
 /// What the build said, its exit status after.
-fn finish(mut build: Child) -> (std::process::ExitStatus, String) {
+fn finish(mut build: Spawned) -> (std::process::ExitStatus, String) {
     let mut said = String::new();
     std::io::Read::read_to_string(build.stdout.as_mut().unwrap(), &mut said).unwrap();
     let mut errors = String::new();
@@ -2175,14 +2176,14 @@ fn two_builds_with_one_merge_base_build_its_run_once_and_the_other_waits_for_it(
     )
     .unwrap();
     let start = |branch: &str, errors: &Path| {
-        volume
-            .builds()
-            .args(["app-build", "demo", branch, "--shots", "mac.a."])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(std::fs::File::create(errors).unwrap())
-            .spawn()
-            .unwrap()
+        Spawned::start(
+            volume
+                .builds()
+                .args(["app-build", "demo", branch, "--shots", "mac.a."])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(std::fs::File::create(errors).unwrap()),
+        )
     };
     let (a_said, b_said) = (volume.dir.join("a.err"), volume.dir.join("b.err"));
     let mut a = start("work-a", &a_said);

@@ -13,6 +13,8 @@ use std::time::{Duration, Instant};
 
 mod fake_launchctl;
 use fake_launchctl::FakeLaunchctl;
+mod spawned;
+use spawned::{Spawned, wait_for_free_lanes};
 
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -27,7 +29,7 @@ struct Demo {
     work: String,
     /// The launchctl that the demo's builds commands find.
     launchctl: FakeLaunchctl,
-    started: Vec<Child>,
+    started: Vec<Spawned>,
 }
 
 fn git(top: &Path, args: &[&str], date: Option<&str>) -> String {
@@ -227,16 +229,15 @@ cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/no-volume' sh -c "$*"
     /// Starts `builds lock demo --lane mac <script>` in <cwd>, <script> run
     /// by sh with the arguments <args> after its name.
     fn lock(&mut self, cwd: &Path, script: &str, args: &[String]) -> i32 {
-        let child = self
-            .builds()
-            .current_dir(cwd)
-            .args(["lock", "demo", "--lane", "mac", "sh", "-c", script, "sh"])
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+        let child = Spawned::start(
+            self.builds()
+                .current_dir(cwd)
+                .args(["lock", "demo", "--lane", "mac", "sh", "-c", script, "sh"])
+                .args(args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null()),
+        );
         let pid = child.id() as i32;
         self.started.push(child);
         pid
@@ -244,25 +245,25 @@ cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/no-volume' sh -c "$*"
 
     /// Starts a `builds lock demo --lane mac` that records in <out> whether
     /// <flag> existed when it started: `during` or `after`.
-    fn waiter(&mut self, flag: &Path, out: &Path) -> Child {
-        self.builds()
-            .args([
-                "lock",
-                "demo",
-                "--lane",
-                "mac",
-                "sh",
-                "-c",
-                r#"if [ -f "$1" ]; then echo after; else echo during; fi > "$2""#,
-                "sh",
-            ])
-            .arg(flag)
-            .arg(out)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap()
+    fn waiter(&mut self, flag: &Path, out: &Path) -> Spawned {
+        Spawned::start(
+            self.builds()
+                .args([
+                    "lock",
+                    "demo",
+                    "--lane",
+                    "mac",
+                    "sh",
+                    "-c",
+                    r#"if [ -f "$1" ]; then echo after; else echo during; fi > "$2""#,
+                    "sh",
+                ])
+                .arg(flag)
+                .arg(out)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null()),
+        )
     }
 
     /// `builds health --json`, which exits 1 when it finds something to act
@@ -303,11 +304,8 @@ cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/no-volume' sh -c "$*"
 
 impl Drop for Demo {
     fn drop(&mut self) {
-        for child in &mut self.started {
-            // SIGTERM: a running `builds lock` passes it to its build's group.
-            unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
-            let _ = child.wait();
-        }
+        self.started.clear();
+        wait_for_free_lanes(&self.dir.join("volume/demo"));
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
@@ -553,21 +551,20 @@ fn a_cargo_run_on_another_host_builds_for_the_worktree_it_was_run_from() {
     std::thread::spawn(move || {
         let _ = said.send(std::fs::read_to_string(fifo));
     });
-    let run = demo
-        .builds()
-        .current_dir(&demo.side)
-        .args(["cargo", "test"])
-        .env("BUILDS_CARGO_HOST", "m1")
-        .env_remove("RUSTC_WRAPPER")
-        .env_remove("RUSTC_WORKSPACE_WRAPPER")
-        .env_remove("BUILDS_CARGO_BEFORE")
-        .env_remove("CARGO_TARGET_DIR")
-        .env_remove("FFMPEG_DIR")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+    let run = Spawned::start(
+        demo.builds()
+            .current_dir(&demo.side)
+            .args(["cargo", "test"])
+            .env("BUILDS_CARGO_HOST", "m1")
+            .env_remove("RUSTC_WRAPPER")
+            .env_remove("RUSTC_WORKSPACE_WRAPPER")
+            .env_remove("BUILDS_CARGO_BEFORE")
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("FFMPEG_DIR")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    );
     let pid = run.id() as i64;
     demo.started.push(run);
     // PATIENCE only bounds a run that never starts; the FIFO says when it does.

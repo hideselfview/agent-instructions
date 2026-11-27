@@ -264,7 +264,7 @@ cd "$home" && HOME="$home" BUILDS_VOLUME="$home/no-volume" PATH='{bin}':"$PATH" 
 /// How long a test waits for what a build prints or does before it fails.
 const PATIENCE: Duration = Duration::from_secs(60);
 
-/// A builds command the test started, killed when the test ends however it
+/// A builds command the test started, stopped when the test ends however it
 /// ends.
 struct Running {
     pid: i32,
@@ -311,7 +311,9 @@ impl Running {
 impl Drop for Running {
     fn drop(&mut self) {
         if self.status.is_none() {
-            unsafe { libc::kill(self.pid, libc::SIGKILL) };
+            // SIGTERM: builds passes it to the step it runs, which SIGKILL
+            // would leave running.
+            unsafe { libc::kill(self.pid, libc::SIGTERM) };
             let _ = self.ended.recv();
         }
     }
