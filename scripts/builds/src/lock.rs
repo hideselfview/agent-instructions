@@ -176,6 +176,18 @@ extern "C" fn stop(_: libc::c_int) {
     pass_on(libc::SIGTERM);
 }
 
+/// Records <signal>, which a wait's kqueue reported (lock_wake.rs), as its
+/// handler does. The kqueue reports a signal once it is sent, which can be
+/// before the handler has run on the thread the system picked, so the wait
+/// that reads the report records the signal itself.
+pub fn signal_reported(signal: libc::c_int) {
+    if STOP_SIGNALS.contains(&signal) {
+        STOP_SIGNAL.store(signal, Ordering::SeqCst);
+    } else if signal == libc::SIGUSR2 {
+        stop(signal);
+    }
+}
+
 /// Did a takeover or an install stop this build (SIGUSR2)?
 pub fn takeover_stopped() -> bool {
     STOPPED.load(Ordering::SeqCst)
@@ -636,24 +648,34 @@ fn take_free_lock(
 
 /// <checkout>'s own lock among <repo>'s app locks for <lane>, waiting until
 /// no build holds it; never another checkout's. It skips the queue: a build
-/// the queue let in for a lock takes another free one, or waits for one. The
-/// file returned holds the lock until dropped and closes on exec.
+/// the queue let in for a lock takes another free one, or waits for one. A
+/// stop signal fails the wait, and so does a takeover that stops this build
+/// during it. The file returned holds the lock until dropped and closes on
+/// exec.
 pub fn take_checkout(places: &Places, repo: &str, lane: Lane, checkout: &str) -> Result<File> {
     let dir = places.app_locks_dir(repo, lane);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
     let file = places.app_lock_file(repo, lane, checkout);
-    let mut waiting = false;
+    if let Some(lock) = crate::flock::try_lock_creating(&file, libc::LOCK_EX)? {
+        return Ok(lock);
+    }
+    note(format!(
+        "waiting for the build holding {checkout}'s lock to end"
+    ));
+    let waiting_for = format!("{checkout}'s lock");
     loop {
+        let Some(lock) = crate::lock_wake::wait_for_lock(&file, &waiting_for, &takeover_stopped)?
+        else {
+            fail!("a takeover stopped the build while it waited for {waiting_for}");
+        };
+        // A holder that removed the checkout deleted its lock file, and a
+        // lock on that file keeps no other build out.
+        if crate::flock::names(&lock, &file)? {
+            return Ok(lock);
+        }
         if let Some(lock) = crate::flock::try_lock_creating(&file, libc::LOCK_EX)? {
             return Ok(lock);
         }
-        if !waiting {
-            note(format!(
-                "waiting for the build holding {checkout}'s lock to end"
-            ));
-            waiting = true;
-        }
-        std::thread::sleep(Duration::from_millis(100));
     }
 }
 

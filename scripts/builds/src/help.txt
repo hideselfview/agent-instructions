@@ -2432,8 +2432,10 @@ built again.
                               no longer removes it
   builds app-checkout reset <repo> <checkout> [--matching <rev>]
                               put an app checkout on origin/main, holding its
-                              lock (reset waits for the build holding it). The
-                              checkout is a worktree here or one on a
+                              lock (reset waits until the build holding it
+                              lets it go, and SIGTERM, SIGINT or SIGHUP ends
+                              the wait). The checkout is a worktree here or
+                              one on a
                               host (<host>:<name>), and this Mac sends the
                               commits to the host's clone. A build that
                               SIGKILL stops during its switch leaves new files

@@ -156,10 +156,16 @@ impl Wake {
     pub fn wait(&self) -> Result<Woke> {
         // Room for every signal the kqueue counts and the pipe.
         let mut events = [event(0, 0, 0, 0); 8];
-        let ready = self
+        let reported = self
             .kqueue
             .wait(&mut events, None)
-            .context(|| "Builds could not wait for a lock event".to_string())?
+            .context(|| "Builds could not wait for a lock event".to_string())?;
+        for event in reported {
+            if event.filter == libc::EVFILT_SIGNAL {
+                crate::lock::signal_reported(event.ident as libc::c_int);
+            }
+        }
+        let ready = reported
             .iter()
             .any(|event| event.filter == libc::EVFILT_READ);
         Ok(Woke { ready })
