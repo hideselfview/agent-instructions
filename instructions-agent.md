@@ -16,7 +16,10 @@ project rules.
 **Start from what it should do.** Before you design, brief, build or judge
 anything, write in one plain sentence what it should do, from what the user
 wants, never from how the existing code works. Build to that sentence and check
-the result against it. A brief opens with the sentence, and a design that needs
+the result against it. A brief opens with the sentence, and the sentence sets
+the brief's scope: the brief's steps and lists are examples of what its writer
+found, and the agent finishes when the sentence holds everywhere it applies
+(`builds help workflow`, WHAT AN IMPLEMENTING AGENT DOES). A design that needs
 special cases the sentence doesn't name is wrong.
 
 **Revealing structure is the objective.** Find the structure the system really

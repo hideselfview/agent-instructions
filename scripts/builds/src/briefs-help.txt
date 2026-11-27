@@ -54,8 +54,11 @@ numbers in an item may have moved, so find code by name.
 
 WRITE ONE BRIEF PER ITEM
 
-  - Title, and the item it implements (#N and its title). Open with one
-    sentence of what the work should do.
+  - Title, and the item it implements (#N and its title). Open with the
+    goal sentence: one sentence of what the work should do, which sets the
+    scope of the work. The places that Now and Change name are examples of
+    what the goal covers, never the whole job (`builds help workflow`, WHAT
+    AN IMPLEMENTING AGENT DOES, step 3).
   - Now: what the code does, with path:line evidence. When the item is
     already done or no longer applies, say so with the evidence and write
     nothing else for it.
