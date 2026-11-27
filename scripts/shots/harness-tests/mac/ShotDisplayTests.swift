@@ -60,6 +60,24 @@ private enum TestApp {
     }
 }
 
+/// The view a test's sheet holds, which the test keeps past the scene.
+@MainActor
+private final class HeldView {
+    var view: NSView?
+}
+
+private struct HoldingView: NSViewRepresentable {
+    let held: HeldView
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        held.view = view
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {}
+}
+
 /// The display the tests draw on: one for the process, so that no test adds a
 /// display within milliseconds of another's removal.
 @MainActor
@@ -240,6 +258,30 @@ struct ShotDisplayTests {
             $0.isVisible && !before.contains($0.windowNumber)
         }
         #expect(left.isEmpty, "\(left.map { String(describing: $0.frame) })")
+    }
+
+    /// A sheet's content leaves its window as the scene is torn down: work
+    /// the content queued, such as a pop-up it raises over its own window,
+    /// would otherwise bring the closed sheet back up over a later scene.
+    @Test
+    func aTornDownSheetHoldsNoneOfItsContent() async throws {
+        let display = try await TestDisplay.get()
+        let held = HeldView()
+        let scene = ShotScene(
+            id: "a scene whose sheet holds a view",
+            size: CGSize(width: 600, height: 400),
+            frame: .window(title: "Shot")
+        ) {
+            ShotStage(
+                Color.clear.sheet(isPresented: .constant(true)) {
+                    HoldingView(held: held).frame(width: 300, height: 120)
+                },
+                isDrawn: { _ in held.view?.window != nil }
+            )
+        }
+        _ = try await render(scene, on: display)
+        let view = try #require(held.view)
+        #expect(view.window == nil, "\(String(describing: view.window))")
     }
 
     /// A shot of a window with a system sheet holds the shadow the window

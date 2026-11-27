@@ -81,17 +81,7 @@ enum ShotRenderer {
         // window, shown or not, and an alert left up is listed and captured
         // with every scene after it.
         defer {
-            if let sheet = window.attachedSheet {
-                // Ordering a window out plays its animation, during which
-                // the window server still shows it.
-                sheet.animationBehavior = .none
-                window.endSheet(sheet)
-                sheet.orderOut(nil)
-                sheet.close()
-            }
-            window.contentViewController = nil
-            window.contentView = nil
-            window.close()
+            tearDown(window)
             // The window server takes the windows off the screen as the
             // transaction commits, which the check for windows left up reads.
             CATransaction.flush()
@@ -121,6 +111,23 @@ enum ShotRenderer {
             windowScene: windowScene,
             dressing: dressing
         )
+    }
+
+    /// Takes down `window` and the sheets over it, the top one first. Each
+    /// lets go of its content, so work the content queued, such as a pop-up
+    /// it raises over its own window, finds its view in no window.
+    private static func tearDown(_ window: NSWindow) {
+        if let sheet = window.attachedSheet {
+            // Ordering a window out plays its animation, during which the
+            // window server still shows it.
+            sheet.animationBehavior = .none
+            window.endSheet(sheet)
+            sheet.orderOut(nil)
+            tearDown(sheet)
+        }
+        window.contentViewController = nil
+        window.contentView = nil
+        window.close()
     }
 
     /// The pixels of `host` and the elements below it, once settled.
