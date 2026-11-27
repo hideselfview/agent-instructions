@@ -1569,7 +1569,10 @@ both versions read, or to a package the checker builds from changes the
 capture version, and then the run takes its shots, draws its boards and
 builds the app again. Each run's findings.json names both versions, and
 builds caches no run whose findings.json names other versions. A run that died
-before it made findings caches nothing.
+before it made findings caches nothing. A failed run also caches nothing when
+its output says the host kept it from taking a shot: the harness got no shot
+display, another app kept the focus, or Xcode or UI automation did not start.
+The lane stops at that run's step.
 The cache is build output on the build volume: builds holds each repo's folder
 in shots under its cap, deletes the runs and pictures that agents used least
 recently first (DISK), and makes a deleted run again when an agent asks for it.

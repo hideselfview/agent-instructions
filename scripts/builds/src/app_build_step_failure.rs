@@ -14,7 +14,7 @@ use crate::app_timing::StepRecord;
 use crate::fail::Result;
 use crate::lock::EachLine;
 use crate::output_excerpt::Excerpt;
-use crate::shot_findings::failing_shots;
+use crate::shot_findings::{failing_shots, is_host_failure};
 use crate::step_failure::{StepFailure, Tables};
 
 const TABLES: Tables = Tables {
@@ -29,6 +29,7 @@ const TABLES: Tables = Tables {
 struct Read {
     excerpt: Excerpt,
     shots: Vec<String>,
+    host_failed: bool,
 }
 
 /// Reads each line of a step's output, from both streams. Clones share what
@@ -41,9 +42,16 @@ impl StepRead {
     pub fn line(&self, text: &str) {
         let mut read = self.0.lock().expect("no panic holding it");
         read.excerpt.line(text);
+        read.host_failed |= is_host_failure(text);
         if let Some(shots) = failing_shots(text) {
             read.shots.extend(shots);
         }
+    }
+
+    /// Whether a line said the host kept the step from taking a shot
+    /// (shot_findings.rs `is_host_failure`).
+    pub fn host_failed(&self) -> bool {
+        self.0.lock().expect("no panic holding it").host_failed
     }
 
     /// The reader a run gives each line of the step's output to.

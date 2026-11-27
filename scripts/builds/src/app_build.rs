@@ -913,7 +913,8 @@ fn run_steps_with(
             pictures(text);
         });
         let outcome = runner.run(step, limit, kind, watch.then_some(&found), &each);
-        let failed_pairs = kind == StepKind::Shots && !read.failure().failed.is_empty();
+        let failed_pairs =
+            kind == StepKind::Shots && !read.failure().failed.is_empty() && !read.host_failed();
         let stopped_by = lock::stop_signal();
         let result = match &outcome {
             Ok(Within::Ran(Ran::Finished)) => StepResult::Passed,
@@ -1551,6 +1552,17 @@ impl ShotsCache {
     /// without one.
     fn cache(&self, site: &mut dyn RunSite, prefix: &str, exit: i64, output: &str) {
         let findings = shot_findings::findings_of(output);
+        if exit != 0
+            && let Some(said) = findings
+                .lines()
+                .find(|line| shot_findings::is_host_failure(line))
+        {
+            note(format!(
+                "the shots run of {prefix} exited {exit} because the host kept it from taking a shot, so none of its findings were cached: {}",
+                said.trim()
+            ));
+            return;
+        }
         if !shot_findings::has_findings(exit, findings) {
             note(format!(
                 "the shots run of {prefix} exited {exit} without findings, so none were cached"

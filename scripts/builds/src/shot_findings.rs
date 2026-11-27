@@ -18,7 +18,8 @@
 //! A run is cached when the shots command exits 0, or exits another status
 //! after printing that pairs fail the run; a command that died on an error
 //! (a build that failed, a simulator that did not start) has no findings and
-//! caches nothing. What is cached is what the shots program printed, from the
+//! caches nothing, and neither has a failed run that says the host kept it
+//! from taking a shot (`is_host_failure`). What is cached is what the shots program printed, from the
 //! line that starts it (cargo's `Running` line) to the end, whole.
 //!
 //! The run's report and pictures are cached with the findings, so the next run
@@ -208,10 +209,31 @@ pub fn says_unrendered(line: &str) -> bool {
     line.contains(UNRENDERED_PAIRS)
 }
 
+/// What a failing run prints when the host kept it from taking a shot: the
+/// Mac harness's words for a shot display it could not get and for another app
+/// that kept the focus, and the lines that say Xcode or UI automation did not
+/// start there.
+const HOST_FAILURES: [&str; 6] = [
+    "The renderer needs a shot display.",
+    "The shot capture could not lease a display.",
+    "kept the focus, so scene",
+    "ScreenCaptureKit shares no shot display",
+    crate::xcode::CANNOT_START,
+    crate::ui_test_settings::AUTOMATION_TIMED_OUT,
+];
+
+/// Whether <line> of a shots run's output says the host kept it from taking a
+/// shot.
+pub fn is_host_failure(line: &str) -> bool {
+    HOST_FAILURES.iter().any(|text| line.contains(text))
+}
+
 /// Whether a run that exited <exit> printed findings: it passed, or said that
-/// pairs fail the run.
+/// pairs fail the run and not that the host failed it. A shot the host kept
+/// the run from taking counts among the failing pairs and says nothing about
+/// the code.
 pub fn has_findings(exit: i64, findings: &str) -> bool {
-    exit == 0 || findings.contains(PAIRS_FAIL)
+    exit == 0 || findings.contains(PAIRS_FAIL) && !findings.lines().any(is_host_failure)
 }
 
 /// The full id of the commit <git_ref> names in <repo>, read from the repo's

@@ -26,6 +26,33 @@ fn the_line_that_counts_the_pairs_the_base_never_rendered_is_told_from_the_other
     assert!(!says_unrendered("builds shots: no pair fails the run"));
 }
 
+/// Each line is one a Mac capture prints when the host kept it from taking a
+/// shot, as the harness words it.
+#[test]
+fn a_run_the_host_failed_has_no_findings() {
+    let harness = [
+        include_str!("../../shots/harness/mac/ShotDisplay.swift"),
+        include_str!("../../shots/harness/mac/ShotError.swift"),
+        include_str!("../../shots/harness/mac/display/shot-display.py"),
+    ];
+    for said in [
+        "The renderer needs a shot display.",
+        "The shot capture could not lease a display.",
+        "kept the focus, so scene",
+        "ScreenCaptureKit shares no shot display",
+        crate::xcode::CANNOT_START,
+        crate::ui_test_settings::AUTOMATION_TIMED_OUT,
+    ] {
+        let output = format!("{said} x\nbuilds shots: 1 pair(s) fail the run: mac.a.one\n");
+        assert!(!has_findings(1, &output), "{said}");
+        let from_harness = said != crate::xcode::CANNOT_START
+            && said != crate::ui_test_settings::AUTOMATION_TIMED_OUT;
+        if from_harness {
+            assert!(harness.iter().any(|source| source.contains(said)), "{said}");
+        }
+    }
+}
+
 #[test]
 fn a_run_has_findings_when_it_passed_or_said_that_pairs_fail_it() {
     assert!(has_findings(0, ""));
