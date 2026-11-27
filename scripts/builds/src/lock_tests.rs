@@ -559,37 +559,31 @@ fn a_stop_signal_ends_a_wait_for_a_checkouts_lock() {
     );
 }
 
-/// The kqueue of a wait reports a signal as soon as it is sent, which can be
-/// before the signal's handler runs on the thread the system picked for it.
-/// Here SIGTERM is ignored, so no handler ever runs, and the wait ends on
-/// the kqueue's report alone.
-#[test]
-fn a_wait_ends_on_a_stop_signal_before_its_handler_runs() {
-    let scratch = Scratch::new("lock-stop-before-handler");
-    let places = places(&scratch);
-    let _held = take_checkout(&places, "demo", Lane::MAC, "app-1").unwrap();
-    unsafe { libc::signal(libc::SIGTERM, libc::SIG_IGN) };
-    let heard = wait_for_checkout_on_thread(&places);
-    assert!(heard.recv_timeout(SETTLE).is_err(), "the lock is held");
-    assert_eq!(unsafe { libc::kill(libc::getpid(), libc::SIGTERM) }, 0);
-    let ended = heard.recv_timeout(Duration::from_secs(10)).unwrap();
-    let said = ended.unwrap_err().text();
-    assert!(said.contains("stopped on SIGTERM"), "{said}");
+/// Sends <signal>, ignored so that no handler runs for it, to this process
+/// once a wait's kqueue counts it, and reads the wait's report of it.
+fn report_with_no_handler(signal: libc::c_int) {
+    unsafe { libc::signal(signal, libc::SIG_IGN) };
+    let wake = crate::lock_wake::Wake::new(libc::SIGUSR2).unwrap();
+    assert_eq!(unsafe { libc::kill(libc::getpid(), signal) }, 0);
+    wake.wait().unwrap();
 }
 
-/// `a_wait_ends_on_a_stop_signal_before_its_handler_runs` for a takeover's
+/// The kqueue of a wait reports a signal as soon as it is sent, which can be
+/// before the signal's handler runs on the thread the system picked for it.
+/// The wait that reads the report records the stop signal.
+#[test]
+fn a_wait_records_a_stop_signal_before_its_handler_runs() {
+    assert_eq!(stop_signal(), None);
+    report_with_no_handler(libc::SIGTERM);
+    assert_eq!(stop_signal(), Some(libc::SIGTERM));
+}
+
+/// `a_wait_records_a_stop_signal_before_its_handler_runs` for a takeover's
 /// SIGUSR2, sent to a build that holds its place in a queue.
 #[test]
-fn a_wait_ends_on_a_takeover_before_its_handler_runs() {
-    let scratch = Scratch::new("lock-takeover-before-handler");
-    let places = places(&scratch);
-    let _held = take_checkout(&places, "demo", Lane::MAC, "app-1").unwrap();
+fn a_wait_records_a_takeover_before_its_handler_runs() {
     QUEUED.store(true, Ordering::SeqCst);
-    unsafe { libc::signal(libc::SIGUSR2, libc::SIG_IGN) };
-    let heard = wait_for_checkout_on_thread(&places);
-    assert!(heard.recv_timeout(SETTLE).is_err(), "the lock is held");
-    assert_eq!(unsafe { libc::kill(libc::getpid(), libc::SIGUSR2) }, 0);
-    let ended = heard.recv_timeout(Duration::from_secs(10)).unwrap();
-    let said = ended.unwrap_err().text();
-    assert!(said.contains("a takeover stopped the build"), "{said}");
+    assert!(!takeover_stopped());
+    report_with_no_handler(libc::SIGUSR2);
+    assert!(takeover_stopped());
 }
