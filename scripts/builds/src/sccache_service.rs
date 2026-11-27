@@ -311,7 +311,7 @@ mod tests {
     /// shell command it names makes the folder and starts the server there.
     #[test]
     fn the_launchd_job_starts_the_server_with_a_tmpdir_on_the_build_volume() {
-        let dir = crate::testing::short_dir("sccache-job");
+        let dir = crate::testing::test_dir("sccache-job");
         std::fs::create_dir_all(&dir).unwrap();
         let (volume, tmp) = (dir.join("volume"), dir.join("volume/.sccache-tmp"));
         std::fs::create_dir_all(&volume).unwrap();

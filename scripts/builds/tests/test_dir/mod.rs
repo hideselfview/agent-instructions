@@ -1,4 +1,5 @@
-//! Where each of builds' integration tests makes its folder.
+//! The folder a test of builds makes in its test run's temporary folder: each
+//! integration test's, and a unit test's where its scratch folder will not do.
 
 use std::path::PathBuf;
 
