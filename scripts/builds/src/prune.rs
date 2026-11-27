@@ -867,7 +867,8 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     prune_derived_data(tool, run, derived_idle, Pruner::Prune)?;
     prune_shared(tool, run, Pruner::Prune)?;
     prune_agents(tool, run)?;
-    prune_tools_and_floor(tool, &roots, run, Pruner::Prune)?;
+    // Read again: the roots of the checkouts that are gone were deleted above.
+    prune_tools_and_floor(tool, &tool.roots()?, run, Pruner::Prune)?;
     if !run.dry() {
         empty_trash(tool)?;
         crate::prune_schedule::record_finished(&tool.places, crate::app_timing::now())?;

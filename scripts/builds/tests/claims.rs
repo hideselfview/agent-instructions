@@ -635,6 +635,30 @@ fn prune_keeps_a_claimed_folder_over_its_cap_and_deletes_it_once_released() {
     );
 }
 
+/// A prune that deletes a gone checkout's build root goes on to free space
+/// below the floor, which reads the build roots that are left.
+#[test]
+fn a_prune_below_the_floor_goes_on_after_it_deletes_a_gone_checkouts_root() {
+    let demo = Demo::new("floor");
+    let root = demo.volume().join("demo/gone");
+    std::fs::create_dir_all(&root).unwrap();
+    let gone = demo.dir.join("no-checkout");
+    std::fs::write(root.join(".checkout"), format!("{}\n", gone.display())).unwrap();
+    let out = demo
+        .builds()
+        .arg("prune")
+        // More than any disk holds.
+        .env("BUILDS_FREE_FLOOR_GIB", "1000000")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!root.exists());
+}
+
 /// BUILDS_TEMP stands in for this Mac's temporary folders, so a test's
 /// prune lists and deletes only there.
 #[test]
