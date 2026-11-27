@@ -3,13 +3,16 @@
 //!
 //! builds detaches a process only with `Detached::start`, which starts it in a
 //! session of its own and records it under the build volume,
-//! `<volume>/.detached/<pid>-<started>.json`, before it returns. Health reads
-//! the records to tell these processes from orphans (orphans.rs) and leaves
-//! each one, with what runs under it, alone, when it stops orphans and when it
-//! stops junk shells (shells.rs). The scan of each host removes a record whose
-//! process has ended (host_scan.rs).
+//! `<volume>/.detached/<pid>-<started>.json`, before its program runs. Health
+//! reads the records to tell these processes from orphans (orphans.rs) and
+//! leaves each one, with what runs under it, alone, when it stops orphans and
+//! when it stops junk shells (shells.rs). The scan of each host removes a
+//! record whose process has ended (host_scan.rs).
 
 use std::collections::BTreeSet;
+use std::io::{self, Read, Write};
+use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command};
@@ -39,7 +42,7 @@ const START_SLACK_SECONDS: i64 = 1;
 pub struct Detached {
     pub pid: i32,
     /// When it had started, in seconds since 1970 by its machine's clock:
-    /// builds reads the clock once the start returns.
+    /// builds reads the clock once the process says its pid.
     pub started: i64,
     /// What it is to do.
     pub purpose: String,
@@ -58,59 +61,50 @@ pub struct Caller {
 impl Detached {
     /// Starts <command> in a new session, so it runs on when this process,
     /// its process group or its terminal ends, and records it under the build
-    /// volume <volume>, which must exist, with its <purpose>. When the record
-    /// cannot be written, kills what started and fails. <command> must not
-    /// ask for a process group of its own: a new session makes one.
+    /// volume <volume>, which must exist, with its <purpose>. The new process
+    /// runs its program only once the record is written: when builds cannot
+    /// write it, or ends first, the program never runs, so it leaves nothing
+    /// half done. <command> must not ask for a process group of its own: a
+    /// new session makes one.
     pub fn start(volume: &Path, command: &mut Command, purpose: &str) -> Result<Child> {
         let folder = volume.join(FOLDER);
         match std::fs::create_dir(&folder) {
             Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => fail!("creating {}: {error}", folder.display()),
         }
-        // SAFETY: setsid is async-signal-safe and touches no memory.
-        unsafe {
-            command.pre_exec(|| {
-                if libc::setsid() < 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
         let program = command.get_program().to_string_lossy().into_owned();
-        let mut child = command
-            .spawn()
-            .context(|| format!("starting {program} to {purpose}"))?;
-        let record = Detached {
-            pid: child.id() as i32,
-            started: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("the clock is after 1970")
-                .as_secs() as i64,
-            purpose: purpose.to_string(),
-            caller: Caller {
-                pid: std::process::id() as i32,
-                command: std::env::args_os()
-                    .map(|word| word.to_string_lossy().into_owned())
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            },
-        };
-        let written = crate::whole_file::write(
-            &folder.join(record.file_name()),
-            serde_json::to_vec(&record).expect("a record serializes"),
-        );
-        if let Err(error) = written {
-            // Health would take a process with no record for an orphan.
-            let stopped = stop_group(record.pid, Duration::ZERO).and_then(|()| {
-                child
-                    .wait()
-                    .map(drop)
-                    .context(|| format!("waiting for {program}, which builds stopped"))
+        let starting = || format!("starting {program} to {purpose}");
+        let (recorder, announcer) = UnixStream::pair().context(starting)?;
+        let (recorder_fd, announcer_fd) = (recorder.as_raw_fd(), announcer.as_raw_fd());
+        // SAFETY: setsid, close, getpid, write and read are
+        // async-signal-safe, and both descriptors are open until the spawn
+        // returns.
+        unsafe {
+            command.pre_exec(move || {
+                // While the new process held a copy of the recorder's end,
+                // its read would not end when builds does.
+                if libc::setsid() < 0 || libc::close(recorder_fd) < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                announce_pid(announcer_fd)
             });
-            return fail::with_cleanup(Err(error), stopped);
         }
-        Ok(child)
+        // The spawn returns once the program runs, so another thread records
+        // the process meanwhile.
+        let (spawned, recorded) = std::thread::scope(|scope| {
+            let recording = std::thread::Builder::new()
+                .spawn_scoped(scope, || record_announced(recorder, &folder, purpose))
+                .context(starting)?;
+            let spawned = command.spawn();
+            // With no process left to send a pid, the recorder's read ends.
+            drop(announcer);
+            let recorded = recording.join().expect("the recorder does not panic");
+            Ok::<_, Fail>((spawned, recorded))
+        })?;
+        // A record that failed is why the spawn did.
+        recorded?;
+        spawned.context(starting)
     }
 
     /// The name of the record's file.
@@ -124,6 +118,53 @@ impl Detached {
     pub fn names(&self, pid: i32, started: i64) -> bool {
         pid == self.pid && started <= self.started + START_SLACK_SECONDS
     }
+}
+
+/// Sends this process's pid on <socket> and waits for a byte back, which
+/// lets it go on to run its program; the end of the stream fails it. A new
+/// process calls this before its exec (`pre_exec`), so it makes only
+/// async-signal-safe calls.
+pub fn announce_pid(socket: RawFd) -> io::Result<()> {
+    // SAFETY: the caller keeps the socket open; this value never closes it,
+    // and the new process's copy closes on exec.
+    let stream = std::mem::ManuallyDrop::new(unsafe { UnixStream::from_raw_fd(socket) });
+    let mut stream = &*stream;
+    stream.write_all(&unsafe { libc::getpid() }.to_ne_bytes())?;
+    stream.read_exact(&mut [0])
+}
+
+/// Reads the pid that a process `Detached::start` spawns sends on <stream>,
+/// writes its record in <folder>, then lets it go on. When the record cannot
+/// be written, dropping <stream> stops the process before its program runs.
+fn record_announced(mut stream: UnixStream, folder: &Path, purpose: &str) -> Result<()> {
+    let told = || format!("hearing from the process that is to {purpose}");
+    let mut pid = [0; size_of::<libc::pid_t>()];
+    match stream.read_exact(&mut pid) {
+        Ok(()) => {}
+        // The start failed before there was a process, as the spawn says.
+        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
+        Err(error) => fail!("{}: {error}", told()),
+    }
+    let record = Detached {
+        pid: libc::pid_t::from_ne_bytes(pid),
+        started: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("the clock is after 1970")
+            .as_secs() as i64,
+        purpose: purpose.to_string(),
+        caller: Caller {
+            pid: std::process::id() as i32,
+            command: std::env::args_os()
+                .map(|word| word.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join(" "),
+        },
+    };
+    crate::whole_file::write(
+        &folder.join(record.file_name()),
+        serde_json::to_vec(&record).expect("a record serializes"),
+    )?;
+    stream.write_all(&[0]).context(told)
 }
 
 /// Every record under the build volume <volume>.

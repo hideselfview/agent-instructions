@@ -3,8 +3,6 @@
 //! in the kernel. The command and its descendants never receive the locks.
 //! builds detaches the guard (process.rs), which runs on when the driver ends.
 
-#[cfg(target_os = "macos")]
-use std::io;
 use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -14,7 +12,7 @@ use std::process::Command;
 use crate::fail::Context;
 use crate::fail::Result;
 #[cfg(target_os = "macos")]
-use crate::process::Detached;
+use crate::process::{Detached, announce_pid};
 
 #[cfg(target_os = "macos")]
 pub const COMMAND: &str = "__app-lock-guard";
@@ -109,7 +107,7 @@ impl<'a> CheckoutLock<'a> {
         let socket = runner.as_raw_fd();
         // The command cannot exec until the guard registers its PID. If the
         // driver dies before starting the command, the guard reads EOF.
-        unsafe { command.pre_exec(move || register(socket)) };
+        unsafe { command.pre_exec(move || announce_pid(socket)) };
         let result = run(command);
         drop(runner);
         let guarded = child
@@ -140,19 +138,6 @@ impl<'a> CheckoutLock<'a> {
     pub fn run<T>(self, _command: Command, _run: impl FnOnce(Command) -> Result<T>) -> Result<T> {
         crate::fail!("Builds guards app checkout commands on macOS")
     }
-}
-
-#[cfg(target_os = "macos")]
-fn register(socket: std::os::fd::RawFd) -> io::Result<()> {
-    use std::io::{Read, Write};
-    use std::os::fd::FromRawFd;
-    use std::os::unix::net::UnixStream;
-
-    // The driver owns the socket. Its copy in the child closes on exec.
-    let stream = std::mem::ManuallyDrop::new(unsafe { UnixStream::from_raw_fd(socket) });
-    let mut stream = &*stream;
-    stream.write_all(&unsafe { libc::getpid() }.to_ne_bytes())?;
-    stream.read_exact(&mut [0])
 }
 
 #[cfg(target_os = "macos")]

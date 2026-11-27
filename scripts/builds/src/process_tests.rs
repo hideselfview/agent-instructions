@@ -57,24 +57,27 @@ fn a_record_names_no_later_process_with_its_pid() {
     assert!(!record.names(41, 999));
 }
 
-/// A start whose record cannot be written fails, and what it started is
-/// killed.
+/// A start whose record cannot be written fails, and its program never
+/// runs, so it leaves nothing half done.
 #[test]
-fn a_start_that_cannot_be_recorded_kills_what_it_started() {
+fn a_start_that_cannot_be_recorded_runs_nothing() {
     let scratch = Scratch::new("process-unrecorded");
     let volume = scratch.places().root;
     let folder = volume.join(FOLDER);
     std::fs::create_dir(&folder).unwrap();
     std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
     let (mut reader, writer) = std::io::pipe().unwrap();
-    let mut command = sh("sleep 600");
+    let mut command = sh("echo ran");
     command.stdout(writer);
-    let started = Detached::start(&volume, &mut command, "sleep");
+    let started = Detached::start(&volume, &mut command, "say that it ran");
     drop(command);
     std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert!(started.is_err());
+    let error = started.expect_err("the record cannot be written").text();
+    assert!(error.contains(&folder.display().to_string()), "{error}");
     // The pipe ends once every process that holds its write end has.
-    reader.read_to_end(&mut Vec::new()).unwrap();
+    let mut said = String::new();
+    reader.read_to_string(&mut said).unwrap();
+    assert_eq!(said, "");
 }
 
 /// A missing build volume fails the start, and builds makes no folder in its

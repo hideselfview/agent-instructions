@@ -339,10 +339,11 @@ on it:
                         audit, each background removal, the app checkout lock
                         guard and the git that switches an app checkout.
                         builds starts each one in a session of its own and,
-                        before it goes on, writes its pid, start time,
-                        purpose and the builds command that started it to
-                        <pid>-<start time>.json. When builds cannot write the
-                        record, it kills the process and the step fails.
+                        before the process runs its program, writes its pid,
+                        start time, purpose and the builds command that
+                        started it to <pid>-<start time>.json. When builds
+                        cannot write the record, the program never runs and
+                        the step fails.
                         `builds health` and the dashboard remove a record
                         whose process has ended when they read a host's
                         processes. `builds status` leaves the folder out
