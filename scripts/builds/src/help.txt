@@ -2553,6 +2553,10 @@ volume's device>` (`df /Volumes/Builds` names it).
                               by key, with no password) for its cores and
                               records it in the file `hosts` beside the lists
                               folder (`<name> <target> <cores> [<speed>]`).
+                              Each command that changes `hosts` locks
+                              `hosts.lock` beside it from before it reads
+                              the file until after it writes it, so the file
+                              keeps every change that commands make at once.
                               `band` sets the band of 5-minute load that
                               `builds health` aims to keep host <name> in
                               (`local` is this Mac), as the line `band <name>

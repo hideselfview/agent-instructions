@@ -28,7 +28,7 @@
 //! host_installed.rs checks what each host has set up for builds' jobs, and
 //! host_setup.rs sets a host up to take jobs.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::checkout::parallel_map;
@@ -895,10 +895,22 @@ pub fn read_file(places: &Places) -> Result<HostsFile> {
     })
 }
 
-fn write_file(places: &Places, hosts: &HostsFile) -> Result<()> {
+/// Applies <apply> to what the hosts file holds and writes the result, under
+/// the lock on `hosts.lock` beside it from before the read until after the
+/// write, so changes made at once are all kept. Every change to the file goes
+/// through here. When <apply> fails, the file stays as it was.
+fn change<T>(places: &Places, apply: impl FnOnce(&mut HostsFile) -> Result<T>) -> Result<T> {
     let file = hosts_file(places);
     let dir = file.parent().expect("a file has a folder");
     std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
+    let _one_at_a_time = crate::flock::lock_creating(&file.with_extension("lock"), libc::LOCK_EX)?;
+    let mut hosts = read_file(places)?;
+    let changed = apply(&mut hosts)?;
+    write_file(&file, &hosts)?;
+    Ok(changed)
+}
+
+fn write_file(file: &Path, hosts: &HostsFile) -> Result<()> {
     let mut text: String = hosts
         .remote
         .iter()
@@ -924,35 +936,37 @@ fn write_file(places: &Places, hosts: &HostsFile) -> Result<()> {
             text.push_str(&band.line(name));
         }
     }
-    crate::whole_file::write(&file, text)
+    crate::whole_file::write(file, text)
 }
 
 /// Records <speed> as host <name>'s core speed against this Mac's.
 pub fn record_speed(places: &Places, name: &str, speed: f64) -> Result<()> {
-    let mut file = read_file(places)?;
-    let Some(recorded) = file
-        .remote
-        .iter_mut()
-        .find(|recorded| recorded.name == name)
-    else {
-        fail!("host {name} is no longer recorded");
-    };
-    recorded.speed = Some(speed);
-    write_file(places, &file)
+    change(places, |file| {
+        let Some(recorded) = file
+            .remote
+            .iter_mut()
+            .find(|recorded| recorded.name == name)
+        else {
+            fail!("host {name} is no longer recorded");
+        };
+        recorded.speed = Some(speed);
+        Ok(())
+    })
 }
 
 /// Records <band> as host <name>'s load band, or removes the band when
 /// <band> is None. <name> is `local` for this Mac or a recorded host.
 pub fn set_band(places: &Places, name: &str, band: Option<Band>) -> Result<()> {
-    let mut file = read_file(places)?;
-    if name == LOCAL {
-        file.local_band = band;
-    } else if let Some(host) = file.remote.iter_mut().find(|host| host.name == name) {
-        host.band = band;
-    } else {
-        fail!("no host named {name} (`builds host list`)");
-    }
-    write_file(places, &file)
+    change(places, |file| {
+        if name == LOCAL {
+            file.local_band = band;
+        } else if let Some(host) = file.remote.iter_mut().find(|host| host.name == name) {
+            host.band = band;
+        } else {
+            fail!("no host named {name} (`builds host list`)");
+        }
+        Ok(())
+    })
 }
 
 /// This Mac with the load band `builds host band local` set, if any.
@@ -993,10 +1007,7 @@ pub fn add(places: &Places, ssh: &Ssh, name: &str, target: &str) -> Result<Host>
     if target.is_empty() || target.starts_with('-') || target.contains(char::is_whitespace) {
         fail!("{target:?} is not an ssh target (user@machine)");
     }
-    let mut file = read_file(places)?;
-    if file.remote.iter().any(|host| host.name == name) {
-        fail!("host {name} is already recorded; `builds host remove {name}` first");
-    }
+    // The probe runs before the change, so no other change waits for ssh.
     let probe = match probe_target(ssh, target) {
         Ok(probe) => probe,
         Err(error) => fail!("host {name} is not reachable: {error}"),
@@ -1008,21 +1019,27 @@ pub fn add(places: &Places, ssh: &Ssh, name: &str, target: &str) -> Result<Host>
         speed: None,
         band: None,
     };
-    file.remote.push(host.clone());
-    write_file(places, &file)?;
+    change(places, |file| {
+        if file.remote.iter().any(|host| host.name == name) {
+            fail!("host {name} is already recorded; `builds host remove {name}` first");
+        }
+        file.remote.push(host.clone());
+        Ok(())
+    })?;
     Ok(host)
 }
 
 pub fn remove(places: &Places, name: &str) -> Result<()> {
-    let mut file = read_file(places)?;
-    let Some(at) = file.remote.iter().position(|host| host.name == name) else {
-        if name == LOCAL {
-            fail!("{LOCAL} is this Mac, which is always a host");
-        }
-        fail!("no host named {name}");
-    };
-    file.remote.remove(at);
-    write_file(places, &file)?;
+    change(places, |file| {
+        let Some(at) = file.remote.iter().position(|host| host.name == name) else {
+            if name == LOCAL {
+                fail!("{LOCAL} is this Mac, which is always a host");
+            }
+            fail!("no host named {name}");
+        };
+        file.remote.remove(at);
+        Ok(())
+    })?;
     for refused in Refused::ALL {
         clear_refusal(places, refused, name)?;
     }

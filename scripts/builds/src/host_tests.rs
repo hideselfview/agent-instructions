@@ -562,7 +562,7 @@ fn the_hosts_file_keeps_each_hosts_speed() {
     let hosts = read_remote(&places).unwrap();
     let speeds: Vec<Option<f64>> = hosts.iter().map(|h| h.speed).collect();
     assert_eq!(speeds, [Some(0.712), None]);
-    write_file(&places, &read_file(&places).unwrap()).unwrap();
+    change(&places, |_| Ok(())).unwrap();
     assert_eq!(
         std::fs::read_to_string(&file).unwrap(),
         "m1 u@m1 10 0.712\nnew u@new 8\n"
@@ -609,6 +609,41 @@ fn the_hosts_file_keeps_each_hosts_load_band() {
     );
     let fault = set_band(&places, "gone", Some(local)).unwrap_err().text();
     assert!(fault.contains("no host named gone"), "{fault}");
+}
+
+/// Changes made to the hosts file at once are all kept: here each host's
+/// speed and band, each written by a thread of its own.
+#[test]
+fn changes_to_the_hosts_file_made_at_once_are_all_kept() {
+    let scratch = Scratch::new("host-concurrent-changes");
+    let places = scratch.places();
+    let file = hosts_file(&places);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let names: Vec<String> = (0..16).map(|n| format!("m{n}")).collect();
+    let text: String = names.iter().map(|n| format!("{n} u@{n} 8\n")).collect();
+    std::fs::write(&file, text).unwrap();
+    let band = Band::parse("20", "25").unwrap();
+    let start = std::sync::Barrier::new(2 * names.len());
+    std::thread::scope(|scope| {
+        for name in &names {
+            scope.spawn(|| {
+                start.wait();
+                record_speed(&places, name, 0.5).unwrap();
+            });
+            scope.spawn(|| {
+                start.wait();
+                set_band(&places, name, Some(band)).unwrap();
+            });
+        }
+    });
+    for host in read_remote(&places).unwrap() {
+        assert_eq!(
+            (host.speed, host.band),
+            (Some(0.5), Some(band)),
+            "{}",
+            host.name
+        );
+    }
 }
 
 /// A host with no band has the shares of its cores; a band that is not two
