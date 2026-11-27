@@ -7,6 +7,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -745,42 +746,11 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
 
     // A note written while the page watches reaches it as an event, along
     // with the load the daemon reads while a page watches.
-    let events = Command::new("curl")
-        .args(["-sN", &format!("http://127.0.0.1:{port}/events")])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut events = KillOnDrop(events);
-    let (sender, receiver) = std::sync::mpsc::channel();
-    let stdout = events.0.stdout.take().unwrap();
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if sender.send(line).is_err() {
-                break;
-            }
-        }
-    });
-    let mut seen = String::new();
-    let read_until = |wanted: &str, seen: &mut String| {
-        let deadline = Instant::now() + PATIENCE;
-        while !seen.contains(wanted) {
-            let left = deadline.saturating_duration_since(Instant::now());
-            match receiver.recv_timeout(left) {
-                Ok(line) => {
-                    seen.push_str(&line);
-                    seen.push('\n');
-                }
-                Err(_) => panic!("never saw {wanted:?} in the events: {seen}"),
-            }
-        }
-    };
-    read_until("event: state", &mut seen);
+    let mut events = Events::watch(port);
+    events.read_until("event: state");
     demo.run(&["note", &side, "seen", "by", "the", "page"]);
-    read_until("\"note\":\"seen by the page\"", &mut seen);
-    if !seen.contains("\"load\":{\"now\":[") {
-        read_until("\"load\":{\"now\":[", &mut seen);
-    }
+    events.read_until("\"note\":\"seen by the page\"");
+    events.read_until("\"load\":{\"now\":[");
     drop(events);
     demo.run(&["note", &side, "waiting", "on", "Linux", "CI"]);
     demo.run(&["note", &side]);
@@ -873,16 +843,16 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
 
     // A checkout added while the daemon runs shows too. An app checkout has no
     // card, so no state. Its name sorts after the side worktrees'.
+    let mut events = Events::watch(port);
     demo.add_app_checkout("xcode-1");
-    until("the daemon to list the added checkout", || {
-        let (_, body) = get(port, "/api/state", None);
-        let state: Value = serde_json::from_str(&body).unwrap();
+    events.state_where("the added app checkout", |state| {
         state["repos"][0]["checkouts"]
             .as_array()
             .unwrap()
             .iter()
             .any(|c| c["name"] == "xcode-1" && c["app_checkout"] == true && c["state"].is_null())
     });
+    drop(events);
 
     // Once the daemon is gone, status measures again.
     unsafe { libc::kill(server_pid, libc::SIGTERM) };
@@ -899,6 +869,75 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
             >= 2048,
         "status after the daemon stopped"
     );
+}
+
+/// The dashboard's events, as a page that watches it gets them.
+struct Events {
+    _curl: KillOnDrop,
+    lines: Receiver<String>,
+    seen: String,
+}
+
+impl Events {
+    fn watch(port: u16) -> Events {
+        let mut curl = KillOnDrop(
+            Command::new("curl")
+                .args(["-sN", &format!("http://127.0.0.1:{port}/events")])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let (sender, lines) = std::sync::mpsc::channel();
+        let stdout = curl.0.stdout.take().unwrap();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if sender.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        Events {
+            _curl: curl,
+            lines,
+            seen: String::new(),
+        }
+    }
+
+    /// The next line, which must come by <deadline>; <wanted> names what the
+    /// caller waits for.
+    fn line(&mut self, wanted: &str, deadline: Instant) -> String {
+        let left = deadline.saturating_duration_since(Instant::now());
+        let Ok(line) = self.lines.recv_timeout(left) else {
+            panic!("never saw {wanted} in the events: {}", self.seen);
+        };
+        self.seen.push_str(&line);
+        self.seen.push('\n');
+        line
+    }
+
+    /// Reads until the events so far hold <wanted>.
+    fn read_until(&mut self, wanted: &str) {
+        let deadline = Instant::now() + PATIENCE;
+        while !self.seen.contains(wanted) {
+            self.line(wanted, deadline);
+        }
+    }
+
+    /// Reads until a state event holds a state that <holds> accepts.
+    fn state_where(&mut self, wanted: &str, holds: impl Fn(&Value) -> bool) {
+        let deadline = Instant::now() + PATIENCE;
+        loop {
+            if self.line(wanted, deadline) != "event: state" {
+                continue;
+            }
+            let data = self.line(wanted, deadline);
+            let data = data.strip_prefix("data: ").expect("an event has data");
+            if holds(&serde_json::from_str(data).unwrap()) {
+                return;
+            }
+        }
+    }
 }
 
 struct KillOnDrop(Child);
