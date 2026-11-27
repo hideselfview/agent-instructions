@@ -261,16 +261,19 @@ fn the_mac_lane_holds_a_window_step_while_the_hosts_screen_is_locked() {
 /// A program in place of ssh that answers a host probe with no load and, to
 /// a reading of the display, says the lid is closed with no display until
 /// the file <open> exists, with the screen unlocked and Terminal in front.
-/// The wait for the display to change returns once <open> exists.
-fn closed_lid_ssh(dir: &std::path::Path, open: &std::path::Path) -> Ssh {
+/// The wait for the display to change writes a line to the FIFO <waiting>,
+/// which the lane starts only once it has recorded its hold, and returns
+/// once <open> exists, reading it as the real wait reads the display.
+fn closed_lid_ssh(dir: &std::path::Path, open: &std::path::Path, waiting: &std::path::Path) -> Ssh {
     use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(dir).unwrap();
     let program = dir.join("ssh");
     std::fs::write(
         &program,
         format!(
-            "#!/bin/sh\ncase \"$*\" in\n*PPID*) while [ ! -e '{open}' ]; do sleep 0.05; done ;;\n*AppleClamshellState*)\n  if [ -e '{open}' ]; then echo lid=open; else echo lid=closed; echo screens=0; fi\n  echo 'screen_locked=\"IOConsoleLocked\" = No'\n  echo 'front_app=\"LSDisplayName\"=\"Terminal\" \"pid\"=1' ;;\n*) printf 'os=Darwin\\narch=arm64\\ncores=1\\nload=0.00 0 0\\nfree_kib=900000000\\nmemory_free_percent=80\\nswap_used_mib=0\\nmemory_pressure_level=1\\nprocs=300\\nmax_procs=8000\\n' ;;\nesac\n",
-            open = open.display()
+            "#!/bin/sh\ncase \"$*\" in\n*PPID*) echo held > '{waiting}'; while [ ! -e '{open}' ]; do sleep 0.05; done ;;\n*AppleClamshellState*)\n  if [ -e '{open}' ]; then echo lid=open; else echo lid=closed; echo screens=0; fi\n  echo 'screen_locked=\"IOConsoleLocked\" = No'\n  echo 'front_app=\"LSDisplayName\"=\"Terminal\" \"pid\"=1' ;;\n*) printf 'os=Darwin\\narch=arm64\\ncores=1\\nload=0.00 0 0\\nfree_kib=900000000\\nmemory_free_percent=80\\nswap_used_mib=0\\nmemory_pressure_level=1\\nprocs=300\\nmax_procs=8000\\n' ;;\nesac\n",
+            open = open.display(),
+            waiting = waiting.display()
         ),
     )
     .unwrap();
@@ -284,13 +287,17 @@ fn closed_lid_ssh(dir: &std::path::Path, open: &std::path::Path) -> Ssh {
 /// keeps beside its lock. The step goes on once the lid opens.
 #[test]
 fn health_names_a_window_step_that_a_closed_lid_holds() {
+    use std::os::unix::fs::OpenOptionsExt;
     let scratch = Scratch::new("window-closed-lid");
     let places = scratch.places();
     std::fs::create_dir_all(places.root.join("demo")).unwrap();
     std::fs::create_dir_all(&places.home).unwrap();
     std::fs::write(places.app_checkouts_file("demo", Lane::MAC), "m1:mac-1\n").unwrap();
     let open = scratch.dir.join("open");
-    let ssh = closed_lid_ssh(&scratch.dir.join("ssh"), &open);
+    let waiting = scratch.dir.join("waiting");
+    let fifo = std::ffi::CString::new(waiting.display().to_string()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+    let ssh = closed_lid_ssh(&scratch.dir.join("ssh"), &open, &waiting);
     crate::host::add(&places, &ssh, "m1", "user@m1").unwrap();
     let held =
         crate::lock::take_drawing(&places, &ssh, "demo", Lane::MAC, Where::Anywhere, 0).unwrap();
@@ -313,15 +320,20 @@ fn health_names_a_window_step_that_a_closed_lid_holds() {
     }
     std::thread::scope(|scope| {
         let opens = OpensTheLid(&open);
-        let step = scope.spawn(|| held.take_window("shots", Access::Exclusive).unwrap());
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while !holds() {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "the lane never recorded the hold"
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        let step = scope.spawn(|| {
+            let taken = held.take_window("shots", Access::Exclusive);
+            // A lane that ended before its wait leaves the test reading
+            // the FIFO: a writer that opens it without blocking ends that
+            // read, and finds no reader once the test has read.
+            let _ = std::fs::OpenOptions::new()
+                .write(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&waiting);
+            taken.unwrap()
+        });
+        let said = std::fs::read_to_string(&waiting).unwrap();
+        assert_eq!(said, "held\n", "the lane reached its wait for the display");
+        assert!(holds(), "the lane recorded the hold before it waited");
         let run = crate::holder_run::HolderRun::read(&run_file)
             .unwrap()
             .unwrap();
