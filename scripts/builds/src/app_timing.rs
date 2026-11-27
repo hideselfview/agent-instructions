@@ -192,7 +192,8 @@ impl From<String> for BuiltCommit {
 pub fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs() as i64)
+        .expect("the clock is after 1970")
+        .as_secs() as i64
 }
 
 /// The CPU time (user and system) of every child this process has waited for

@@ -17,7 +17,7 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -149,10 +149,7 @@ fn record_announced(mut stream: UnixStream, folder: &Path, purpose: &str) -> Res
     }
     let record = Detached {
         pid: libc::pid_t::from_ne_bytes(pid),
-        started: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("the clock is after 1970")
-            .as_secs() as i64,
+        started: crate::app_timing::now(),
         purpose: purpose.to_string(),
         caller: Caller {
             pid: std::process::id() as i32,
