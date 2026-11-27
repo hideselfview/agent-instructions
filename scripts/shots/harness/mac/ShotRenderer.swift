@@ -88,7 +88,7 @@ enum ShotRenderer {
         }
         if let windowScene {
             try place(window, on: windowScene.display, scene: scene)
-            show(window, for: scene)
+            show(window, inactive: windowScene.inactive)
         }
         else {
             // The renderer makes the window key without activating the app.
@@ -144,7 +144,9 @@ enum ShotRenderer {
             // orders the window in, so the renderer waits for them before it
             // makes the top one key.
             let panels = try await shownPanels(of: dressing)
-            try await becomeKey(window, dressing: dressing, scene: scene)
+            if !windowScene.inactive {
+                try await becomeKey(window, dressing: dressing, scene: scene)
+            }
             logFocus(of: window, scene: scene)
             pixels = try await windowPNG(
                 of: window,
@@ -365,9 +367,11 @@ private struct WindowScene {
     let display: ShotDisplay
     let title: String
     let titleBar: ShotFrame.TitleBar
+    let inactive: Bool
 
     init?(scene: ShotScene, display: ShotDisplay?) throws {
-        guard case .window(let title, let titleBar) = scene.frame else {
+        guard case .window(let title, let titleBar, let inactive) = scene.frame
+        else {
             return nil
         }
         guard let display else {
@@ -376,6 +380,7 @@ private struct WindowScene {
         self.display = display
         self.title = title
         self.titleBar = titleBar
+        self.inactive = inactive
     }
 }
 

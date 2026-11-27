@@ -56,9 +56,9 @@ extension ShotRenderer {
 
     /// Orders `window` in. The window is a non-activating panel, key and
     /// main without the app taking the focus from the app that holds it,
-    /// unless the scene is drawn inactive, which leaves it neither.
-    static func show(_ window: NSWindow, for scene: ShotScene) {
-        if scene.inactive {
+    /// unless it is drawn `inactive`, which leaves it neither.
+    static func show(_ window: NSWindow, inactive: Bool) {
+        if inactive {
             window.orderFront(nil)
         }
         else {
@@ -114,8 +114,6 @@ extension ShotRenderer {
         dressing: any ShotDressing,
         scene: ShotScene
     ) async throws {
-        // A scene drawn inactive leaves its window without the key.
-        guard !scene.inactive else { return }
         let changes = [
             NSWindow.didBecomeKeyNotification,
             NSWindow.didResignKeyNotification,

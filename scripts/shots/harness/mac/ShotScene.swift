@@ -19,10 +19,6 @@ struct ShotScene {
     /// window's title bar.
     let size: CGSize
     var frame: ShotFrame = .content
-    /// Whether a scene shown in its window is drawn inactive, as macOS draws
-    /// a window behind another app's window: the window is neither key nor
-    /// main.
-    var inactive = false
     /// Whether drawing the scene takes the keyboard focus from the person,
     /// so only a run with `BUILDS_SHOTS_WINDOWS` set takes it.
     var takesFocus = false
@@ -65,7 +61,13 @@ enum ShotFrame {
     /// A design-system component, drawn at its board's size, the preview
     /// row's cell (`ShotBoardSizes`), whatever the scene's `size` says.
     case component
-    case window(title: String, titleBar: TitleBar = .shown)
+    /// The window, drawn as key and main unless it is `inactive`: then it
+    /// is neither, as macOS draws a window behind another app's window.
+    case window(
+        title: String,
+        titleBar: TitleBar = .shown,
+        inactive: Bool = false
+    )
 
     enum TitleBar {
         /// The native title bar and its system background.
