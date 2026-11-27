@@ -88,6 +88,7 @@ mod design_system_assets;
 mod download;
 mod evict;
 mod fail;
+mod finder_dates;
 mod flock;
 mod floor;
 mod free_worktrees;

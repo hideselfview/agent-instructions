@@ -5,7 +5,9 @@
 //! does, except when its command is a step that a `here` line names, which
 //! takes only a checkout on this Mac, and a build on a host copies the built app back here. The Mac app is
 //! copied out to `~/Applications/<repo>-test`, since the next build there
-//! replaces it, in place of the copy there, the running one quit first. The
+//! replaces it, in place of the copy there, the running one quit first.
+//! Finder shows the time of that copy as the installed app's Date Created,
+//! Date Modified and Date Added. The
 //! Android build is the repo's own script, which installs the app where it
 //! should go, so it takes only a checkout on this Mac.
 //!
@@ -20,7 +22,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::app_build::{config_at, place_of};
 use crate::app_config::{CONFIG, Config, CopiedApp, Step, run_command};
@@ -29,6 +31,7 @@ use crate::app_platform::{self, Install};
 use crate::app_site::Site;
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::finder_dates;
 use crate::lane::Lane;
 use crate::lock::{self, Where, Within};
 use crate::output::note;
@@ -134,8 +137,9 @@ fn with_new(app: &Path) -> PathBuf {
     PathBuf::from(path)
 }
 
-/// Copies the built app beside the test app, as `<app>.new`.
-fn copy_out(built: &Path, app: &Path, checkout: CheckoutLock<'_>) -> Result<()> {
+/// Copies the built app beside the test app, as `<app>.new`, and returns
+/// when the copy was made.
+fn copy_out(built: &Path, app: &Path, checkout: CheckoutLock<'_>) -> Result<SystemTime> {
     let folder = app.parent().expect("the test app has a folder");
     std::fs::create_dir_all(folder).context(|| format!("creating {}", folder.display()))?;
     let copy = with_new(app);
@@ -150,17 +154,20 @@ fn copy_out(built: &Path, app: &Path, checkout: CheckoutLock<'_>) -> Result<()> 
     if !status.success() {
         fail!("copying {} to {} failed", built.display(), copy.display());
     }
-    Ok(())
+    Ok(SystemTime::now())
 }
 
-/// Puts the copy in the test app's place.
-fn replace(app: &Path) -> Result<()> {
+/// Puts the copy made at <copied> in the test app's place and dates it then.
+/// ditto keeps the built bundle's dates, and an incremental build keeps the
+/// bundle folder of an earlier build. The dates are set after the rename.
+fn replace(app: &Path, copied: SystemTime) -> Result<()> {
     if app.exists() {
         std::fs::remove_dir_all(app).context(|| format!("removing {}", app.display()))?;
     }
     let copy = with_new(app);
     std::fs::rename(&copy, app)
-        .context(|| format!("moving {} to {}", copy.display(), app.display()))
+        .context(|| format!("moving {} to {}", copy.display(), app.display()))?;
+    finder_dates::set(app, copied)
 }
 
 fn running(system: &System, bundle: &str) -> Result<bool> {
@@ -297,7 +304,7 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
     )?;
     // A takeover stops the build; it runs again from a checkout, behind the
     // build that took over.
-    let (bundle, app) = loop {
+    let (bundle, app, copied) = loop {
         let mut site = Site::of(
             places,
             &ssh,
@@ -320,8 +327,8 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
                 }
                 let built = copied_app(&config, platform.lane())?;
                 let app = copy_path(places, repo, platform.lane(), built)?;
-                copy_out(&built_app(&mut site, built)?, &app, held.checkout_lock())?;
-                break (built.bundle.clone(), app);
+                let copied = copy_out(&built_app(&mut site, built)?, &app, held.checkout_lock())?;
+                break (built.bundle.clone(), app, copied);
             }
             // Only a takeover stops it: it holds no use of the stores, so
             // install never stops it.
@@ -343,7 +350,7 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
     held.release();
 
     quit(&tool.system, &bundle, &app)?;
-    replace(&app)?;
+    replace(&app, copied)?;
     note(format!("built {}", app.display()));
     Ok(())
 }

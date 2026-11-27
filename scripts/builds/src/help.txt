@@ -2398,7 +2398,10 @@ built again.
                               build on a host
                               copies the built app back to this Mac; for mac,
                               replace the app in ~/Applications/<repo>-test,
-                              quitting the copy running. The android build
+                              quitting the copy running. Finder shows the time
+                              of the copy as the new app's Date Created, Date
+                              Modified and Date Added, and the files inside
+                              keep the build's times. The android build
                               installs the app on this Mac's device, so it
                               takes only a checkout on this Mac. Opens
                               nothing. This is the person's own build; the

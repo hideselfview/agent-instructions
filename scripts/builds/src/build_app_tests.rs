@@ -21,15 +21,85 @@ fn the_copy_replaces_the_test_app() {
     let built = scratch.dir.join("built/out.app");
     std::fs::create_dir_all(built.join("new")).unwrap();
     let lock = lock::take_checkout(&places, "demo", Lane::MAC, "side-1").unwrap();
-    copy_out(&built, &app, CheckoutLock::new(lock.as_fd(), None)).unwrap();
+    let copied = copy_out(&built, &app, CheckoutLock::new(lock.as_fd(), None)).unwrap();
     assert!(
         app.join("old").exists(),
         "the test app stays until its replacement is ready"
     );
-    replace(&app).unwrap();
+    replace(&app, copied).unwrap();
     assert!(app.join("new").exists());
     assert!(!app.join("old").exists());
     assert!(!with_new(&app).exists());
+}
+
+/// The Date Added of <path>, which Finder shows and std reads no way.
+#[cfg(target_os = "macos")]
+fn date_added(path: &Path) -> std::time::SystemTime {
+    use std::os::unix::ffi::OsStrExt;
+    #[repr(C, packed(4))]
+    struct Answer {
+        length: u32,
+        added: libc::timespec,
+    }
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    let mut list: libc::attrlist = unsafe { std::mem::zeroed() };
+    list.bitmapcount = libc::ATTR_BIT_MAP_COUNT;
+    list.commonattr = libc::ATTR_CMN_ADDEDTIME;
+    let mut answer: Answer = unsafe { std::mem::zeroed() };
+    let got = unsafe {
+        libc::getattrlist(
+            name.as_ptr(),
+            (&raw mut list).cast(),
+            (&raw mut answer).cast(),
+            size_of::<Answer>(),
+            0,
+        )
+    };
+    assert_eq!(got, 0, "{}", std::io::Error::last_os_error());
+    let added = answer.added;
+    std::time::UNIX_EPOCH + Duration::new(added.tv_sec as u64, added.tv_nsec as u32)
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn finder_dates_the_test_app_when_it_was_copied_out() {
+    use std::fs::{File, FileTimes};
+    use std::time::SystemTime;
+    let scratch = Scratch::new("build-app-dates");
+    let app = scratch.dir.join("Applications/demo-test/out.app");
+    let built = scratch.dir.join("built/out.app");
+    std::fs::create_dir_all(&built).unwrap();
+    std::fs::write(built.join("Info.plist"), "").unwrap();
+    // An incremental build keeps the bundle folder it made on an earlier day.
+    // Setting an earlier modification time moves the creation time back too.
+    let earlier = SystemTime::now() - Duration::from_secs(86_400);
+    for path in [built.join("Info.plist"), built.clone()] {
+        File::open(path)
+            .unwrap()
+            .set_times(FileTimes::new().set_modified(earlier))
+            .unwrap();
+    }
+
+    let places = scratch.places();
+    let lock = lock::take_checkout(&places, "demo", Lane::MAC, "side-1").unwrap();
+    let before = SystemTime::now();
+    let copied = copy_out(&built, &app, CheckoutLock::new(lock.as_fd(), None)).unwrap();
+    replace(&app, copied).unwrap();
+    let after = SystemTime::now();
+
+    let folder = std::fs::metadata(&app).unwrap();
+    for (column, shown) in [
+        ("Date Created", folder.created().unwrap()),
+        ("Date Modified", folder.modified().unwrap()),
+        ("Date Added", date_added(&app)),
+    ] {
+        assert!(
+            before <= shown && shown <= after,
+            "{column} is {shown:?}, outside the copy, {before:?} to {after:?}"
+        );
+    }
+    let inside = std::fs::metadata(app.join("Info.plist")).unwrap();
+    assert_eq!(inside.modified().unwrap(), earlier);
 }
 
 #[test]
