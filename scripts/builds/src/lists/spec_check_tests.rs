@@ -118,7 +118,7 @@ impl Bench {
         item_words(
             &self.demo.tool,
             &crate::testing::no_ssh(),
-            &crate::lists::item_fixtures::read_words(&args),
+            &crate::lists::item_fixtures::words(&args),
         )
     }
 
