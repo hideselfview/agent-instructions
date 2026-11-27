@@ -76,7 +76,10 @@ pub fn lookup_newest(
 /// own, made by comparing again with the builds program <program> the cached
 /// run of another comparison version when this version has none. A run made
 /// in another environment is neither a before run nor a source to compare
-/// again.
+/// again. When no one run covers <prefix>, and the runs of narrower prefixes
+/// together tried every shot that <declared> says <commit> declares under it,
+/// builds saves them as the run of <prefix> (shots_compose.rs).
+#[allow(clippy::too_many_arguments)]
 pub fn before_run(
     places: &Places,
     repo: &str,
@@ -85,6 +88,7 @@ pub fn before_run(
     environment: &str,
     prefix: &str,
     program: &Path,
+    declared: &mut dyn FnMut() -> Result<Vec<String>>,
 ) -> Result<Option<Cached>> {
     let made = shots_cache::Made::In(environment);
     let found =
@@ -97,7 +101,16 @@ pub fn before_run(
     }
     // Another writer can publish while these comparisons run. Choose from
     // the current cache, including runs that writer placed.
-    shots_cache::covering_run_used(places, repo, commit, lane, made, prefix, &VERSIONS)
+    if let Some(found) =
+        shots_cache::covering_run_used(places, repo, commit, lane, made, prefix, &VERSIONS)?
+    {
+        return Ok(Some(found));
+    }
+    let key = Key::new(repo, commit, lane, environment, prefix, &VERSIONS);
+    for part in shots_cache::narrower_keys(places, &key)? {
+        lookup(places, &part, program)?;
+    }
+    crate::shots_compose::compose(places, &key, declared)
 }
 
 /// Compares again the newest cached run that has <key>'s commit, lane, prefix
@@ -186,7 +199,7 @@ fn findings_from(source: &Cached, again: &str, key: &Key) -> Result<(String, boo
 /// Hard-links each file of the report <from> but the findings files
 /// (`FINDINGS_FILES`, which sit at the report's top) to the same path under
 /// <into>, which does not exist yet.
-fn link_pictures(from: &Path, into: &Path) -> Result<()> {
+pub(crate) fn link_pictures(from: &Path, into: &Path) -> Result<()> {
     link_folder(from, into, true)
 }
 
@@ -202,8 +215,16 @@ fn link_folder(from: &Path, into: &Path, top: bool) -> Result<()> {
         if source.is_dir() {
             link_folder(&source, &target, false)?;
         } else if !(top && FINDINGS_FILES.contains(&name.to_string_lossy().as_ref())) {
-            std::fs::hard_link(&source, &target)
-                .context(|| format!("linking {} to {}", source.display(), target.display()))?;
+            match std::fs::hard_link(&source, &target) {
+                Ok(()) => {}
+                // A run made of several runs keeps the first one's picture.
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => fail!(
+                    "linking {} to {}: {error}",
+                    source.display(),
+                    target.display()
+                ),
+            }
         }
     }
     Ok(())

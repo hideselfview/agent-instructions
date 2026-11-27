@@ -823,6 +823,22 @@ pub fn covering_keys(
     Ok(found)
 }
 
+/// The keys of the runs of <key>'s commit, lane and environment whose prefix
+/// is longer than <key>'s and starts with it: each can hold a part of <key>'s
+/// shots.
+pub fn narrower_keys(places: &Places, key: &Key) -> Result<Vec<Key>> {
+    let folder = prefixes_folder(places, &key.repo, &key.commit, key.lane, &key.environment);
+    Ok(folders_in(&folder)?
+        .into_iter()
+        .map(|(name, _)| name)
+        .filter(|name| name.starts_with(&key.prefix) && *name != key.prefix)
+        .map(|prefix| Key {
+            prefix,
+            ..key.clone()
+        })
+        .collect())
+}
+
 /// The folders of the runs, made in any environment, that can cover <prefix>
 /// (`covering_keys`), of <versions>' capture version and every comparison
 /// version: the runs another comparison version made are what

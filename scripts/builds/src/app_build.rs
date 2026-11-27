@@ -1392,6 +1392,10 @@ impl ShotsCache {
                 environment,
                 prefix,
                 program,
+                &mut || {
+                    let names = base_declared(&mut base_declared_names, source, &base, lane)?;
+                    Ok(names.to_vec())
+                },
             )? {
                 Some(before) => {
                     let how = match built.iter().find(|(prefix, _)| prefix == selected) {
@@ -2420,6 +2424,13 @@ impl<'a> LaneBuild<'a> {
                     environment,
                     prefix.as_str(),
                     &program,
+                    &mut || {
+                        crate::shots_declared::declared_names_in_lane(
+                            &self.source,
+                            &base.commit,
+                            lane,
+                        )
+                    },
                 )?
                 .is_none()
                 {

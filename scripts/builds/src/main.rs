@@ -185,6 +185,7 @@ mod shot_unconfirmed;
 mod shots_cache;
 mod shots_check_program;
 mod shots_compare_again;
+mod shots_compose;
 mod shots_declared;
 mod shots_hits;
 mod shots_in_use;

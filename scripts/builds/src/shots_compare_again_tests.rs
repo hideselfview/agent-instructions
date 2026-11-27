@@ -159,6 +159,7 @@ fn the_run_a_branch_compares_with_is_made_by_comparing_the_base_s_cached_run_aga
         ENVIRONMENT,
         "mac.a.",
         &program,
+        &mut || Ok(Vec::new()),
     )
     .unwrap()
     .expect("the base's run of another comparison version is compared again");
@@ -298,7 +299,8 @@ fn only_a_run_of_the_same_environment_is_compared_again() {
             Lane::MAC,
             ENVIRONMENT,
             "mac.a.",
-            &program
+            &program,
+            &mut || Ok(Vec::new()),
         )
         .unwrap()
         .is_none()
@@ -313,6 +315,7 @@ fn only_a_run_of_the_same_environment_is_compared_again() {
         ENVIRONMENT,
         "mac.a.",
         &program,
+        &mut || Ok(Vec::new()),
     )
     .unwrap()
     .expect("the run of its own environment is compared again");
@@ -363,6 +366,7 @@ fn before_run_considers_a_covering_run_published_during_recheck() {
                 ENVIRONMENT,
                 "mac.a.",
                 &program,
+                &mut || Ok(Vec::new()),
             )
         });
         let published = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -411,4 +415,106 @@ fn the_newest_run_of_a_commit_and_prefix_is_found_in_any_environment() {
             .unwrap()
             .is_none()
     );
+}
+
+/// Caches a base run of <prefix> that checked the scene <scene>.
+fn cache_scene(places: &Places, prefix: &str, scene: &str, recorded_at: i64) {
+    let key = Key {
+        prefix: prefix.to_string(),
+        ..key(&VERSIONS.capture, &VERSIONS.comparison)
+    };
+    let staging = shots_cache::stage(places, &key).unwrap();
+    let report = staging.report();
+    std::fs::create_dir_all(report.join("img")).unwrap();
+    std::fs::write(report.join(format!("img/{scene}.shot.png")), scene).unwrap();
+    std::fs::write(
+        report.join("findings.json"),
+        serde_json::json!({
+            "version": key.versions.comparison,
+            "capture_version": key.versions.capture,
+            "commit": "c",
+            "scenes": [scene],
+            "boards": {scene: "h"},
+            "seen": {scene: {"board": [], "shot": []}},
+            "failed": [],
+            "problems": 0,
+            "sizes": {scene: {"board": {"width": 1.0, "height": 1.0}}},
+            "components": [],
+            "findings": [{"scene": scene, "level": "finding", "kind": "missing",
+                "sentence": format!("{scene} differs")}],
+        })
+        .to_string(),
+    )
+    .unwrap();
+    staging.finish_at(0, "text\n", recorded_at).unwrap();
+}
+
+/// <before_run> of <prefix> where the commit declares <declared>.
+fn before_of(
+    places: &Places,
+    scratch: &Scratch,
+    prefix: &str,
+    declared: &[&str],
+) -> Option<Cached> {
+    before_run(
+        places,
+        "demo",
+        COMMIT,
+        Lane::MAC,
+        ENVIRONMENT,
+        prefix,
+        &scratch.dir.join("no-program"),
+        &mut || Ok(declared.iter().map(|name| name.to_string()).collect()),
+    )
+    .unwrap()
+}
+
+#[test]
+fn saved_runs_that_together_check_every_declared_board_of_a_prefix_are_its_before_run() {
+    let scratch = Scratch::new("compose-before");
+    let places = scratch.places();
+    let now = crate::app_timing::now();
+    cache_scene(&places, "mac.a.one", "mac.a.one", now - 1);
+    cache_scene(&places, "mac.a.two", "mac.a.two", now);
+    let declared = ["mac.a.one", "mac.a.two", "mac.b.other"];
+    let made = before_of(&places, &scratch, "mac.a.", &declared)
+        .expect("the two saved runs hold every board the prefix selects");
+    assert_eq!(made.key.prefix, "mac.a.");
+    assert_eq!(made.exit_code(), 0);
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(made.findings_json()).unwrap()).unwrap();
+    assert_eq!(
+        file["scenes"],
+        serde_json::json!(["mac.a.one", "mac.a.two"])
+    );
+    for scene in ["mac.a.one", "mac.a.two"] {
+        for of_scene in ["boards", "seen", "sizes"] {
+            assert!(!file[of_scene][scene].is_null(), "{of_scene}: {file}");
+        }
+        assert!(
+            made.report()
+                .join(format!("img/{scene}.shot.png"))
+                .is_file()
+        );
+        assert!(
+            made.findings.contains(&format!("{scene} (1)")),
+            "{}",
+            made.findings
+        );
+    }
+    assert_eq!(file["findings"].as_array().unwrap().len(), 2);
+    // The run is saved: the next build of the base finds it by itself.
+    assert!(
+        shots_cache::lookup(&places, &made.key).unwrap().is_some(),
+        "the composed run is cached under the prefix"
+    );
+}
+
+#[test]
+fn saved_runs_that_lack_a_declared_board_of_a_prefix_are_no_before_run_of_it() {
+    let scratch = Scratch::new("compose-lacking");
+    let places = scratch.places();
+    cache_scene(&places, "mac.a.one", "mac.a.one", crate::app_timing::now());
+    let declared = ["mac.a.one", "mac.a.two"];
+    assert!(before_of(&places, &scratch, "mac.a.", &declared).is_none());
 }
