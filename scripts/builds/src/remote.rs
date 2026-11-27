@@ -836,8 +836,10 @@ status=$?
 kill -TERM "-$watcher" 2>/dev/null
 # Waiting for it here, with stderr silenced, is where sh reports its signal.
 wait $watcher 2>/dev/null
+# The last process of the group may end at any time, so a SIGTERM that fails
+# is a failure only while the group still has one.
 if kill -0 "-$pid" 2>/dev/null; then
-  if ! said=$(kill -TERM "-$pid" 2>&1); then
+  if ! said=$(kill -TERM "-$pid" 2>&1) && kill -0 "-$pid" 2>/dev/null; then
     echo "builds could not stop the processes the command left in its process group $pid on host {host}: $said" >&2
     [ $status -eq 0 ] && status=96
   fi

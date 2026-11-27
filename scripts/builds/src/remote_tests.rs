@@ -1197,3 +1197,45 @@ fn a_stalled_copy_whose_receiver_already_ended_still_fails_as_stalled() {
         .text();
     assert!(error.contains("stopped moving"), "{error}");
 }
+
+/// A group whose last process ends between the run script's look at it and
+/// its SIGTERM is stopped: the job ends with its command's status.
+#[test]
+fn a_group_that_ends_before_its_sigterm_fails_no_job() {
+    let scratch = Scratch::new("remote-gone-group");
+    let worktree = scratch.dir.join("worktree");
+    std::fs::create_dir_all(worktree.with_extension("job")).unwrap();
+    let local = crate::host::Host::local();
+    let script = run_script(
+        &local,
+        &worktree.display().to_string(),
+        &["true".to_string()],
+        "77-1795067690799282000",
+    );
+    std::fs::create_dir_all(&worktree).unwrap();
+    // `true` leaves nothing in its group. Until the script has sent the
+    // command's group a SIGTERM, this kill says the group has a process, as
+    // a look at it does just before the last one ends.
+    let termed = scratch.dir.join("termed");
+    let kill = format!(
+        r#"kill() {{
+  if [ "$1" = -0 ] && [ ! -e '{termed}' ]; then return 0; fi
+  if [ "$1" = -TERM ] && [ "$2" = "-$pid" ]; then : > '{termed}'; fi
+  command kill "$@"
+}}
+"#,
+        termed = termed.display()
+    );
+    let output = scratch
+        .system()
+        .sh(&format!("{kill}{script}"))
+        .stdin(Stdio::piped())
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        termed.exists(),
+        "the script sent the group no SIGTERM: {said}"
+    );
+    assert_eq!(output.status.code(), Some(0), "{said}");
+}
