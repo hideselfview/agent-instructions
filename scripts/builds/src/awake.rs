@@ -298,6 +298,7 @@ impl crate::command::Command {
             | Note
             | Release
             | Retire
+            | Discard
             | Cargo
             | AppBuild(
                 app_build::Build

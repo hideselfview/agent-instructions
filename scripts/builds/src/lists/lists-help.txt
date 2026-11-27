@@ -357,8 +357,10 @@ main checkout holds or that more than one holds; an absolute path is itself.
       drop refuses an item while an open item waits on it (the message names
       them and the `item wait --off` that frees each), or when it is the last
       item an open question blocks (`item wait N --off question:Q
-      --blocks-nothing WHY` frees it). The person drops an item to throw its
-      work away. drop refuses an item while another open
+      --blocks-nothing WHY` frees it). Dropping an item that runs or keeps a
+      worktree throws its work away: the coordinator decides that on its own
+      judgment, without asking the person, and --why says why. drop refuses
+      an item while another open
       item of any project runs in or keeps one of its worktrees, since the
       work there is that item's too: `builds item stop N` ends the item's run
       and leaves the work to the other items, and a drop of an item that runs

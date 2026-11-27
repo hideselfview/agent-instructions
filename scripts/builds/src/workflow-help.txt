@@ -100,8 +100,11 @@ worktree, is the unit of work.
     worktrees from `builds new ~/dev/agent-instructions --for <who> --project
     builds` (the opening of `builds help`).
   - Work that origin/main lacks (commits, or files not committed) leaves a
-    worktree only by landing or with an item that holds it, and only the
-    person throws such work away (`builds help WORKTREES AND CLAIMS`, and
+    worktree only by landing, with an item that holds it, or when the
+    coordinator throws it away. The coordinator decides that on its own
+    judgment and never asks the person: `builds item drop` throws away an
+    item's work, and `builds discard` the work no item holds, each with a
+    --why that builds records (`builds help WORKTREES AND CLAIMS`, and
     `builds item stop`, `take --held` and `drop` in `builds help lists`).
 
 Land the fixes you have ready together, in one batch (decision #1391 in project
@@ -802,8 +805,9 @@ processes only with `--stop-junk`. The lines below are what remains to act on.
     judge listen --project P --by judge` from it.
   - A branch with commits origin/main lacks that no worktree checks out and
     no item names: check it out in a worktree (`builds new <repo> --resume
-    <branch>`) and land it or take an item there, or ask the person whether
-    to drop it.
+    <branch>`) and land it or take an item there, or throw it away
+    (`builds discard <repo> --branch <branch> --why TEXT`), as the
+    coordinator judges, without asking the person.
   - An agent that runs another model than its item's tier takes (PLAN,
     BRIEF, EXECUTE), with its worktree, its items and both models: stop the
     agent at its next clean point and continue the item with an agent of

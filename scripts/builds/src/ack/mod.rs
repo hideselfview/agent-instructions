@@ -629,6 +629,7 @@ impl Args {
             | Note
             | Release
             | Retire
+            | Discard
             | Cargo
             | AppBuild(
                 app_build::Build

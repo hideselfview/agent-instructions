@@ -271,6 +271,7 @@ impl crate::command::Command {
             | Note
             | Release
             | Retire
+            | Discard
             | AppBuild(
                 app_build::Build
                 | app_build::LandingCoverage

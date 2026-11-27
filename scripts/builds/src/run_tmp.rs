@@ -291,6 +291,7 @@ impl crate::command::Command {
             | Note
             | Release
             | Retire
+            | Discard
             | Programs
             | Queue
             | Takeover

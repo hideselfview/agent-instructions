@@ -1219,11 +1219,13 @@ fn shots_cache_findings(tool: &Tool) -> Vec<Finding> {
 /// What health says of <branch>: the commits that no worktree or item holds.
 fn loose_advice(branch: &crate::unlanded::LooseBranch) -> Advice {
     Advice::said(format!(
-        "branch: {} {} holds {} origin/main lacks ({}), and no worktree checks it out or open item names it",
+        "branch: {} {} holds {} origin/main lacks ({}), and no worktree checks it out or open item names it; check it out to land it (`builds new <repo> --resume {}`) or throw it away (`builds discard <repo> --branch {} --why WHY`)",
         branch.repo,
         branch.branch,
         crate::text::counted(branch.commits.len(), "commit", "commits"),
-        crate::unlanded::commit_words(&branch.commits)
+        crate::unlanded::commit_words(&branch.commits),
+        branch.branch,
+        branch.branch
     ))
 }
 

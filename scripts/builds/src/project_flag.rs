@@ -53,6 +53,7 @@ impl Args {
             | Brief
             | Cargo
             | Claim
+            | Discard
             | Lake
             | Land
             | New

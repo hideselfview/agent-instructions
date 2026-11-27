@@ -1,4 +1,4 @@
--- These tables record the work an item held when the person dropped it
+-- These tables record the work an item held when it was dropped
 -- (`builds item drop`): for each worktree it ran or kept in, the branch,
 -- the commits on it that origin/main lacked, and the files nobody had
 -- committed. The drop

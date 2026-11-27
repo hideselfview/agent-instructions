@@ -213,6 +213,7 @@ impl crate::command::Command {
             | Note
             | Release
             | Retire
+            | Discard
             | Cargo
             | Lock
             | Queue

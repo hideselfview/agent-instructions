@@ -117,6 +117,10 @@ declare! {
         ];
         Release => [["release"]], ["builds release <checkout>"];
         Retire => [["retire"]], ["builds retire <checkout>"];
+        Discard => [["discard"]], [
+            "builds discard <worktree> --why TEXT [--by WHO] [--project P]",
+            "builds discard <repo> --branch B --why TEXT [--by WHO] [--project P]",
+        ];
         Cargo => [["cargo"]], [
             "builds cargo <subcommand> [<args>...]",
             "builds cargo update (-p <package>... | -w) [<args>...]",

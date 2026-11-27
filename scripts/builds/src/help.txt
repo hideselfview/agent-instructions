@@ -804,10 +804,32 @@ times` reads these records.
                               which keeps the worktree for the item, or take
                               an item there (`builds item take`, with --held
                               when the item waits on something open). An item
-                              that keeps the worktree holds all of it. Only the
-                              person throws work
-                              away, by dropping its item. `new` hands out no
-                              worktree that this check would refuse
+                              that keeps the worktree holds all of it. The
+                              coordinator may instead throw the work away
+                              (`discard`). `new` hands out no worktree that
+                              this check would refuse
+  {discard}
+                              throw away work origin/main lacks that no item
+                              holds. The coordinator decides that on its own
+                              judgment and never asks the person. For a side
+                              worktree W, discard throws away its commits, the
+                              commits of the branches it left since its claim
+                              began and its files not committed (ignored files
+                              stay), deletes those branches, detaches W at
+                              origin/main and removes its claim. With --branch
+                              B, discard deletes branch B of the repo at REPO,
+                              which no worktree checks out and no open item
+                              names. discard refuses a worktree an item of any
+                              project runs in or keeps (`builds item drop`
+                              throws away an item's work), one where a `git
+                              commit` runs, and a worktree or branch with no
+                              such work. Before it changes git, discard records
+                              a decision in the project's decision log: who
+                              (--by, else the claim of the worktree the command
+                              runs in), why, and each commit and file. git
+                              keeps the commits until it removes unreachable
+                              objects. When git fails, running the same discard
+                              again throws away and records what is left
   {retire}                    remove a clean, unclaimed side worktree and its
                               build root; refuses every other worktree, a
                               worktree an item runs in or keeps, one that

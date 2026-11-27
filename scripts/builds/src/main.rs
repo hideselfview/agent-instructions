@@ -86,6 +86,7 @@ mod design_render;
 mod design_run;
 mod design_system_artifact;
 mod design_system_assets;
+mod discard;
 mod download;
 mod evict;
 mod fail;
@@ -573,6 +574,7 @@ fn run(
         Setup => setup::cmd_setup(&tool(session)?, &ssh(), args),
         New => worktree::cmd_new(&tool(session)?, &ssh(), args),
         Retire => worktree::cmd_retire(&tool(session)?, args),
+        Discard => discard::cmd_discard(&tool(session)?, args, &cwd()?),
         Land => land::cmd_land(&tool(session)?, args),
         Review(review) => crate::review::cmd_review(&tool(session)?, review, args),
         Judge(judge::Listen) => crate::review::judge::cmd_listen(&tool(session)?, args),

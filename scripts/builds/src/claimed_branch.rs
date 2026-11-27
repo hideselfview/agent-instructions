@@ -175,6 +175,7 @@ impl crate::command::Command {
             | Note
             | Release
             | Retire
+            | Discard
             | BuildApp
             | Lock
             | Programs

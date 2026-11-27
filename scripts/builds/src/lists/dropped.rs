@@ -1,4 +1,4 @@
-//! The work an item held when the person dropped it. Dropping an item that
+//! The work an item held when it was dropped. Dropping an item that
 //! runs or is kept alone in its worktrees throws its work away (`builds
 //! item drop`), and drop refuses an item that shares a worktree with another
 //! open item (`require_alone`). The drop records each worktree's branch, the
@@ -6,7 +6,7 @@
 //! not committed, and after the store's write commits, it detaches the
 //! worktree at origin/main, discards its changes, deletes the branch and
 //! removes the worktree's claim. Each git step does nothing to work already
-//! thrown away, so the person can run a drop that git failed again.
+//! thrown away, so a drop that git failed can run again.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -243,7 +243,7 @@ pub fn thrown_away_line(work: &DroppedWork) -> String {
     )
 }
 
-/// Records <works> as what closed item <id> held when the person dropped it.
+/// Records <works> as what closed item <id> held when it was dropped.
 pub fn record(db: &Connection, id: Id, works: &[DroppedWork]) -> Result<()> {
     for work in works {
         db.execute(
@@ -356,39 +356,52 @@ fn place_of<'a>(
 }
 
 /// Throws <work> away: detaches its worktree at origin/main, discarding the
-/// files not committed (ignored files, such as the build links, stay),
-/// deletes its branch and removes the worktree's claim. The worktree is then
-/// free. The claim goes last, so no one takes the worktree before the rest
-/// is done; a second run after a failure does again only what is left.
+/// files not committed (`clear_worktree`), deletes its branch and removes the
+/// worktree's claim. The worktree is then free. The claim goes last, so no one
+/// takes the worktree before the rest is done; a second run after a failure
+/// does again only what is left.
 pub fn discard(work: &DroppedWork) -> Result<()> {
     let (_, main) = main_of(&work.worktree)?;
     let live = crate::lists::running::live_worktree(&work.worktree)?;
     if let Some(checkout) = &live {
-        git_text(
-            git(&checkout.top).args([
-                "-c",
-                "core.hooksPath=/dev/null",
-                "checkout",
-                "-q",
-                "-f",
-                "--detach",
-                "origin/main",
-            ]),
-            "detach the worktree at origin/main",
-        )?;
-        git_text(
-            git(&checkout.top).args(["clean", "-f", "-d", "-q"]),
-            "remove the files not committed",
-        )?;
+        clear_worktree(checkout)?;
     }
-    if crate::git::branch_exists(&main, &work.branch)? {
-        git_text(
-            git(&main).args(["branch", "-q", "-D", &work.branch]),
-            "delete the branch",
-        )?;
-    }
+    delete_branch(&main, &work.branch)?;
     if let Some(checkout) = &live {
         forget_claim(checkout)?;
+    }
+    Ok(())
+}
+
+/// Detaches <checkout> at origin/main, discarding the files not committed
+/// (ignored files, such as the build links, stay).
+pub fn clear_worktree(checkout: &Checkout) -> Result<()> {
+    git_text(
+        git(&checkout.top).args([
+            "-c",
+            "core.hooksPath=/dev/null",
+            "checkout",
+            "-q",
+            "-f",
+            "--detach",
+            "origin/main",
+        ]),
+        "detach the worktree at origin/main",
+    )?;
+    git_text(
+        git(&checkout.top).args(["clean", "-f", "-d", "-q"]),
+        "remove the files not committed",
+    )?;
+    Ok(())
+}
+
+/// Deletes <branch> of the repo at <main>, when the repo still has it.
+pub fn delete_branch(main: &Path, branch: &str) -> Result<()> {
+    if crate::git::branch_exists(main, branch)? {
+        git_text(
+            git(main).args(["branch", "-q", "-D", branch]),
+            "delete the branch",
+        )?;
     }
     Ok(())
 }

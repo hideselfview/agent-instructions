@@ -6,8 +6,9 @@
 //! lists each local branch that holds such work while no worktree checks it
 //! out and no open item names it (`loose_branches`, `unheld`). Work leaves a
 //! worktree only by landing, by an item that holds it (running held on the
-//! person, or kept), or by the person dropping that item
-//! (lists/dropped.rs).
+//! person, or kept), or by the coordinator throwing it away: with its item
+//! (lists/dropped.rs), or, when no item holds it, with `builds discard`
+//! (discard.rs).
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
@@ -288,7 +289,7 @@ pub fn refusal(what: &str, top: &Path, held: &Held) -> String {
     }
     let branch = branch.as_deref().unwrap_or("BRANCH");
     lines.push(format!(
-        "Land it (`builds land {top} --done N SHA...`), or give it to an item: take one there (`builds item take N --worktree {top} --branch {branch} --brief P`, with `--held WHY` when the item waits on something open). Commit the files and give detached commits a branch (`git -C {top} switch -c NAME`) first. Only the person throws work away, by dropping its item."
+        "Land it (`builds land {top} --done N SHA...`), or give it to an item: take one there (`builds item take N --worktree {top} --branch {branch} --brief P`, with `--held WHY` when the item waits on something open). Commit the files and give detached commits a branch (`git -C {top} switch -c NAME`) first. The coordinator may instead throw the work away (`builds discard {top} --why WHY`) without asking the person."
     ));
     lines.join("\n")
 }
