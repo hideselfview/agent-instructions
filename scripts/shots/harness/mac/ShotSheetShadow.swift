@@ -11,7 +11,7 @@ import ScreenCaptureKit
 enum ShotSheetShadow {
     /// How opaque each pixel of a picture is, 0 to 255, row by row from the
     /// top left.
-    struct Opacity: Equatable, Sendable {
+    struct Opacity: Sendable {
         let width: Int
         let height: Int
         let values: [UInt8]
@@ -248,9 +248,16 @@ extension ShotSheetShadow {
         configuration.includeChildWindows = false
         configuration.backgroundColor = .clear
         configuration.showsCursor = false
-        let image = try await SCScreenshotManager.captureImage(
-            contentFilter: SCContentFilter(desktopIndependentWindow: window),
-            configuration: configuration
+        let image = try ShotImage.scaled(
+            try await SCScreenshotManager.captureImage(
+                contentFilter: SCContentFilter(
+                    desktopIndependentWindow: window
+                ),
+                configuration: configuration
+            ),
+            width: configuration.width,
+            height: configuration.height,
+            sceneId: sceneId
         )
         let pixels = try bytes(of: image, sceneId: sceneId)
         return Opacity(
