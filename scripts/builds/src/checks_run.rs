@@ -149,7 +149,7 @@ fn hook_database(top: &Path) -> Result<Option<PathBuf>> {
     let Some(checkout) = Checkout::at_keeping_env(top)? else {
         return Ok(None);
     };
-    database_of(&places, &checkout)
+    database_of(&places, &checkout, None)
 }
 
 /// `builds checks stats [--project P] [--repo R] [--since DATE] [--change REV]`.

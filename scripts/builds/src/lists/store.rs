@@ -633,9 +633,13 @@ pub fn databases_holding(places: &Places, repo: &str) -> Result<Vec<std::path::P
 /// The database of the project <checkout>'s work is in (`project_of`), where
 /// builds records the checkout's hook runs and cargo runs; None when no
 /// project holds the repo, so builds records nothing.
-pub fn database_of(places: &Places, checkout: &Checkout) -> Result<Option<std::path::PathBuf>> {
+pub fn database_of(
+    places: &Places,
+    checkout: &Checkout,
+    flag: Option<&str>,
+) -> Result<Option<std::path::PathBuf>> {
     Ok(
-        project_of(places, checkout, None)?
+        project_of(places, checkout, flag)?
             .map(|project| places.lists.join(project).join(DATABASE)),
     )
 }

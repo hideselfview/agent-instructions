@@ -1018,7 +1018,12 @@ restart the server.
                               another host: run it with
                               BUILDS_CARGO_HOST=local.
                               When cargo exits, builds records the run in the
-                              project's store: its worktree, when it started,
+                              project's store (in a repo two projects hold,
+                              the project the worktree's claim names, else,
+                              for a run in an app build's step, the app
+                              build's project, which the lane passes in
+                              BUILDS_APP_BUILD_PROJECT): its worktree,
+                              when it started,
                               cargo's subcommand (`test`, `nextest run`), the
                               host it ran on with that host's cores and
                               one-minute load when builds picked it, how long

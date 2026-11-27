@@ -829,6 +829,44 @@ fn app_build_runs_the_steps_named_and_lists_them() {
     assert!(String::from_utf8_lossy(&unknown.stderr).contains("no step three"));
 }
 
+/// A step's `builds cargo` runs in the app checkout, which no claim names a
+/// project for, so in a repo two projects hold it records in the project of
+/// the app build.
+#[test]
+fn a_steps_cargo_run_records_in_the_app_builds_project() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let volume = Volume::new("app-build-cargo-project");
+    volume.app_repo_at(
+        &volume.dir.join("home/dev/demo"),
+        "mac build ./one.sh\nmac app out.app\nmac bundle demo.test\nstep mac compile builds cargo check\n",
+    );
+    let cargo = volume.dir.join("bin/cargo");
+    std::fs::write(&cargo, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
+    for project in ["one", "two"] {
+        let made = volume.run(&["lists", "init", project, "--repos", "demo", "--by", "test"]);
+        assert!(made.status.success(), "{made:?}");
+    }
+    let built = volume.run(&["app-build", "demo", "main", "compile", "--project", "two"]);
+    let said = String::from_utf8_lossy(&built.stderr);
+    assert!(built.status.success(), "{said}");
+    let runs = |project: &str| -> u32 {
+        let store = volume
+            .dir
+            .join("home/Library/Application Support/builds/lists")
+            .join(project)
+            .join("builds.sqlite");
+        rusqlite::Connection::open(store)
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM builds_cargo_runs", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    };
+    assert_eq!((runs("one"), runs("two")), (0, 1), "{said}");
+}
+
 #[test]
 fn a_step_that_changes_the_checkout_fails_the_build_which_puts_the_checkout_back() {
     let volume = Volume::new("app-build-dirty");

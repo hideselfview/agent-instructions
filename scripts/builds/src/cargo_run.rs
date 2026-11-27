@@ -339,6 +339,7 @@ pub fn cmd_cargo(args: &[String], changed: &Changed) -> Result<()> {
         .map(|checkout| RunKey::of(checkout, subcommand));
     let env = |name: &str| std::env::var_os(name);
     let named = cargo_place::named_host(&env)?;
+    let project = app_build_project(&env)?;
     let runner = crate::lake_run::Runner::from_env(&env)?;
     let ssh = Ssh::from_env();
     let choice = match cargo_place::stays_here(args, tool, checkout.as_ref(), &env) {
@@ -356,7 +357,7 @@ pub fn cmd_cargo(args: &[String], changed: &Changed) -> Result<()> {
                 // so no host's last build is warm for it.
                 None if tool == cargo_place::CargoTool::Mutants => cargo_place::Wanted::Room,
                 None => {
-                    warm = warm_host(&places, checkout, key);
+                    warm = warm_host(&places, checkout, key, project.as_deref());
                     match warm.as_deref() {
                         Some(host) => cargo_place::Wanted::Warm(cargo_place::Warm {
                             host,
@@ -462,6 +463,7 @@ pub fn cmd_cargo(args: &[String], changed: &Changed) -> Result<()> {
             record_finished(
                 &places,
                 checkout,
+                project.as_deref(),
                 &CargoRun {
                     worktree: key.worktree,
                     started_at,
@@ -502,6 +504,24 @@ fn hook_check(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Result<Option
     }
 }
 
+/// The variable that names the project of the app build whose step runs
+/// cargo (app_build.rs `run_lanes`). An app checkout's claim names no
+/// project, and every word after `builds cargo` is cargo's, so in a repo two
+/// projects hold this names the project, as `--project` does for other
+/// commands: a worktree's claim outranks it.
+pub const APP_BUILD_PROJECT_VARIABLE: &str = "BUILDS_APP_BUILD_PROJECT";
+
+/// The project `APP_BUILD_PROJECT_VARIABLE` names, as <env> reads it; None
+/// for a run that no app build of a project started.
+fn app_build_project(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Result<Option<String>> {
+    env(APP_BUILD_PROJECT_VARIABLE)
+        .map(|value| match value.into_string() {
+            Ok(value) => Ok(value),
+            Err(value) => fail!("{APP_BUILD_PROJECT_VARIABLE} is not UTF-8: {value:?}"),
+        })
+        .transpose()
+}
+
 /// What `builds_cargo_runs` records a run under: the checkout's top folder
 /// and cargo's subcommand (`clippy`, `nextest run`). `builds cargo` records
 /// each run under its key and finds the checkout's last run of a subcommand
@@ -527,9 +547,14 @@ impl RunKey {
 /// project; None for a repo in no project or a checkout with no such run.
 /// When the store cannot be read, builds says so on stderr and places the
 /// run by room alone.
-fn warm_host(places: &Places, checkout: &Checkout, key: &RunKey) -> Option<String> {
+fn warm_host(
+    places: &Places,
+    checkout: &Checkout,
+    key: &RunKey,
+    project: Option<&str>,
+) -> Option<String> {
     let read = || -> Result<Option<String>> {
-        let Some(path) = crate::lists::store::database_of(places, checkout)? else {
+        let Some(path) = crate::lists::store::database_of(places, checkout, project)? else {
             return Ok(None);
         };
         let Some(conn) = crate::db::open_reader(&path)? else {
@@ -566,12 +591,13 @@ pub fn last_host(conn: &Connection, key: &RunKey, path: &Path) -> Result<Option<
 fn record_finished(
     places: &Places,
     checkout: &Checkout,
+    project: Option<&str>,
     run: &CargoRun,
     crates: &[String],
     outcome: &crate::cargo_run_outcome::Outcome,
     tree: Option<&crate::tree_state::TreeState>,
 ) -> Result<()> {
-    let Some(database) = crate::lists::store::database_of(places, checkout)? else {
+    let Some(database) = crate::lists::store::database_of(places, checkout, project)? else {
         return Ok(());
     };
     record_run(&database, run, crates, outcome, tree)

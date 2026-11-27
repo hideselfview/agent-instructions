@@ -123,6 +123,7 @@ use crate::app_site::Site;
 use crate::app_timing::{
     BuildRecords, BuiltCommit, RunRecord, StepKind, StepRecord, StepResult, Timer,
 };
+use crate::cargo_run::APP_BUILD_PROJECT_VARIABLE;
 use crate::checkout::Checkout;
 use crate::claim::Claim;
 use crate::fail;
@@ -2847,6 +2848,11 @@ pub fn run_lanes(
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // The lane's steps inherit it, for their `builds cargo` runs.
+        match of.project {
+            Some(project) => command.env(APP_BUILD_PROJECT_VARIABLE, project),
+            None => command.env_remove(APP_BUILD_PROJECT_VARIABLE),
+        };
         install_gate::set_lane_generation(&mut command);
         let mut child = command
             .spawn()
