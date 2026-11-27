@@ -50,9 +50,6 @@ use crate::lane::Lane;
 use crate::places::Places;
 use crate::shots_declared::{ShotDeclarations, ShotNames};
 
-/// The flag of `builds app-build` that names this command.
-pub const FLAG: &str = "--landing-coverage";
-
 /// What starts each line that tells of a dropped shots prefix.
 pub const DROPPED: &str = "shots dropped:";
 
@@ -332,8 +329,10 @@ fn refusal(repo: &str, worktree: &str, branch: &str, lanes: &[&Unbuilt]) -> Stri
             .is_some_and(|n| !n.missing_shots.is_empty())
     }) {
         said.push_str(&format!(
-            "\nA passing app build must cover every shots prefix the branch's builds ran. To drop a prefix, record why with `builds app-build {FLAG_DROP} {repo} <branch> <lane> <prefix> --why TEXT`. Land prints the reason.",
-            FLAG_DROP = crate::app_shots_drop::FLAG
+            "\nA passing app build must cover every shots prefix the branch's builds ran. To drop a prefix, record why with `builds {drop} {repo} <branch> <lane> <prefix> --why TEXT`. Land prints the reason.",
+            drop = crate::command::Command::AppBuild(crate::command::app_build::DropShots).words()
+                [0]
+                .join(" ")
         ));
     }
     said.push_str(&format!(

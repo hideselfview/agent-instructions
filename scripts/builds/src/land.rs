@@ -858,9 +858,12 @@ impl Landing<'_> {
             return Ok(());
         }
         let branch = self.request.shas.last().expect("a landing names a commit");
+        let coverage =
+            crate::command::Command::AppBuild(crate::command::app_build::LandingCoverage).words()
+                [0];
         let mut command = Command::new(self.program);
         command
-            .args(["app-build", crate::app_landing::FLAG])
+            .args(coverage)
             .arg(&self.workdir)
             .args([branch, self.start.rev()])
             .args(&self.request.shas)
@@ -872,8 +875,8 @@ impl Landing<'_> {
             refuse(
                 out,
                 uncovered(format!(
-                    "land could not run builds app-build {}: {error}",
-                    crate::app_landing::FLAG
+                    "land could not run builds {}: {error}",
+                    coverage.join(" ")
                 )),
             )
         })?;

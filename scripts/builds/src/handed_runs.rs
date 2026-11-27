@@ -24,9 +24,6 @@ use crate::install_gate::{self, ConnectionUse};
 use crate::lists::store::Store;
 use crate::places::Places;
 
-/// The `builds app-build` flag of the form that records a handed store.
-pub const FLAG: &str = "--record-handed";
-
 /// The folder of the stores that lanes hand the installed builds.
 fn folder(places: &Places) -> PathBuf {
     places.install_dir().join("handed-runs")
@@ -79,7 +76,8 @@ fn hand_to(
 ) -> Result<()> {
     let mut command = std::process::Command::new(installed);
     command
-        .args(["app-build", FLAG, repo])
+        .args(crate::command::Command::AppBuild(crate::command::app_build::RecordHanded).words()[0])
+        .arg(repo)
         .arg(store)
         .args(project)
         .stdin(std::process::Stdio::null());

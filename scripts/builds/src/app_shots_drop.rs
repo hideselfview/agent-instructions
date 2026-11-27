@@ -20,9 +20,6 @@ use crate::lists::store::Store;
 use crate::output::note;
 use crate::tool::Tool;
 
-/// The flag of `builds app-build` that names this command.
-pub const FLAG: &str = "--drop-shots";
-
 /// A shots prefix dropped from a branch's landing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Drop {
