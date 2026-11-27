@@ -33,12 +33,18 @@ struct ShotWindowState: Sendable, Equatable {
         let className: String
     }
 
-    /// One listing for each of the scene's windows, in order.
-    let windows: [Listing]
-    /// Every other window of this process that the window server shows on
-    /// the screen, with the class AppKit gives it: a window left over from an
-    /// earlier scene can cover one of the scene's.
-    var others: [Other] = []
+    /// What the window server's list of windows says.
+    enum WindowList: Sendable, Equatable {
+        /// One listing for each of the scene's windows, in order, and every
+        /// other window of this process that the window server shows on the
+        /// screen, with the class AppKit gives it: a window left over from
+        /// an earlier scene can cover one of the scene's.
+        case read([Listing], others: [Other])
+        /// The window server gave no list.
+        case unread
+    }
+
+    let windows: WindowList
     let displays: [Display]
     /// The display the scene is drawn on.
     let shotDisplay: CGDirectDisplayID
@@ -51,9 +57,36 @@ struct ShotWindowState: Sendable, Equatable {
         windowIDs: [CGWindowID],
         on display: ShotDisplay
     ) -> Self {
-        let listed =
-            (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID)
-                as? [[String: Any]]) ?? []
+        return Self(
+            windows: windowList(
+                windowIDs,
+                listed: CGWindowListCopyWindowInfo(
+                    [.optionAll],
+                    kCGNullWindowID
+                ) as? [[String: Any]]
+            ),
+            displays: NSScreen.screens.compactMap { screen in
+                screen.shotDisplayNumber.map {
+                    Display(
+                        id: $0,
+                        frame: screen.frame,
+                        scale: screen.backingScaleFactor
+                    )
+                }
+            },
+            shotDisplay: display.id,
+            holder: display.holder
+        )
+    }
+
+    /// What `listed`, the window server's list, or nil when it gave none,
+    /// says of the windows numbered `windowIDs`.
+    @MainActor
+    static func windowList(
+        _ windowIDs: [CGWindowID],
+        listed: [[String: Any]]?
+    ) -> WindowList {
+        guard let listed else { return .unread }
         let entries = listed.compactMap(entry(from:))
         let pid = Int(getpid())
         let ours = Set(
@@ -71,8 +104,8 @@ struct ShotWindowState: Sendable, Equatable {
             },
             uniquingKeysWith: { first, _ in first }
         )
-        return Self(
-            windows: windowIDs.map { id in
+        return .read(
+            windowIDs.map { id in
                 Listing(id: id, entry: entries.first { $0.id == id })
             },
             others:
@@ -82,18 +115,7 @@ struct ShotWindowState: Sendable, Equatable {
                 }
                 .map {
                     Other(entry: $0, className: classes[$0.id] ?? "unknown")
-                },
-            displays: NSScreen.screens.compactMap { screen in
-                screen.shotDisplayNumber.map {
-                    Display(
-                        id: $0,
-                        frame: screen.frame,
-                        scale: screen.backingScaleFactor
-                    )
                 }
-            },
-            shotDisplay: display.id,
-            holder: display.holder
         )
     }
 
@@ -115,25 +137,38 @@ struct ShotWindowState: Sendable, Equatable {
 
     /// The state as the failure prints it.
     var description: String {
-        let windowLines = windows.map { listing in
-            listing.entry.map {
-                "window \(listing.id): window server frame \($0.frame), "
-                    + "layer \($0.layer), "
-                    + "\($0.onScreen ? "on" : "not on") the screen"
-            } ?? "window \(listing.id): the window server lists no entry"
-        }
-        let otherLines = others.map {
-            "other window \($0.entry.id) (\($0.className)) of this process: "
-                + "window server frame \($0.entry.frame), layer "
-                + "\($0.entry.layer), on the screen"
-        }
+        let windowLines: [String] =
+            switch windows {
+            case .unread:
+                ["the window server gave no list of windows"]
+            case .read(let listings, let others):
+                listings.map(\.description) + others.map(\.description)
+            }
         let displayLines = displays.map {
             "display \($0.id)\($0.id == shotDisplay ? " (the shot display)" : ""): "
                 + "frame \($0.frame), \($0.scale)x"
         }
         return
-            (windowLines + otherLines + displayLines
+            (windowLines + displayLines
             + ["shot display held as: \(holder)"])
             .joined(separator: "; ")
+    }
+}
+
+extension ShotWindowState.Listing: CustomStringConvertible {
+    var description: String {
+        entry.map {
+            "window \(id): window server frame \($0.frame), "
+                + "layer \($0.layer), "
+                + "\($0.onScreen ? "on" : "not on") the screen"
+        } ?? "window \(id): the window server lists no entry"
+    }
+}
+
+extension ShotWindowState.Other: CustomStringConvertible {
+    var description: String {
+        "other window \(entry.id) (\(className)) of this process: "
+            + "window server frame \(entry.frame), layer \(entry.layer), "
+            + "on the screen"
     }
 }

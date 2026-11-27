@@ -19,11 +19,6 @@ struct ShotScene {
     /// window's title bar.
     let size: CGSize
     var frame: ShotFrame = .content
-    /// Whether the scene's view alone is drawn in a key window, so a field
-    /// the scene focuses draws focused. A scene's view alone is in a window
-    /// of an app that is not active, which is never key; this one is in a
-    /// panel that does not activate the app.
-    var keyWindow = false
     /// Whether a scene shown in its window is drawn inactive, as macOS draws
     /// a window behind another app's window: the window is neither key nor
     /// main.

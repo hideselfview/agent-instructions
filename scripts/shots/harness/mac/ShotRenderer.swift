@@ -24,7 +24,8 @@ enum ShotRenderer {
     }
 
     /// `scene` captured in `look`; a component scene is drawn at its size in
-    /// `boardSizes`, and a scene shown in its window on `display`.
+    /// `boardSizes`, and a scene shown in its window on `display`. A scene
+    /// that leaves a window up fails, whether or not it was captured.
     static func render(
         _ scene: ShotScene,
         in look: some ShotLook,
@@ -32,7 +33,38 @@ enum ShotRenderer {
         on display: ShotDisplay?
     ) async throws -> Capture {
         let windowScene = try WindowScene(scene: scene, display: display)
-        closeStrayWindows(before: scene)
+        let outcome: Result<Capture, any Error>
+        do {
+            outcome = .success(
+                try await draw(
+                    scene,
+                    in: look,
+                    boardSizes: boardSizes,
+                    windowScene: windowScene
+                )
+            )
+        }
+        catch {
+            outcome = .failure(error)
+        }
+        let left = closeWindowsLeftUp()
+        guard left.isEmpty else {
+            let failure: (any Error)? =
+                if case .failure(let error) = outcome { error }
+                else { nil }
+            throw ShotError.windowsLeftUp(scene.id, left, after: failure)
+        }
+        return try outcome.get()
+    }
+
+    /// `scene` captured in `look` from a window of its own, which is closed
+    /// before this returns or throws.
+    private static func draw(
+        _ scene: ShotScene,
+        in look: some ShotLook,
+        boardSizes: ShotBoardSizes,
+        windowScene: WindowScene?
+    ) async throws -> Capture {
         let stage = try scene.stage()
         let dressing = try look.dress(stage.view, framedAs: scene.frame)
         defer { dressing.undress() }
@@ -50,12 +82,19 @@ enum ShotRenderer {
         // with every scene after it.
         defer {
             if let sheet = window.attachedSheet {
+                // Ordering a window out plays its animation, during which
+                // the window server still shows it.
+                sheet.animationBehavior = .none
                 window.endSheet(sheet)
                 sheet.orderOut(nil)
+                sheet.close()
             }
             window.contentViewController = nil
             window.contentView = nil
             window.close()
+            // The window server takes the windows off the screen as the
+            // transaction commits, which the check for windows left up reads.
+            CATransaction.flush()
         }
         if let windowScene {
             try place(window, on: windowScene.display, scene: scene)
@@ -173,7 +212,8 @@ enum ShotRenderer {
             }
             window.title = windowScene.title
             guard let frame = window.contentView?.superview else {
-                preconditionFailure("A titled window has a frame view")
+                window.close()
+                throw ShotError.noFrameView(scene.id)
             }
             return (window, frame)
         }
@@ -184,40 +224,19 @@ enum ShotRenderer {
             rootView: rootView.environment(\.controlActiveState, .key)
         )
         host.frame = bounds
-        let window = contentWindow(for: scene, size: size)
+        // The borderless window sits past the edge of every display.
+        let window = ShotWindow(
+            contentRect: NSRect(origin: offscreenOrigin, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
         // Ordering a window in plays its zoom-in on a thread of its own,
         // paced by the display it is on; past every display there is
         // none, and the animation would never end.
         window.animationBehavior = .none
         window.contentView = host
         return (window, host)
-    }
-
-    /// The borderless window that holds a scene's view alone, past the edge
-    /// of every display: a panel that does not activate the app when the
-    /// scene needs its window key.
-    private static func contentWindow(
-        for scene: ShotScene,
-        size: CGSize
-    ) -> NSWindow {
-        let contentRect = NSRect(origin: offscreenOrigin, size: size)
-        guard scene.keyWindow else {
-            return ShotWindow(
-                contentRect: contentRect,
-                styleMask: [.borderless],
-                backing: .buffered,
-                defer: false
-            )
-        }
-        let panel = ShotPanel(
-            contentRect: contentRect,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        // A panel hides when its app is not active, which this app never is.
-        panel.hidesOnDeactivate = false
-        return panel
     }
 
     /// The empty window of a scene shown in its window: a panel that does
@@ -367,8 +386,8 @@ private final class ShotWindow: NSWindow {
     ) -> NSRect { frameRect }
 }
 
-/// The window of a scene shown in its window, or of a scene that needs its
-/// view in a key window. A panel that does not activate the app is key, and draws its title bar and toolbar as active,
+/// The window of a scene shown in its window. A panel that does not activate
+/// the app is key, and draws its title bar and toolbar as active,
 /// while another app holds the focus: a window of an app that is not active
 /// is never key.
 private final class ShotPanel: NSPanel {

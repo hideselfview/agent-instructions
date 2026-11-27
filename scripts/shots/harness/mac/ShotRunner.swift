@@ -6,7 +6,8 @@ import Foundation
 /// scenes and its look.
 @MainActor
 enum ShotRunner {
-    /// The scenes that failed to render, encode or write, with why.
+    /// The scenes that failed to render, encode or write, and a display lease
+    /// that failed to close, each with why.
     struct Failed: Error, CustomStringConvertible {
         let failures: [String]
 
@@ -48,10 +49,6 @@ enum ShotRunner {
                     boardSizes: boardSizes,
                     on: lease?.display
                 )
-                guard !capture.png.isEmpty else {
-                    failures.append("\(scene.id): rendered no bytes")
-                    continue
-                }
                 let url = request.out
                     .appendingPathComponent("\(scene.id)@macos.png")
                 try capture.png.write(to: url)
@@ -66,7 +63,8 @@ enum ShotRunner {
             }
         }
 
-        try lease?.close()
+        do { try lease?.close() }
+        catch { failures.append("the shot display lease: \(error)") }
         guard failures.isEmpty else { throw Failed(failures: failures) }
     }
 }

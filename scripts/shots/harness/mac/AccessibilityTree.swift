@@ -85,10 +85,20 @@ struct AccessibilityTree: Sendable {
 
         mutating func add(children: [AXUIElement], parent: Int?) throws {
             for child in children {
+                // A list can name an element the API reads nothing of, not
+                // even the names of its attributes, such as one the track
+                // list holds while its tracks are picked. It has nothing to
+                // list.
+                if Self.answersNothing(child) {
+                    treeLogger.info(
+                        "Left out an element of \(subject) that answers no read"
+                    )
+                    continue
+                }
                 // An element the tree gives an infinite position has no box
                 // to list, and JSON has no infinity to write one as.
                 // The elements it holds are listed under its parent.
-                if let frame = Self.frame(of: child), !frame.isFinite {
+                if let frame = try Self.frame(of: child), !frame.isFinite {
                     try add(
                         children: Self.children(of: child, subject: subject),
                         parent: parent
@@ -96,10 +106,7 @@ struct AccessibilityTree: Sendable {
                     continue
                 }
                 let index = nodes.count
-                guard let node = try node(of: child, parent: parent) else {
-                    continue
-                }
-                nodes.append(node)
+                nodes.append(try node(of: child, parent: parent))
                 try add(
                     children: Self.children(of: child, subject: subject),
                     parent: index
@@ -107,27 +114,43 @@ struct AccessibilityTree: Sendable {
             }
         }
 
-        private func node(of element: AXUIElement, parent: Int?) throws -> Node?
+        private static func answersNothing(_ element: AXUIElement) -> Bool {
+            var names: CFArray?
+            return AXUIElementCopyAttributeNames(element, &names)
+                == .apiDisabled
+        }
+
+        private func node(of element: AXUIElement, parent: Int?) throws -> Node
         {
-            guard let frame = Self.frame(of: element),
-                let role = Self.string(element, kAXRoleAttribute)
-            else { return nil }
-            let value = Self.value(element)
+            guard let frame = try Self.frame(of: element),
+                let role = try Self.string(element, kAXRoleAttribute)
+            else {
+                throw AccessibilityTree.ReadError.noFrameOrRole(
+                    subject,
+                    element: Self.described(element)
+                )
+            }
+            let value = try Self.value(element)
             return Node(
                 role: role,
-                subrole: Self.string(element, kAXSubroleAttribute),
-                title: Self.string(element, kAXTitleAttribute),
-                description: Self.string(element, kAXDescriptionAttribute),
-                titleElementWords: Self.titleElementWords(of: element),
-                placeholder: Self.string(element, kAXPlaceholderValueAttribute),
+                subrole: try Self.string(element, kAXSubroleAttribute),
+                title: try Self.string(element, kAXTitleAttribute),
+                description: try Self.string(element, kAXDescriptionAttribute),
+                titleElementWords: try Self.titleElementWords(of: element),
+                placeholder: try Self.string(
+                    element,
+                    kAXPlaceholderValueAttribute
+                ),
                 value: value,
                 x: frame.minX - origin.x,
                 y: frame.minY - origin.y,
                 width: frame.width,
                 height: frame.height,
-                enabled: Self.bool(element, kAXEnabledAttribute) ?? true,
-                selected: Self.bool(element, kAXSelectedAttribute),
-                focused: Self.bool(element, kAXFocusedAttribute),
+                // An element with no enabled attribute, such as a group,
+                // cannot be turned off, and VoiceOver reads it as enabled.
+                enabled: try Self.bool(element, kAXEnabledAttribute) ?? true,
+                selected: try Self.bool(element, kAXSelectedAttribute),
+                focused: try Self.bool(element, kAXFocusedAttribute),
                 style: try Self.style(
                     of: element,
                     value: value,
@@ -146,12 +169,12 @@ struct AccessibilityTree: Sendable {
             )
         }
 
-        static func frame(of element: AXUIElement) -> CGRect? {
+        static func frame(of element: AXUIElement) throws -> CGRect? {
             var point = CGPoint.zero
             var size = CGSize.zero
             guard
-                let position = attribute(element, kAXPositionAttribute),
-                let extent = attribute(element, kAXSizeAttribute),
+                let position = try attribute(element, kAXPositionAttribute),
+                let extent = try attribute(element, kAXSizeAttribute),
                 CFGetTypeID(position) == AXValueGetTypeID(),
                 CFGetTypeID(extent) == AXValueGetTypeID(),
                 AXValueGetValue(
@@ -168,27 +191,65 @@ struct AccessibilityTree: Sendable {
             return CGRect(origin: point, size: size)
         }
 
-        private static func attribute(
+        /// What `element` holds under `name`: nil when it has no such
+        /// attribute or the attribute holds no value, and an error when the
+        /// read fails.
+        fileprivate static func attribute(
             _ element: AXUIElement,
             _ name: String
-        ) -> CFTypeRef? {
+        ) throws -> CFTypeRef? {
             var result: CFTypeRef?
-            guard
-                AXUIElementCopyAttributeValue(
-                    element,
-                    name as CFString,
-                    &result
+            let status = AXUIElementCopyAttributeValue(
+                element,
+                name as CFString,
+                &result
+            )
+            switch status {
+            case .success:
+                return result
+            case .attributeUnsupported, .noValue:
+                return nil
+            case .failure where try refuses(element, name):
+                treeLogger.debug(
+                    "No \(name) for \(described(element)): error \(status.rawValue)"
                 )
-                    == .success
-            else { return nil }
-            return result
+                return nil
+            default:
+                throw AccessibilityTree.ReadError.AttributeFailure(
+                    element: described(element),
+                    attribute: name,
+                    status: status.rawValue
+                )
+            }
+        }
+
+        /// Whether `element` is of a role that lists the attribute `name` and
+        /// answers every read of it with a general failure, having nothing to
+        /// give: a segmented control's radio group its description, and a
+        /// toolbar button of AppKit's its subrole and the element that titles
+        /// it.
+        private static func refuses(
+            _ element: AXUIElement,
+            _ name: String
+        ) throws -> Bool {
+            // The role has no such refusal, so reading it asks this nothing.
+            guard name != kAXRoleAttribute,
+                let role = try string(element, kAXRoleAttribute)
+            else { return false }
+            return switch (role, name) {
+            case (kAXRadioGroupRole, kAXDescriptionAttribute),
+                (kAXButtonRole, kAXSubroleAttribute),
+                (kAXButtonRole, kAXTitleUIElementAttribute):
+                true
+            default: false
+            }
         }
 
         static func string(
             _ element: AXUIElement,
             _ name: String
-        ) -> String? {
-            guard let text = attribute(element, name) as? String,
+        ) throws -> String? {
+            guard let text = try attribute(element, name) as? String,
                 !text.isEmpty
             else { return nil }
             return text
@@ -197,12 +258,12 @@ struct AccessibilityTree: Sendable {
         private static func bool(
             _ element: AXUIElement,
             _ name: String
-        ) -> Bool? {
-            attribute(element, name) as? Bool
+        ) throws -> Bool? {
+            try attribute(element, name) as? Bool
         }
 
-        private static func value(_ element: AXUIElement) -> Value? {
-            switch attribute(element, kAXValueAttribute) {
+        private static func value(_ element: AXUIElement) throws -> Value? {
+            switch try attribute(element, kAXValueAttribute) {
             case let text as String: .text(text)
             case let number as NSNumber: .number(number.doubleValue)
             default: nil
@@ -259,13 +320,13 @@ extension AccessibilityTree.Reader {
     /// The words of the element `element` names itself by, which are the
     /// label's value, without the colon that ends a label: VoiceOver does
     /// not read it.
-    fileprivate static func titleElementWords(of element: AXUIElement)
+    fileprivate static func titleElementWords(of element: AXUIElement) throws
         -> String?
     {
         guard
-            let named = attribute(element, kAXTitleUIElementAttribute),
+            let named = try attribute(element, kAXTitleUIElementAttribute),
             CFGetTypeID(named) == AXUIElementGetTypeID(),
-            let words = string(
+            let words = try string(
                 unsafeDowncast(named, to: AXUIElement.self),
                 kAXValueAttribute
             )
@@ -384,6 +445,20 @@ extension AccessibilityTree {
             attribute: String,
             status: Int32
         )
+        case noFrameOrRole(String, element: String)
+
+        /// A failed read of one attribute, which the reader of a tree knows
+        /// nothing more of than the element.
+        struct AttributeFailure: Error, CustomStringConvertible {
+            let element: String
+            let attribute: String
+            let status: Int32
+
+            var description: String {
+                "the accessibility API failed to give \(attribute) of "
+                    + "\(element) (error \(status))"
+            }
+        }
 
         var description: String {
             switch self {
@@ -407,6 +482,9 @@ extension AccessibilityTree {
             ):
                 "the accessibility API failed to give \(attribute) of "
                     + "\(element) in \(subject)'s window (error \(status))"
+            case .noFrameOrRole(let subject, let element):
+                "the accessibility tree gives no frame or no role for "
+                    + "\(element) in \(subject)'s window"
             }
         }
     }
@@ -460,11 +538,30 @@ extension AccessibilityTree.Reader {
         )
     }
 
-    /// The element as an error names it: its role and its box.
-    private static func described(_ element: AXUIElement) -> String {
-        let role = string(element, kAXRoleAttribute) ?? "an element"
-        guard let frame = frame(of: element) else { return role }
-        return "\(role) at \(frame)"
+    /// The element as an error names it: its role and its box, each as far
+    /// as the element gives it. It reads them itself, since a failed read is
+    /// what it may be naming.
+    fileprivate static func described(_ element: AXUIElement) -> String {
+        func read(_ name: String) -> CFTypeRef? {
+            var result: CFTypeRef?
+            let status = AXUIElementCopyAttributeValue(
+                element,
+                name as CFString,
+                &result
+            )
+            return status == .success ? result : nil
+        }
+        let role = read(kAXRoleAttribute) as? String ?? "an element"
+        var point = CGPoint.zero
+        guard let position = read(kAXPositionAttribute),
+            CFGetTypeID(position) == AXValueGetTypeID(),
+            AXValueGetValue(
+                unsafeDowncast(position, to: AXValue.self),
+                .cgPoint,
+                &point
+            )
+        else { return role }
+        return "\(role) at \(point)"
     }
 }
 
@@ -565,11 +662,10 @@ extension AccessibilityTree {
 extension AccessibilityTree.Node {
     var frame: CGRect { CGRect(x: x, y: y, width: width, height: height) }
 
-    /// The name VoiceOver reads for a control: its title, else its
-    /// description, else the words of the element it names itself by.
-    var controlName: String? { title ?? description ?? titleElementWords }
-
-    var staticText: String? { Self.staticText(role: role, value: value) }
+    /// The name VoiceOver reads for a control: its description, such as its
+    /// accessibility label, else its title, else the words of the element it
+    /// names itself by.
+    var controlName: String? { description ?? title ?? titleElementWords }
 
     fileprivate static func staticText(
         role: String,
@@ -641,20 +737,14 @@ extension AccessibilityTree {
         let previous = window.accessibilityIdentifier()
         window.setAccessibilityIdentifier(token)
         defer { window.setAccessibilityIdentifier(previous) }
-        let named = list.first {
-            var identifier: CFTypeRef?
-            AXUIElementCopyAttributeValue(
-                $0,
-                kAXIdentifierAttribute as CFString,
-                &identifier
-            )
-            return (identifier as? String) == token
+        let named = try list.first {
+            try Reader.string($0, kAXIdentifierAttribute) == token
         }
         guard let element = named else {
             throw ReadError.windowNotListed(
                 subject,
                 wanted: CGRect(origin: origin, size: size),
-                listed: list.compactMap(Reader.frame(of:))
+                listed: try list.compactMap(Reader.frame(of:))
             )
         }
         return (element, origin)

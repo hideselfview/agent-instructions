@@ -72,24 +72,8 @@ final class ShotDisplay {
         of: nil
     )
 
-    /// The process's display, added by the first call and kept until the
-    /// process ends. One display per process means no display is created
-    /// within milliseconds of another's destruction, which WindowServer can
-    /// leave behind.
-    private static var added: Task<ShotDisplay, any Error>?
-
-    /// The display of this process. Each call returns the same display.
-    static func shared() async throws -> ShotDisplay {
-        if let added {
-            return try await added.value
-        }
-        let task = Task { try await add() }
-        added = task
-        return try await task.value
-    }
-
     /// Add the display, once AppKit lists it at its size and scale.
-    static func add(size: CGSize = size) async throws -> ShotDisplay {
+    static func add(size: CGSize) async throws -> ShotDisplay {
         let width = Int(size.width)
         let height = Int(size.height)
         let display = try virtualDisplay(

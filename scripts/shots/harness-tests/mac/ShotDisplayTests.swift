@@ -67,7 +67,8 @@ private enum TestDisplay {
     private static var adding: Task<ShotDisplay, any Error>?
 
     static func get() async throws -> ShotDisplay {
-        let task = adding ?? Task { try await ShotDisplay.add() }
+        let task =
+            adding ?? Task { try await ShotDisplay.add(size: ShotDisplay.size) }
         adding = task
         return try await task.value
     }
@@ -114,13 +115,17 @@ struct ShotDisplayTests {
             windowIDs: [number, 0xFFFF_FFF0],
             on: display
         )
-        let listed = try #require(state.windows.first?.entry)
+        guard case .read(let listings, _) = state.windows else {
+            Issue.record("the window server gave no list: \(state)")
+            return
+        }
+        let listed = try #require(listings.first?.entry)
         #expect(listed.id == number)
         #expect(
             listed.frame.size == CGSize(width: 120, height: 80),
             "\(listed)"
         )
-        #expect(state.windows.last?.entry == nil)
+        #expect(listings.last?.entry == nil)
         #expect(state.displays.contains { $0.id == display.id })
         #expect(state.holder.contains("owned by this process"))
     }
@@ -188,7 +193,7 @@ struct ShotDisplayTests {
         let display = try await TestDisplay.get()
         let otherID: CGDirectDisplayID
         do {
-            let other = try await ShotDisplay.add()
+            let other = try await ShotDisplay.add(size: ShotDisplay.size)
             otherID = other.id
             let scene = ShotScene(
                 id: "a scene on the display that closes",
@@ -235,6 +240,99 @@ struct ShotDisplayTests {
             $0.isVisible && !before.contains($0.windowNumber)
         }
         #expect(left.isEmpty, "\(left.map { String(describing: $0.frame) })")
+    }
+
+    /// A window the scene's own teardown leaves up fails the scene that left
+    /// it, and is closed, so that no later capture draws it.
+    @Test
+    func aSceneThatLeavesAWindowUpFails() async throws {
+        let display = try await TestDisplay.get()
+        let stray = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        stray.animationBehavior = .none
+        stray.isReleasedWhenClosed = false
+        stray.title = "Left behind"
+        let scene = ShotScene(
+            id: "a scene that leaves a window up",
+            size: CGSize(width: 300, height: 200),
+            frame: .window(title: "Shot")
+        ) {
+            stray.orderFront(nil)
+            return ShotStage(Color.clear)
+        }
+        let error = await #expect(throws: ShotError.self) {
+            try await render(scene, on: display)
+        }
+        guard case .windowsLeftUp(_, let windows, nil) = error else {
+            Issue.record(
+                "expected a window left up: \(String(describing: error))"
+            )
+            return
+        }
+        #expect(windows.count == 1, "\(windows)")
+        #expect(windows.first?.contains("Left behind") == true, "\(windows)")
+        #expect(!stray.isVisible)
+    }
+
+    /// A display lease that fails to close fails the capture, and the
+    /// failures of its scenes stay in the list.
+    @Test
+    func aFailedLeaseCloseKeepsTheScenesFailures() async throws {
+        let display = try await ShotDisplay.add(size: ShotDisplay.sharedSize)
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lease-close-\(UUID())")
+        try FileManager.default.createDirectory(
+            at: folder,
+            withIntermediateDirectories: true
+        )
+        defer {
+            do { try FileManager.default.removeItem(at: folder) }
+            catch { Issue.record("\(folder.path) stays: \(error)") }
+        }
+        // A lease tool that lends this display and fails as it is released.
+        let tool = folder.appendingPathComponent("lease.py")
+        try Data(
+            """
+            import os, sys
+            print("\(display.id) 0", flush=True)
+            os.close(sys.stdout.fileno())
+            sys.stdin.buffer.read()
+            sys.exit(3)
+            """
+            .utf8
+        )
+        .write(to: tool)
+        let sizes = folder.appendingPathComponent("board-sizes.json")
+        try Data("{}".utf8).write(to: sizes)
+        let tooWide = ShotScene(
+            id: "a window wider than its slot",
+            size: CGSize(width: ShotDisplay.size.width + 100, height: 300),
+            frame: .window(title: "Shot")
+        ) {
+            ShotStage(Color.clear)
+        }
+        let error = await #expect(throws: ShotRunner.Failed.self) {
+            try await ShotRunner.capture(
+                [tooWide],
+                in: PlainLook(),
+                environment: [
+                    "BUILDS_SHOTS_OUT": folder.path,
+                    "BUILDS_SHOTS_BOARD_SIZES": sizes.path,
+                    "BUILDS_SHOTS_DISPLAY": tool.path,
+                ]
+            )
+        }
+        let failures = try #require(error).failures
+        #expect(failures.count == 2, "\(failures)")
+        #expect(failures.first?.hasPrefix(tooWide.id) == true, "\(failures)")
+        #expect(
+            failures.last?.contains("exited with status 3") == true,
+            "\(failures)"
+        )
     }
 
     private func visibleWindows() -> Set<Int> {

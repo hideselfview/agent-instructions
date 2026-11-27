@@ -67,25 +67,32 @@ extension ShotRenderer {
         }
     }
 
-    /// Closes each window a scene before this one left up. An alert raised
+    /// Closes each window still up once a scene's own window is closed, and
+    /// returns what each was: the scene that left them fails. An alert raised
     /// before its view is in its window hangs from the key window, which a
-    /// sheet left up would be, and every capture after it draws the alert
-    /// over that sheet.
-    static func closeStrayWindows(before scene: ShotScene) {
+    /// sheet left up would be, and every capture after it would draw the
+    /// alert over that sheet.
+    static func closeWindowsLeftUp() -> [String] {
         // A sheet's presentation window can be gone from AppKit's view while
-        // the window server still shows it, so it counts whether or not
-        // AppKit calls it visible.
-        for stray in NSApplication.shared.windows
-        where stray.isVisible || stray.isSheetPresentation {
-            logger.error(
-                "A window is still up before scene \(scene.id): \(stray.className) \"\(stray.title)\" with frame \(stray.frame), sheet of \(stray.sheetParent?.title ?? "none")."
-            )
-            if let parent = stray.sheetParent {
-                parent.endSheet(stray)
+        // the window server still shows it. SwiftUI keeps the window once it
+        // is down, so it counts only while one of the two shows it.
+        NSApplication.shared.windows
+            .filter {
+                $0.isVisible
+                    || $0.isSheetPresentation && $0.mayBeOnScreen
             }
-            stray.orderOut(nil)
-            stray.close()
-        }
+            .map { stray in
+                let described =
+                    "\(stray.className) \"\(stray.title)\" with frame "
+                    + "\(stray.frame), sheet of "
+                    + "\(stray.sheetParent?.title ?? "none")"
+                if let parent = stray.sheetParent {
+                    parent.endSheet(stray)
+                }
+                stray.orderOut(nil)
+                stray.close()
+                return described
+            }
     }
 
     /// Which view holds the keyboard in `window` when the scene is taken, so
@@ -289,5 +296,23 @@ extension NSWindow {
     /// SwiftUI's window for a sheet it presents.
     fileprivate var isSheetPresentation: Bool {
         className.contains("SheetPresentationWindow")
+    }
+
+    /// Whether the window server shows the window on the screen, or gives no
+    /// list that says it does not.
+    fileprivate var mayBeOnScreen: Bool {
+        // A window with no number was never given to the window server.
+        guard windowNumber > 0 else { return false }
+        guard
+            let listed = CGWindowListCopyWindowInfo(
+                [.optionIncludingWindow],
+                CGWindowID(windowNumber)
+            ) as? [[String: Any]]
+        else { return true }
+        // The window server leaves the key out for a window that is not on
+        // the screen.
+        return listed.contains {
+            $0[kCGWindowIsOnscreen as String] as? Bool == true
+        }
     }
 }

@@ -167,9 +167,7 @@ extension ShotElementList.Element {
             role: role,
             native: isSecure ? secureSubrole : node.role,
             label: role == "text"
-                ? Self.words(node.value)
-                : node.description ?? node.title
-                    ?? node.titleElementWords,
+                ? Self.words(node.value) : node.controlName,
             value: isSecure && value != nil ? "\u{F79A}" : value,
             placeholder: node.placeholder,
             bounds: Self.bounds(of: node),

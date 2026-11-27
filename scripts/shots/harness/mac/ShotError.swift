@@ -13,8 +13,12 @@ enum ShotError: Error, CustomStringConvertible {
     /// The scene's window never became key; `focus` is the app macOS named
     /// as the front app when the wait ended.
     case windowNotKey(String, focus: FocusHolder)
+    /// Windows were still up once the scene's own window was closed, and
+    /// `after` is why the scene was not captured, when it was not.
+    case windowsLeftUp(String, [String], after: (any Error)?)
     case noScreen(String)
     case noContentView(String)
+    case noFrameView(String)
     case windowTooLarge(
         String,
         content: CGSize,
@@ -51,10 +55,16 @@ enum ShotError: Error, CustomStringConvertible {
         case .windowNotKey(let id, .noApp):
             "macOS names no front app, and scene \(id)'s window never became "
                 + "key, so it would draw inactive"
+        case .windowsLeftUp(let id, let windows, let failure):
+            "scene \(id) left these windows up: "
+                + windows.joined(separator: "; ")
+                + (failure.map { ". The scene had failed first: \($0)" } ?? "")
         case .noScreen(let id):
             "ScreenCaptureKit shares no shot display for scene \(id)'s window"
         case .noContentView(let id):
             "scene \(id)'s window has no content view"
+        case .noFrameView(let id):
+            "scene \(id)'s titled window has no frame view"
         case .windowTooLarge(
             let id,
             let content,
