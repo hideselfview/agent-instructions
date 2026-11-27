@@ -511,6 +511,37 @@ fn saved_runs_that_together_check_every_declared_board_of_a_prefix_are_its_befor
 }
 
 #[test]
+fn a_saved_run_with_no_problem_count_makes_no_composed_run() {
+    let scratch = Scratch::new("compose-no-count");
+    let places = scratch.places();
+    let now = crate::app_timing::now();
+    cache_scene(&places, "mac.a.one", "mac.a.one", now);
+    let part = Key {
+        prefix: "mac.a.one".to_string(),
+        ..key(&mac_versions().capture, &mac_versions().comparison)
+    };
+    let file = shots_cache::lookup(&places, &part)
+        .unwrap()
+        .expect("cached")
+        .findings_json();
+    let text = std::fs::read_to_string(&file).unwrap();
+    std::fs::write(&file, text.replace("\"problems\":0,", "")).unwrap();
+    let error = before_run(
+        &places,
+        "demo",
+        COMMIT,
+        Lane::MAC,
+        ENVIRONMENT,
+        "mac.a.",
+        &scratch.dir.join("no-program"),
+        &mut || Ok(vec!["mac.a.one".to_string()]),
+    )
+    .unwrap_err();
+    let said = error.text();
+    assert!(said.contains("problems"), "{said}");
+}
+
+#[test]
 fn saved_runs_that_lack_a_declared_board_of_a_prefix_are_no_before_run_of_it() {
     let scratch = Scratch::new("compose-lacking");
     let places = scratch.places();

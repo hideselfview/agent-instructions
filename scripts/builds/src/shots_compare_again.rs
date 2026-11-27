@@ -126,22 +126,22 @@ fn compare_again(places: &Places, key: &Key, program: &Path) -> Result<Option<Ca
     };
     let again = shots_check_program::recheck(program, &source)?;
     let (findings, passed) = findings_from(&source, &again, key)?;
-    let run = shot_causes::parse(&findings)?;
-    let staging = shots_cache::stage(places, key)?;
-    let report = staging.report();
-    link_pictures(&source.report(), &report)?;
-    let file = report.join(shot_causes::FILE);
-    std::fs::write(&file, &findings).context(|| format!("writing {}", file.display()))?;
-    let text = format!(
-        "builds shots: compared again from the run of comparison version {} with the pictures of capture version {}; it has no report page and no verdict against the base run\n{}",
+    let header = format!(
+        "builds shots: compared again from the run of comparison version {} with the pictures of capture version {}; it has no report page and no verdict against the base run",
         short(&source.key.versions.comparison),
         short(&key.versions.capture),
-        shot_causes::text(&run)
     );
     // The status is the checker's own verdict on the run (`Outcome::passed`),
     // which `builds shots recheck` prints: with no base run, every finding
     // fails the run.
-    let cached = staging.finish_recheck(&source, passed, &text)?;
+    let cached = cache_made_run(
+        places,
+        key,
+        &[&source],
+        &findings,
+        &header,
+        |staging, text| staging.finish_recheck(&source, passed, text),
+    )?;
     note(format!(
         "compared the pictures of the cached run of {} {} {} again with comparison version {}: no app build and no shot",
         &key.commit[..key.commit.len().min(12)],
@@ -152,7 +152,33 @@ fn compare_again(places: &Places, key: &Key, program: &Path) -> Result<Option<Ca
     Ok(Some(cached))
 }
 
-/// The first 12 characters of a shots program version.
+/// Caches as the run of <key> a run made from the cached runs <sources>, with
+/// no app build: its report links their pictures and holds <findings> as its
+/// findings.json, and its text is <header> over what the findings say. Where
+/// two sources hold a picture of one name, the run keeps the earlier
+/// source's. <finish> says how the run ended.
+pub(crate) fn cache_made_run(
+    places: &Places,
+    key: &Key,
+    sources: &[&Cached],
+    findings: &str,
+    header: &str,
+    finish: impl FnOnce(shots_cache::Staging, &str) -> Result<Cached>,
+) -> Result<Cached> {
+    let run = shot_causes::parse(findings)?;
+    let staging = shots_cache::stage(places, key)?;
+    let report = staging.report();
+    for (at, source) in sources.iter().enumerate() {
+        // The first source fills a folder that does not exist yet.
+        let after_another = at > 0;
+        link_folder(&source.report(), &report, true, after_another)?;
+    }
+    let file = report.join(shot_causes::FILE);
+    std::fs::write(&file, findings).context(|| format!("writing {}", file.display()))?;
+    finish(staging, &format!("{header}\n{}", shot_causes::text(&run)))
+}
+
+/// The first 12 characters of a commit id or a shots program version.
 pub fn short(version: &str) -> &str {
     &version[..version.len().min(12)]
 }
@@ -197,16 +223,12 @@ fn findings_from(source: &Cached, again: &str, key: &Key) -> Result<(String, boo
     Ok((file.to_string(), passed))
 }
 
-/// Hard-links each file of the report <from> but the findings files
-/// (`FINDINGS_FILES`, which sit at the report's top) to the same path under
-/// <into>, which does not exist yet.
-pub(crate) fn link_pictures(from: &Path, into: &Path) -> Result<()> {
-    link_folder(from, into, true)
-}
-
 /// Hard-links the files of the folder <from> to <into>, and those of its
-/// folders; <top> says <from> is the report's own folder.
-fn link_folder(from: &Path, into: &Path, top: bool) -> Result<()> {
+/// folders; <top> says <from> is a report's own folder, whose findings files
+/// (`FINDINGS_FILES`) it leaves out. A file <into> already holds fails the
+/// link, unless <after_another> says another report filled <into> first: then
+/// that report's file stays, and builds says which one it left out.
+fn link_folder(from: &Path, into: &Path, top: bool, after_another: bool) -> Result<()> {
     std::fs::create_dir_all(into).context(|| format!("creating {}", into.display()))?;
     let entries = std::fs::read_dir(from).context(|| format!("listing {}", from.display()))?;
     for entry in entries {
@@ -214,12 +236,18 @@ fn link_folder(from: &Path, into: &Path, top: bool) -> Result<()> {
         let name = entry.file_name();
         let (source, target) = (entry.path(), into.join(&name));
         if source.is_dir() {
-            link_folder(&source, &target, false)?;
+            link_folder(&source, &target, false, after_another)?;
         } else if !(top && FINDINGS_FILES.contains(&name.to_string_lossy().as_ref())) {
             match std::fs::hard_link(&source, &target) {
                 Ok(()) => {}
-                // A run made of several runs keeps the first one's picture.
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error)
+                    if after_another && error.kind() == std::io::ErrorKind::AlreadyExists =>
+                {
+                    note(format!(
+                        "left out {}: the run keeps the picture of that name from a newer run",
+                        source.display()
+                    ));
+                }
                 Err(error) => fail!(
                     "linking {} to {}: {error}",
                     source.display(),

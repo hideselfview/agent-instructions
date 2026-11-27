@@ -274,7 +274,7 @@ fn write_tokens(tokens: TokenStream, into: &mut String) {
     let mut at = 0;
     while at < tokens.len() {
         if let Some((attribute, length)) = attribute_at(&tokens, at)
-            && (attribute.starts_with("doc =") || attribute.starts_with("doc="))
+            && attribute.starts_with("doc =")
         {
             at += length;
             continue;

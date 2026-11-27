@@ -21,8 +21,8 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::output::note;
 use crate::places::Places;
-use crate::shot_causes;
 use crate::shots_cache::{self, Cached, Key};
+use crate::shots_compare_again::{cache_made_run, short};
 
 /// The parts of a findings.json that hold one entry for each scene, by its
 /// name.
@@ -49,6 +49,17 @@ impl Part {
             Some(list) => Ok(list),
             None => fail!(
                 "{} holds no list `{name}`",
+                self.run.findings_json().display()
+            ),
+        }
+    }
+
+    /// The number <name> of the file.
+    fn number(&self, name: &str) -> Result<u64> {
+        match self.file[name].as_u64() {
+            Some(number) => Ok(number),
+            None => fail!(
+                "{} holds no number `{name}`",
                 self.run.findings_json().display()
             ),
         }
@@ -117,22 +128,14 @@ pub fn compose(
         return Ok(None);
     }
     let findings = findings_of(&chosen)?.to_string();
-    let run = shot_causes::parse(&findings)?;
-    let staging = shots_cache::stage(places, key)?;
-    let report = staging.report();
-    for (part, _) in &chosen {
-        crate::shots_compare_again::link_pictures(&part.run.report(), &report)?;
-    }
-    let file = report.join(shot_causes::FILE);
-    std::fs::write(&file, &findings).context(|| format!("writing {}", file.display()))?;
-    let text = format!(
-        "builds shots: put together from the saved runs of {}; it has no report page\n{}",
-        chosen
+    let sources: Vec<&Cached> = chosen.iter().map(|(part, _)| &part.run).collect();
+    let header = format!(
+        "builds shots: put together from the saved runs of {}; it has no report page",
+        sources
             .iter()
-            .map(|(part, _)| part.run.key.prefix.as_str())
+            .map(|source| source.key.prefix.as_str())
             .collect::<Vec<_>>()
             .join(", "),
-        shot_causes::text(&run)
     );
     let failed = chosen.iter().any(|(part, _)| part.run.app_exit_code() != 0);
     let ended = chosen
@@ -140,10 +143,17 @@ pub fn compose(
         .map(|(part, _)| part.run.recorded_at())
         .max()
         .expect("a wanted scene has a part that gives it");
-    let cached = staging.finish_at(i64::from(failed), &text, ended)?;
+    let cached = cache_made_run(
+        places,
+        key,
+        &sources,
+        &findings,
+        &header,
+        |staging, text| staging.finish_at(i64::from(failed), text, ended),
+    )?;
     note(format!(
         "the saved runs of {} {} under {} tried every shot it selects, so builds saved them as its run: no app build and no shot",
-        &key.commit[..key.commit.len().min(12)],
+        short(&key.commit),
         key.lane.word(),
         key.prefix
     ));
@@ -191,7 +201,7 @@ fn findings_of(chosen: &[(&Part, BTreeSet<String>)]) -> Result<Value> {
         // The count names no scene, so two parts may have counted one
         // problem: the largest is not zero when any part found one, which
         // fails a recheck.
-        problems = problems.max(part.file["problems"].as_u64().unwrap_or_default());
+        problems = problems.max(part.number("problems")?);
     }
     file["scenes"] = scenes.into_iter().collect::<Vec<_>>().into();
     file["failed"] = failed.into();
