@@ -232,6 +232,9 @@ struct PageRead {
 
 pub struct Model {
     pub places: Places,
+    /// The programs the daemon runs on this Mac's OS and its hosts'
+    /// (system.rs).
+    pub system: crate::system::System,
     rules: Rules,
     state: Mutex<State>,
     changes: Arc<Revision>,
@@ -330,6 +333,7 @@ pub(super) fn now_seconds() -> i64 {
 impl Model {
     pub fn start(
         places: Places,
+        system: crate::system::System,
         rules: Rules,
         runs: Arc<Runs>,
         program: std::path::PathBuf,
@@ -339,6 +343,7 @@ impl Model {
         );
         let model = Arc::new(Model {
             places: places.clone(),
+            system,
             rules,
             state: Mutex::new(State::default()),
             changes: Arc::default(),
@@ -896,11 +901,16 @@ impl Model {
         drop(self.sampling.lock().expect("no panic holding it"));
     }
 
+    /// How the daemon reaches the agent sessions registered with builds.
+    pub fn sessions(&self) -> crate::inbox::Sessions {
+        crate::inbox::Sessions::of(&self.places, &self.system)
+    }
+
     /// Asks the hosts for their load and busy processes on a thread of its
     /// own: an ssh round trip to a host that does not answer takes ten
     /// seconds, which no other reading waits for.
     fn hosts_loop(self: Arc<Self>) {
-        let ssh = crate::host::Ssh::from_env();
+        let ssh = self.system.ssh();
         loop {
             if self.stopped.load(Ordering::SeqCst) {
                 return;
@@ -1135,7 +1145,7 @@ impl Model {
             )
         };
         let sccache = if sccache_due {
-            let reading = sccache_reading(&self.places.home, now)?;
+            let reading = sccache_reading(&self.system, &self.places.home, now)?;
             let mut state = self.state.lock().expect("no panic holding it");
             state.sccache_at = Some(Instant::now());
             state.sccache = Some(reading.clone());
@@ -1405,11 +1415,16 @@ impl Model {
         project: &str,
         rev: &str,
     ) -> Option<crate::fail::Result<crate::lists::publish::Request>> {
-        Some(
-            self.design_checkout(project)?.and_then(|repo| {
-                super::designs::ask(&self.places, project, &repo, rev, now_seconds())
-            }),
-        )
+        Some(self.design_checkout(project)?.and_then(|repo| {
+            super::designs::ask(
+                &self.places,
+                &self.sessions(),
+                project,
+                &repo,
+                rev,
+                now_seconds(),
+            )
+        }))
     }
 
     /// Board <name> of project <project>'s design files at <commit>, as a
@@ -1654,7 +1669,7 @@ impl Model {
         };
         super::review_cards::standing(
             &store,
-            &self.places.sessions(),
+            &self.sessions(),
             &running,
             &newest.full,
             verdict?.as_ref(),

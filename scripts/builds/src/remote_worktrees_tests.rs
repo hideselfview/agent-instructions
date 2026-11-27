@@ -152,7 +152,7 @@ fn prune_removes_the_worktrees_on_a_host_that_no_checkout_uses() {
             &clone.display().to_string(),
         ],
     );
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(&scratch, &home);
     let hosts = crate::host::hosts_file(&places);
     std::fs::create_dir_all(hosts.parent().unwrap()).unwrap();
     std::fs::write(&hosts, "m1 u@m1 10\ngone unreachable 4\n").unwrap();
@@ -220,7 +220,7 @@ fn a_worktree_a_job_claimed_since_the_listing_stays() {
     let home = scratch.dir.join("remote-home");
     let clone = home.join("dev/demo");
     crate::testing::repo(&clone, "target 1G\n");
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(&scratch, &home);
     host_worktree(&home, &clone, "remote-3", Some("41-17"));
     let host = Host {
         band: None,

@@ -29,11 +29,11 @@ use crate::app_platform::{self, Install};
 use crate::app_site::Site;
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::host::Ssh;
 use crate::lane::Lane;
 use crate::lock::{self, Where, Within};
 use crate::output::note;
 use crate::places::Places;
+use crate::system::{Program, System};
 use crate::tool::Tool;
 
 const USAGE: &str = "usage: builds build-app <repo> <app> [<ref>]";
@@ -164,8 +164,9 @@ fn replace(app: &Path) -> Result<()> {
         .context(|| format!("moving {} to {}", copy.display(), app.display()))
 }
 
-fn running(bundle: &str) -> Result<bool> {
-    let output = Command::new("osascript")
+fn running(system: &System, bundle: &str) -> Result<bool> {
+    let output = system
+        .command(Program::Osascript)?
         .arg("-e")
         .arg(format!("application id \"{bundle}\" is running"))
         .output()
@@ -180,12 +181,13 @@ fn running(bundle: &str) -> Result<bool> {
 }
 
 /// Quits the running app, if one runs, and waits for it to go.
-fn quit(bundle: &str, app: &Path) -> Result<()> {
-    if !running(bundle)? {
+fn quit(system: &System, bundle: &str, app: &Path) -> Result<()> {
+    if !running(system, bundle)? {
         return Ok(());
     }
     note(format!("quitting the running {bundle}"));
-    let status = Command::new("osascript")
+    let status = system
+        .command(Program::Osascript)?
         .arg("-e")
         .arg(format!("tell application id \"{bundle}\" to quit"))
         .status()
@@ -201,7 +203,7 @@ fn quit(bundle: &str, app: &Path) -> Result<()> {
             "waited for {bundle} to quit; the new app is at {}",
             with_new(app).display()
         ))?;
-        if !running(bundle)? {
+        if !running(system, bundle)? {
             return Ok(());
         }
         sleep(QUIT_CHECK_EVERY);
@@ -228,7 +230,7 @@ fn parse_args(args: &[String]) -> Result<(&String, &str, &str)> {
 /// host through `builds remote step`.
 fn run_build(site: &mut Site, command: &[String]) -> Result<Within> {
     match site {
-        Site::Local(top, _, checkout) => run_command(top, command, *checkout),
+        Site::Local(top, _, checkout, _) => run_command(top, command, *checkout),
         Site::Remote(remote) => remote.run_step(command, &command[0], None, lock::Keep::default()),
     }
 }
@@ -273,7 +275,7 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
     let (repo, word, commit) = parse_args(args)?;
     lock::end_on_stop_signals();
     let places = &tool.places;
-    let ssh = Ssh::from_env();
+    let ssh = tool.ssh();
     let first_config = config_at(places, repo, commit)?;
     let platform = Target::parse(&first_config, word)?;
 
@@ -341,7 +343,7 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
     // The build and the copy are done: the next build can start.
     held.release();
 
-    quit(&bundle, &app)?;
+    quit(&tool.system, &bundle, &app)?;
     replace(&app)?;
     note(format!("built {}", app.display()));
     Ok(())

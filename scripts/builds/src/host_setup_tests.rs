@@ -20,7 +20,7 @@ fn host(name: &str) -> Host {
 fn install_program_copies_builds_to_the_host_and_makes_its_root() {
     let scratch = Scratch::new("host-setup");
     let home = scratch.dir.join("remote-home");
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(&scratch, &home);
     let host = Host {
         band: None,
         name: "m1".to_string(),
@@ -72,7 +72,7 @@ fn install_program_copies_builds_to_the_host_and_makes_its_root() {
 fn installs_at_the_same_time_on_one_host_all_succeed() {
     let scratch = Scratch::new("host-setup-together");
     let home = scratch.dir.join("remote-home");
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(&scratch, &home);
     let m1 = host("m1");
     let builds = scratch.builds_program();
     let results: Vec<Result<String>> = std::thread::scope(|scope| {
@@ -115,7 +115,7 @@ fn a_builds_command_on_a_host_returns_its_output_or_fails_with_it() {
     let scratch = Scratch::new("host-run-builds");
     let places = scratch.places();
     let home = scratch.dir.join("remote-home");
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(&scratch, &home);
     let builds = crate::links::path(&home, "builds");
     std::fs::create_dir_all(builds.parent().unwrap()).unwrap();
     std::fs::write(

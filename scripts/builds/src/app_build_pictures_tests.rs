@@ -102,7 +102,12 @@ esac"#,
         prefixes: prefixes.to_vec(),
         windowed: Vec::new(),
     };
-    let mut site = Site::Local(top, scratch.dir.join("no.xcconfig"), held.checkout_lock());
+    let mut site = Site::Local(
+        top,
+        scratch.dir.join("no.xcconfig"),
+        held.checkout_lock(),
+        scratch.system(),
+    );
     let mut timing = Timing::start();
 
     let (result, ran) = build

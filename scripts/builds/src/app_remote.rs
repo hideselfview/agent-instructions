@@ -140,19 +140,25 @@ pub fn shell_line(command: &[String]) -> String {
         .join(" ")
 }
 
-/// <command>, run under `caffeinate -d -u` in the mac lane, which holds a
-/// display assertion on the host for as long as the command runs, so the
-/// host's display neither sleeps nor locks during a step that opens windows
-/// (host_screen_lock.rs). Another lane's <command> stays as it is.
-pub fn keeping_display_on(lane: Lane, command: &[String]) -> Vec<String> {
+/// <command>, run under <system>'s `caffeinate -d -u` in the mac lane,
+/// which holds a display assertion on the host for as long as the command
+/// runs, so the host's display neither sleeps nor locks during a step that
+/// opens windows (host_screen_lock.rs). Another lane's <command> stays as it
+/// is.
+pub fn keeping_display_on(
+    system: &crate::system::System,
+    lane: Lane,
+    command: &[String],
+) -> Result<Vec<String>> {
     if !crate::app_platform::of(lane).opens_windows() {
-        return command.to_vec();
+        return Ok(command.to_vec());
     }
-    ["/usr/bin/caffeinate", "-d", "-u"]
-        .iter()
-        .map(|word| word.to_string())
+    let caffeinate = system.path(crate::system::Program::Caffeinate)?;
+    Ok([caffeinate.to_string_lossy().into_owned()]
+        .into_iter()
+        .chain(["-d", "-u"].map(str::to_string))
         .chain(command.iter().cloned())
-        .collect()
+        .collect())
 }
 
 /// The commands that make, switch and read the checkout `<name>` of <repo> on
@@ -173,10 +179,16 @@ pub struct RemoteApp<'a> {
     _awake: KeepAwake,
 }
 
-fn app_host(places: &Places, repo: &str, host_name: &str, name: &str) -> Result<(Host, KeepAwake)> {
+fn app_host(
+    places: &Places,
+    ssh: &Ssh,
+    repo: &str,
+    host_name: &str,
+    name: &str,
+) -> Result<(Host, KeepAwake)> {
     let host = host::remote_named(places, &entry_of(host_name, name), host_name)?;
     let awake = KeepAwake::for_host(
-        &places.power,
+        &ssh.system().power(),
         &host,
         &format!("{repo}'s app checkout {name}"),
     )?;
@@ -193,7 +205,7 @@ pub fn mark(
     host_name: &str,
     name: &str,
 ) -> Result<bool> {
-    let (host, _awake) = app_host(places, repo, host_name, name)?;
+    let (host, _awake) = app_host(places, ssh, repo, host_name, name)?;
     let transport = Transport {
         places,
         ssh,
@@ -239,7 +251,7 @@ impl<'a> RemoteApp<'a> {
         name: &str,
         checkout: CheckoutLock<'a>,
     ) -> Result<Self> {
-        let (host, awake) = app_host(places, repo, host_name, name)?;
+        let (host, awake) = app_host(places, ssh, repo, host_name, name)?;
         Ok(RemoteApp {
             places: places.clone(),
             ssh: ssh.clone(),
@@ -275,14 +287,14 @@ impl<'a> RemoteApp<'a> {
             self.checkout.with_clone_source(source.as_fd())
         });
         let transport = self.transport();
-        checkout.run(transport.command(script), |command| {
+        checkout.run(transport.command(script)?, |command| {
             transport.capture_command(command, what)
         })
     }
 
     fn unpack(&self, script: &str, into: &Path, what: &str) -> Result<()> {
         crate::remote::unpack_with(
-            self.transport().command(script),
+            self.transport().command(script)?,
             into,
             what,
             |sender, tar, what| {
@@ -474,8 +486,8 @@ impl<'a> RemoteApp<'a> {
 
     /// <command> for a step that opens windows, as `keeping_display_on`
     /// makes it for this checkout's lane.
-    pub fn keeping_display_on(&self, command: &[String]) -> Vec<String> {
-        keeping_display_on(self.lane, command)
+    pub fn keeping_display_on(&self, command: &[String]) -> Result<Vec<String>> {
+        keeping_display_on(self.ssh.system(), self.lane, command)
     }
 
     /// Runs <command> on the host under the checkout's reservation, through
@@ -569,7 +581,7 @@ if [ -x "$dir/builds" ]; then echo "present=$dir"; else echo "absent=$dir"; fi"#
                     "cat > {staged} && chmod 755 {staged} && mv -f {staged} {into}",
                     staged = sh_quote(&staged),
                     into = sh_quote(&into),
-                )),
+                ))?,
                 &format!(
                     "{} to host {}",
                     local.join("builds").display(),
@@ -593,7 +605,7 @@ if [ -x "$dir/builds" ]; then echo "present=$dir"; else echo "absent=$dir"; fi"#
         crate::remote::pipe(
             cat,
             self.transport()
-                .command(&format!("cat > {}", sh_quote(&there))),
+                .command(&format!("cat > {}", sh_quote(&there)))?,
             &format!("{} to host {}", local.display(), self.host.name),
         )?;
         Ok(there)
@@ -676,7 +688,7 @@ sed 's/^/have=/' "$there/.listed""#
             crate::remote::pipe(
                 tar,
                 self.transport()
-                    .command(&format!("tar -xf - -C {}", sh_quote(&there))),
+                    .command(&format!("tar -xf - -C {}", sh_quote(&there)))?,
                 &format!("{}/{tree} to host {}", local.display(), self.host.name),
             )?;
         }
@@ -722,7 +734,7 @@ cd / && rm -rf "$stage""#,
         );
         crate::remote::pipe(
             tar,
-            self.transport().command(&script),
+            self.transport().command(&script)?,
             &format!("board pictures to host {}", self.host.name),
         )
     }
@@ -783,7 +795,7 @@ fi"#
         let list = ListFile::of(&self.places, names.iter().map(|name| name.to_string()))?;
         let mut cat = Command::new("cat");
         cat.arg(list.path());
-        crate::remote::pipe(cat, self.transport().command(script), what)
+        crate::remote::pipe(cat, self.transport().command(script)?, what)
     }
 
     /// Copies what a step made in the picture folder <there> on the host into

@@ -64,12 +64,13 @@ fn parse_xcode_version(text: &str) -> Option<(u32, u32)> {
     Some((major, minor))
 }
 
-/// Whether the Xcode on this machine builds with path mapping: false when
-/// the machine has no xcodebuild or its version is older than `MAPPING_FROM`;
-/// an error when xcodebuild fails or prints what the function cannot read,
-/// since such an Xcode would build without mapping and nothing would say why.
-pub fn xcode_maps_paths() -> Result<bool> {
-    let out = match std::process::Command::new("xcodebuild")
+/// Whether <system>'s Xcode builds with path mapping: false when the
+/// machine has no xcodebuild or its version is older than `MAPPING_FROM`; an
+/// error when xcodebuild fails or prints what the function cannot read, since
+/// such an Xcode would build without mapping and nothing would say why.
+pub fn xcode_maps_paths(system: &crate::system::System) -> Result<bool> {
+    let out = match system
+        .command(crate::system::Program::Xcodebuild)?
         .arg("-version")
         .output()
     {
@@ -96,13 +97,17 @@ pub fn xcode_maps_paths() -> Result<bool> {
 }
 
 /// The settings file for the checkout that <folder> is in, made for this
-/// machine's Xcode (`ensure`), for `ENV`. Fails when <folder> is in no git
-/// checkout.
-pub fn settings_for(places: &Places, folder: &Path) -> Result<PathBuf> {
+/// machine's Xcode (`ensure`), which <system> runs, for `ENV`. Fails when
+/// <folder> is in no git checkout.
+pub fn settings_for(
+    places: &Places,
+    system: &crate::system::System,
+    folder: &Path,
+) -> Result<PathBuf> {
     let Some(checkout) = Checkout::at(folder)? else {
         fail!("{} is in no git checkout", folder.display());
     };
-    ensure(places, &checkout, xcode_maps_paths()?)
+    ensure(places, &checkout, xcode_maps_paths(system)?)
 }
 
 /// The settings file's text: caching on, with the host's store. With

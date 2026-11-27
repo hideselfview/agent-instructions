@@ -88,11 +88,15 @@ pub fn arguments(model: &str, name: &str, session: Session) -> Vec<String> {
     arguments
 }
 
-/// The command that runs <program> with <arguments> in <folder>, in an
-/// environment with no caller's identity and no inbox: the agent is a new
-/// session of its own.
-pub fn command(program: &Path, arguments: &[String], folder: &Path) -> Command {
-    let mut command = Command::new(program);
+/// The command that runs <system>'s Claude Code with <arguments> in
+/// <folder>, in an environment with no caller's identity and no inbox: the
+/// agent is a new session of its own.
+pub fn command(
+    system: &crate::system::System,
+    arguments: &[String],
+    folder: &Path,
+) -> Result<Command> {
+    let mut command = system.command(crate::system::Program::Claude)?;
     command.args(arguments).current_dir(folder);
     for name in crate::ack::agent::IDENTITY
         .iter()
@@ -100,7 +104,7 @@ pub fn command(program: &Path, arguments: &[String], folder: &Path) -> Command {
     {
         command.env_remove(name);
     }
-    command
+    Ok(command)
 }
 
 /// Fails when what Claude Code started differs from what builds asked for:

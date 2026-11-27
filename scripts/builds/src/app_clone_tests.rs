@@ -56,9 +56,7 @@ fn at<'a>(places: &'a Places, ssh: &'a Ssh) -> RepoLane<'a> {
 }
 
 fn unused_ssh() -> Ssh {
-    Ssh {
-        program: "ssh-is-not-run".to_string(),
-    }
+    crate::testing::no_ssh()
 }
 
 #[test]

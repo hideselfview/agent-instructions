@@ -147,7 +147,7 @@ fn delete_idle_increments(tool: &Tool, roots: &[Root], free: &mut Free, target: 
     }
     let before = (tool.now - (FLOOR_INCREMENTAL_IDLE_MINUTES * 60) as i64) as f64;
     let increments = idle_increments(&folders, before)?;
-    let mut open_files = OpenFiles::new(&folders);
+    let mut open_files = OpenFiles::new(&tool.system, &folders);
     let mut tallies: BTreeMap<PathBuf, Tally> = BTreeMap::new();
     for increment in &increments {
         if free.kib >= target {

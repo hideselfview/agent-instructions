@@ -257,8 +257,13 @@ const USAGE: &str = "usage: builds programs hold -- <command> [<args>...]";
 /// `builds programs hold -- <command>...`: holds this program's version's
 /// folder, puts it first on PATH, and runs the command in this process's
 /// place, which keeps the hold until it and every process it starts that
-/// keeps the lock's file open end. A lane runs each step on a host this way.
-pub fn cmd_programs(places: &crate::places::Places, args: &[String]) -> Result<()> {
+/// keeps the lock's file open end. A lane runs each step on a host this way,
+/// with Xcode's settings for <system>'s Xcode.
+pub fn cmd_programs(
+    places: &crate::places::Places,
+    system: &crate::system::System,
+    args: &[String],
+) -> Result<()> {
     let home = &places.home;
     let [hold, dashes, command @ ..] = args else {
         fail!("{USAGE}");
@@ -272,7 +277,7 @@ pub fn cmd_programs(places: &crate::places::Places, args: &[String]) -> Result<(
     };
     let (_kept, path) = pinned.for_exec(std::env::var_os("PATH").as_deref())?;
     let here = std::env::current_dir().context(|| "reading the step's folder".to_string())?;
-    let xcode_cache = crate::xcode_cache::settings_for(places, &here)?;
+    let xcode_cache = crate::xcode_cache::settings_for(places, system, &here)?;
     use std::os::unix::process::CommandExt;
     crate::output::finish();
     let error = std::process::Command::new(&command[0])

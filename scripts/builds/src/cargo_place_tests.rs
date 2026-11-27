@@ -279,7 +279,7 @@ fn remote(name: &str, clone: bool, builds_script: &str) -> (Remote, Checkout, Ch
         );
     }
     host_builds(&home, builds_script);
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(&scratch, &home);
     (Remote { scratch, home, ssh }, main, side)
 }
 
@@ -949,20 +949,24 @@ fn refusing_ssh(r: &Remote) -> Ssh {
         .unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
-    let wrapper = r.scratch.dir.join("refusing-ssh");
+    let wrapper = r.scratch.dir.join("refusing-ssh").join("ssh");
+    std::fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
     std::fs::write(
         &wrapper,
         format!(
             "#!/bin/sh\nPATH='{bin}':\"$PATH\" exec '{ssh}' \"$@\"\n",
             bin = bin.display(),
-            ssh = r.ssh.program
+            ssh = r
+                .ssh
+                .system()
+                .path(crate::system::Program::Ssh)
+                .unwrap()
+                .display()
         ),
     )
     .unwrap();
     std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Ssh {
-        program: wrapper.display().to_string(),
-    }
+    crate::testing::ssh_at(&wrapper)
 }
 
 #[test]

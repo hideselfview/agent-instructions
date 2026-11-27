@@ -319,7 +319,7 @@ pub fn tell_judges(
     stores: &[Store],
     running: &crate::health::ClaudeSessions,
 ) -> Vec<String> {
-    let sessions = tool.places.sessions();
+    let sessions = tool.sessions();
     let running = match running {
         Ok(running) => running,
         Err(error) => {

@@ -5,7 +5,6 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -15,9 +14,11 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 mod common;
-use common::pruned_now;
+mod pruned;
+use pruned::pruned_now;
+mod stand_in;
+use stand_in::stand_in;
 
-const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 const PATIENCE: Duration = Duration::from_secs(30);
 
 /// A repo whose origin/main has one commit; side-1 on a branch two commits
@@ -93,6 +94,8 @@ impl Demo {
             "setup: {}",
             String::from_utf8_lossy(&output.stderr)
         );
+        // The commands that set up app checkouts read this Mac's Xcode.
+        stand_in::xcode(&common::system(&dir));
         Demo {
             dir,
             started: Vec::new(),
@@ -111,9 +114,10 @@ impl Demo {
         self.dir.join("volume")
     }
 
-    /// The file that stands in for macOS's power assertions.
+    /// The file that stands in for macOS's power assertions, in the
+    /// stand-in system.
     fn power_record(&self) -> PathBuf {
-        self.dir.join("power")
+        common::system(&self.dir).join("power")
     }
 
     /// The folder that stands in for this Mac's temporary folders.
@@ -122,17 +126,7 @@ impl Demo {
     }
 
     fn builds(&self) -> Command {
-        let mut command = Command::new(BUILDS);
-        command
-            .env("BUILDS_ROOT", self.volume())
-            .env("BUILDS_TEMP", self.temp())
-            .env("HOME", self.dir.join("home"))
-            .env("BUILDS_POWER_RECORD", self.power_record())
-            .env_remove("CLAUDE_CODE_SESSION_ID")
-            .env_remove("CODEX_SESSION_ID")
-            .env_remove("CODEX_THREAD_ID")
-            .env_remove("BUILDS_AGENT");
-        command
+        common::builds(&self.dir)
     }
 
     /// Runs builds, which must succeed; what it printed.
@@ -949,15 +943,12 @@ fn agent_run_keeps_this_mac_awake_until_its_agent_ends() {
     .unwrap();
     // A claude that keeps what the record says while it runs, then answers as
     // Claude Code does.
-    let bin = demo.dir.join("bin");
-    std::fs::create_dir_all(&bin).unwrap();
     let during = demo.dir.join("during");
-    let claude = bin.join("claude");
-    std::fs::write(
-        &claude,
-        format!(
-            r#"#!/bin/sh
-cat > /dev/null
+    stand_in(
+        &common::system(&demo.dir),
+        "claude",
+        &format!(
+            r#"cat > /dev/null
 cp '{record}' '{during}'
 printf '%s\n' '{{"type":"system","subtype":"init","session_id":"s","model":"claude-sonnet-5-5","tools":["Bash","Edit","LSP","Monitor","Read","TaskStop","ToolSearch","Write"],"mcp_servers":[],"skills":[]}}'
 printf '%s\n' '{{"type":"result","is_error":false,"result":"Done.","modelUsage":{{"claude-sonnet-5-5":{{"contextWindow":1000000}}}}}}'
@@ -965,18 +956,11 @@ printf '%s\n' '{{"type":"result","is_error":false,"result":"Done.","modelUsage":
             record = demo.power_record().display(),
             during = during.display()
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let inherited = std::env::var_os("PATH").expect("the tests have a PATH");
-    let with_claude =
-        std::env::join_paths(std::iter::once(bin).chain(std::env::split_paths(&inherited)))
-            .unwrap();
+    );
 
     std::fs::remove_file(demo.power_record()).ok();
     let run = demo
         .builds()
-        .env("PATH", with_claude)
         .current_dir(demo.side(1))
         .args(["agent", "run", "--role", "implementing", "1"])
         .args(["--project", "demo", "--by", "test"])

@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod common;
 mod fake_launchctl;
 use fake_launchctl::FakeLaunchctl;
 mod spawned;
@@ -27,7 +28,7 @@ struct Demo {
     side: PathBuf,
     app: PathBuf,
     work: String,
-    /// The launchctl that the demo's builds commands find.
+    /// The launchctl of the demo's stand-in system.
     launchctl: FakeLaunchctl,
     started: Vec<Spawned>,
 }
@@ -115,7 +116,7 @@ impl Demo {
             std::fs::create_dir_all(&root).unwrap();
             std::fs::write(root.join(".checkout"), format!("{}\n", top.display())).unwrap();
         }
-        let launchctl = FakeLaunchctl::new(&dir.join("bin"));
+        let launchctl = FakeLaunchctl::new(&common::system(&dir));
         let demo = Demo {
             launchctl,
             dir,
@@ -160,22 +161,12 @@ impl Demo {
     }
 
     /// Returns a `builds` command that uses the demo's volume, lists and
-    /// hosts, the fake ssh that `host_m1` writes, so it never reaches a real
-    /// host, and the fake launchctl, which the commands that ssh runs inherit.
+    /// hosts, and its stand-in system: the fake ssh that `host_m1` writes, so
+    /// it never reaches a real host, and the fake launchctl, which the
+    /// commands that ssh runs inherit.
     fn builds(&self) -> Command {
-        let mut command = Command::new(BUILDS);
-        command
-            .env("BUILDS_ROOT", self.dir.join("volume"))
-            .env("BUILDS_POWER_RECORD", self.dir.join("power"))
-            .env("BUILDS_TEMP", self.dir.join("temp"))
-            .env("HOME", self.dir.join("home"))
-            .env_remove("CLAUDE_CODE_SESSION_ID")
-            .env_remove("CODEX_SESSION_ID")
-            .env_remove("CODEX_THREAD_ID")
-            .env_remove("BUILDS_AGENT")
-            .env("BUILDS_LISTS", self.dir.join("lists"))
-            .env("BUILDS_SSH", self.dir.join("bin/ssh"))
-            .env("PATH", self.launchctl.path());
+        let mut command = common::builds(&self.dir);
+        command.env("BUILDS_LISTS", self.dir.join("lists"));
         command
     }
 
@@ -203,7 +194,7 @@ impl Demo {
         // A host takes a `cargo test` only with the node builds installs.
         script(&home.join(".cargo/bin/node"), "#!/bin/sh\necho v22.17.0\n");
         script(
-            &self.dir.join("bin/ssh"),
+            &common::system(&self.dir).join("ssh"),
             &format!(
                 r#"#!/bin/sh
 while [ $# -gt 0 ]; do
@@ -274,8 +265,9 @@ cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/no-volume' sh -c "$*"
         let output = self.run(&["health", "--json"]);
         serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
             panic!(
-                "health said {}: {error}",
-                String::from_utf8_lossy(&output.stdout)
+                "health said {}: {error}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
             )
         })
     }
@@ -558,11 +550,6 @@ fn a_cargo_run_on_another_host_builds_for_the_worktree_it_was_run_from() {
             .current_dir(&demo.side)
             .args(["cargo", "test"])
             .env("BUILDS_CARGO_HOST", "m1")
-            .env_remove("RUSTC_WRAPPER")
-            .env_remove("RUSTC_WORKSPACE_WRAPPER")
-            .env_remove("BUILDS_CARGO_BEFORE")
-            .env_remove("CARGO_TARGET_DIR")
-            .env_remove("FFMPEG_DIR")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null()),

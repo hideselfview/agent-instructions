@@ -6,9 +6,13 @@ use crate::testing::{Scratch, git, git_out, host_builds, repo};
 use std::path::PathBuf;
 
 /// The ssh the tests of checkouts on this Mac pass: none of them reaches a
-/// host.
+/// host. The Mac's stand-in Xcode builds without path mapping.
 fn no_ssh(scratch: &Scratch) -> Ssh {
-    fake_ssh(&scratch.dir.join("bin"), &scratch.dir.join("remote-home"))
+    scratch.stand_in(
+        "xcodebuild",
+        "echo 'Xcode 26.3'; echo 'Build version 17C529'",
+    );
+    fake_ssh(scratch, &scratch.dir.join("remote-home"))
 }
 
 /// Registers a mac app checkout app-1 of the repo demo, in a clone whose
@@ -290,7 +294,7 @@ fn on_host(scratch: &Scratch) -> OnHost {
     );
     // The host's `builds`, whose setup the checkout's setup runs.
     host_builds(&host_home, "exit 0");
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &host_home);
+    let ssh = fake_ssh(scratch, &host_home);
     crate::host::add(&places, &ssh, "m1", "user@m1").unwrap();
     places
         .write_app_checkouts(
@@ -432,6 +436,7 @@ fn a_refresh_passes_over_differing_files_and_fails_on_any_other_error() {
         top.clone(),
         top.join("no.xcconfig"),
         CheckoutLock::new(lock.as_fd(), None),
+        scratch.system(),
     );
     let index = scratch.dir.join("index").display().to_string();
     site.git(Some(&index), &["read-tree", "HEAD"]).unwrap();

@@ -779,10 +779,11 @@ fn prune_profile(
 /// guard and each profile folder's cargo lock (a dry run takes none and
 /// deletes nothing). A folder whose guard a `builds cargo` build holds is
 /// left whole; a profile folder whose lock a build holds keeps its units.
-/// Returns the KiB freed per folder; notes go to stderr. A real run adds to
-/// <changed> the build root of each folder whose profile folders it may
-/// delete in.
+/// Returns the KiB freed per folder; notes go to stderr. <system>'s lsof
+/// says which files processes hold. A real run adds to <changed> the build
+/// root of each folder whose profile folders it may delete in.
 pub fn prune(
+    system: &crate::system::System,
     ages: &Ages,
     run: Run,
     folders: &[PathBuf],
@@ -865,7 +866,7 @@ pub fn prune(
         if !run.dry() && !free.is_empty() {
             changed.add_holding(folder)?;
         }
-        let mut open_files = OpenFiles::new(std::slice::from_ref(&root));
+        let mut open_files = OpenFiles::new(system, std::slice::from_ref(&root));
         let mut freed = 0;
         for (at, (profile, units)) in every.iter().enumerate() {
             if !free.contains(&at) {
@@ -929,6 +930,7 @@ mod tests {
             }
         }
         prune(
+            &scratch.with_lsof(),
             &Ages::new(3, 100_000),
             Run::Real,
             std::slice::from_ref(&target),

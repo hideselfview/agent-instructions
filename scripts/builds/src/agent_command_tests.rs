@@ -47,13 +47,13 @@ fn project_demo(name: &str) -> Demo {
 
 /// A `claude` stand-in that keeps its prompt, arguments and folder in
 /// <demo>'s scratch folder, prints <stream> and exits with <status>.
-fn fake_claude(demo: &mut Demo, stream: &[&str], status: i32) -> std::path::PathBuf {
+fn fake_claude(demo: &Demo, stream: &[&str], status: i32) -> std::path::PathBuf {
     let dir = demo.scratch.dir.display().to_string();
     let lines: String = stream
         .iter()
         .map(|line| format!("printf '%s\\n' '{line}'\n"))
         .collect();
-    demo.tool.places.claude_program = demo.scratch.script(
+    demo.scratch.stand_in(
         "claude",
         &format!(
             "cat > '{dir}/prompt.txt'\nprintf '%s\\n' \"$@\" > '{dir}/args.txt'\npwd > '{dir}/cwd.txt'\n{lines}exit {status}"
@@ -105,13 +105,13 @@ fn rows(demo: &Demo, sql: &str) -> Vec<String> {
 
 #[test]
 fn an_implementing_agent_starts_in_its_worktree_with_the_prompt_the_flags_and_records() {
-    let mut demo = project_demo("agent-run-implementing");
+    let demo = project_demo("agent-run-implementing");
     let side = demo.add_side(1, "agent A", "work");
     let brief = demo.brief("b.md");
     take(&demo, &["1", "2"], &side, "work", &brief);
     let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
     let dir = fake_claude(
-        &mut demo,
+        &demo,
         &[&init, &turn(2, 100, 1000), &turn(3, 200, 2000), RESULT],
         0,
     );
@@ -195,12 +195,12 @@ fn an_implementing_agent_starts_in_its_worktree_with_the_prompt_the_flags_and_re
 
 #[test]
 fn claudes_exit_status_is_buildss_and_the_report_still_prints() {
-    let mut demo = project_demo("agent-run-exit");
+    let demo = project_demo("agent-run-exit");
     let side = demo.add_side(1, "agent A", "work");
     let brief = demo.brief("b.md");
     take(&demo, &["1"], &side, "work", &brief);
     let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
-    fake_claude(&mut demo, &[&init, RESULT], 3);
+    fake_claude(&demo, &[&init, RESULT], 3);
     let (result, out) = run_command(&demo, &["--role", "implementing", "1"]);
     assert!(matches!(result, Err(Fail::Exit(3))));
     assert!(out.contains("Landed abc."), "{out}");
@@ -212,7 +212,7 @@ fn claudes_exit_status_is_buildss_and_the_report_still_prints() {
 
 #[test]
 fn an_agent_started_with_a_skill_a_server_or_a_ninth_tool_is_stopped_and_the_run_fails() {
-    let mut demo = project_demo("agent-run-check");
+    let demo = project_demo("agent-run-check");
     let side = demo.add_side(1, "agent A", "work");
     let brief = demo.brief("b.md");
     take(&demo, &["1"], &side, "work", &brief);
@@ -223,7 +223,7 @@ fn an_agent_started_with_a_skill_a_server_or_a_ninth_tool_is_stopped_and_the_run
         "claude-sonnet-5-5",
     );
     let dir = demo.scratch.dir.display().to_string();
-    demo.tool.places.claude_program = demo.scratch.script(
+    demo.scratch.stand_in(
         "claude",
         &format!("cat > '{dir}/prompt.txt'\nprintf '%s\\n' '{init}'\nexec sleep 60"),
     );
@@ -239,13 +239,13 @@ fn an_agent_started_with_a_skill_a_server_or_a_ninth_tool_is_stopped_and_the_run
 
 #[test]
 fn a_planner_runs_the_strongest_model_in_the_worktrees_folder_of_the_briefs_repo() {
-    let mut demo = project_demo("agent-run-planner");
+    let demo = project_demo("agent-run-planner");
     let worktrees = demo.main.parent().unwrap().join("demo-worktrees");
     std::fs::create_dir_all(&worktrees).unwrap();
     std::fs::create_dir_all(demo.main.join("plans/briefs")).unwrap();
     std::fs::write(demo.main.join("plans/briefs/p.md"), "Plan the thing.\n").unwrap();
     let init = init_line(TOOLS_JSON, "[]", "[]", "claude-opus-5-5");
-    let dir = fake_claude(&mut demo, &[&init, RESULT], 0);
+    let dir = fake_claude(&demo, &[&init, RESULT], 0);
     let (result, _) = run_command(
         &demo,
         &["--role", "planner", "1", "--brief", "plans/briefs/p.md"],
@@ -273,7 +273,7 @@ fn a_planner_runs_the_strongest_model_in_the_worktrees_folder_of_the_briefs_repo
 
 #[test]
 fn a_project_whose_file_lacks_hard_limits_starts_no_agent() {
-    let mut demo = project_demo("agent-run-no-limits");
+    let demo = project_demo("agent-run-no-limits");
     let side = demo.add_side(1, "agent A", "work");
     let brief = demo.brief("b.md");
     take(&demo, &["1"], &side, "work", &brief);
@@ -282,7 +282,7 @@ fn a_project_whose_file_lacks_hard_limits_starts_no_agent() {
         "# demo\n\nDemo is a tool.\n",
     )
     .unwrap();
-    fake_claude(&mut demo, &[], 0);
+    fake_claude(&demo, &[], 0);
     let (result, _) = run_command(&demo, &["--role", "implementing", "1"]);
     let error = result.unwrap_err().text();
     assert!(
@@ -330,12 +330,12 @@ fn plan_refuses_items_that_do_not_run_together_and_flags_that_do_not_fit_the_rol
 /// Runs an agent on item 1 in a demo whose item 2 also runs in its worktree,
 /// and returns the demo with the agent's session id.
 fn ended_agent(name: &str) -> (Demo, String) {
-    let mut demo = project_demo(name);
+    let demo = project_demo(name);
     let side = demo.add_side(1, "agent A", "work");
     let brief = demo.brief("b.md");
     take(&demo, &["1", "2"], &side, "work", &brief);
     let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
-    fake_claude(&mut demo, &[&init, &turn(2, 100, 1000), RESULT], 0);
+    fake_claude(&demo, &[&init, &turn(2, 100, 1000), RESULT], 0);
     let (result, out) = run_command(&demo, &["--role", "implementing", "1"]);
     result.unwrap();
     let session = out
@@ -417,14 +417,14 @@ fn resume_sends_the_message_and_the_new_items_to_the_inbox_of_a_running_session(
 #[test]
 fn resume_runs_claude_with_resume_when_no_session_runs_or_the_inbox_is_gone() {
     for gone in [false, true] {
-        let (mut demo, session) = ended_agent(if gone { "ar-gone" } else { "ar-ended" });
+        let (demo, session) = ended_agent(if gone { "ar-gone" } else { "ar-ended" });
         if gone {
             let socket = demo.scratch.dir.join("s.sock");
             crate::testing::stale_socket(&socket);
             record_running(&demo, &session, &socket);
         }
         let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
-        let dir = fake_claude(&mut demo, &[&init, RESULT], 0);
+        let dir = fake_claude(&demo, &[&init, RESULT], 0);
         let message = message_file(&demo, "Go on.\n");
         let (result, out) =
             resume_command(&demo, &["resume", &session, "--message-file", &message]);
@@ -454,7 +454,7 @@ fn resume_runs_claude_with_resume_when_no_session_runs_or_the_inbox_is_gone() {
 #[test]
 fn resume_takes_an_item_on_a_new_branch_of_the_agents_worktree_and_records_it() {
     for inbox in [false, true] {
-        let (mut demo, session) = ended_agent(if inbox { "ar-new-in" } else { "ar-new" });
+        let (demo, session) = ended_agent(if inbox { "ar-new-in" } else { "ar-new" });
         for id in ["1", "2"] {
             cmd_item(
                 &demo.tool,
@@ -474,7 +474,7 @@ fn resume_takes_an_item_on_a_new_branch_of_the_agents_worktree_and_records_it() 
             record_running(&demo, &session, &socket);
         }
         let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
-        let dir = fake_claude(&mut demo, &[&init, RESULT], 0);
+        let dir = fake_claude(&demo, &[&init, RESULT], 0);
         let (result, _) = resume_command(&demo, &["resume", &session, "--item", "3"]);
         result.unwrap();
         let message = match listener {
@@ -521,10 +521,10 @@ fn recorded_agent(demo: &Demo, session: &str) -> Agent {
 
 #[test]
 fn resume_starts_the_agent_in_the_other_worktree_its_new_item_runs_in() {
-    let (mut demo, session) = ended_agent("ar-moved");
+    let (demo, session) = ended_agent("ar-moved");
     let side = take_third_in_another_worktree(&demo);
     let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
-    let dir = fake_claude(&mut demo, &[&init, RESULT], 0);
+    let dir = fake_claude(&demo, &[&init, RESULT], 0);
     let (result, out) = resume_command(&demo, &["resume", &session, "--item", "3"]);
     result.unwrap();
     let folder = side.display().to_string();
@@ -553,7 +553,7 @@ fn resume_starts_the_agent_in_the_other_worktree_its_new_item_runs_in() {
 /// until builds starts a process in the new worktree.
 #[test]
 fn a_running_agent_keeps_its_folder_until_a_process_starts_in_its_new_worktree() {
-    let (mut demo, session) = ended_agent("ar-moved-in");
+    let (demo, session) = ended_agent("ar-moved-in");
     let first = recorded_agent(&demo, &session).folder;
     let side = take_third_in_another_worktree(&demo);
     let socket = demo.scratch.dir.join("s.sock");
@@ -569,7 +569,7 @@ fn a_running_agent_keeps_its_folder_until_a_process_starts_in_its_new_worktree()
     assert_eq!(agent.folder, first);
     std::fs::remove_dir_all(demo.tool.places.claude_sessions()).unwrap();
     let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
-    fake_claude(&mut demo, &[&init, RESULT], 0);
+    fake_claude(&demo, &[&init, RESULT], 0);
     let message = message_file(&demo, "Go on.\n");
     let (result, _) = resume_command(&demo, &["resume", &session, "--message-file", &message]);
     result.unwrap();
@@ -578,10 +578,10 @@ fn a_running_agent_keeps_its_folder_until_a_process_starts_in_its_new_worktree()
 
 #[test]
 fn resume_refuses_an_item_another_running_agent_runs() {
-    let (mut demo, session) = ended_agent("ar-theirs");
+    let (demo, session) = ended_agent("ar-theirs");
     let side = take_third_in_another_worktree(&demo);
     let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
-    fake_claude(&mut demo, &[&init, RESULT], 0);
+    fake_claude(&demo, &[&init, RESULT], 0);
     let (result, out) = run_command(&demo, &["--role", "implementing", "3"]);
     result.unwrap();
     let other = out
@@ -636,7 +636,7 @@ fn resume_refuses_nothing_to_say_an_unknown_agent_and_an_item_that_does_not_run(
 /// area's next item, so the cleanup that setup and prune run keeps its folder.
 #[test]
 fn resume_finds_the_folder_of_a_finished_agent_after_the_shared_prune() {
-    let (mut demo, session) = ended_agent("ar-pruned");
+    let (demo, session) = ended_agent("ar-pruned");
     for id in ["1", "2"] {
         cmd_item(
             &demo.tool,
@@ -654,7 +654,7 @@ fn resume_finds_the_folder_of_a_finished_agent_after_the_shared_prune() {
     )
     .unwrap();
     let init = init_line(TOOLS_JSON, "[]", "[]", "claude-sonnet-5-5");
-    fake_claude(&mut demo, &[&init, RESULT], 0);
+    fake_claude(&demo, &[&init, RESULT], 0);
     let message = message_file(&demo, "Go on.\n");
     let (result, _) = resume_command(&demo, &["resume", &session, "--message-file", &message]);
     result.unwrap();

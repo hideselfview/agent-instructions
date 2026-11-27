@@ -7,9 +7,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
+mod common;
 mod programs;
-
-const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
+mod stand_in;
 
 /// A script <name> in <folder> that says it is Python <major>.<minor>.
 fn fake_python(folder: &Path, name: &str, minor: u32) -> std::path::PathBuf {
@@ -38,32 +38,27 @@ fn a_step_run_by_programs_hold_finds_python_3_11_or_later_before_macos_3_9() {
             .success()
     );
     programs::programs_folder(&home);
-    fake_python(&dir.join("system"), "python3", 9);
+    // `programs hold` gives the step the settings for this Mac's Xcode.
+    stand_in::xcode(&common::system(&dir));
+    fake_python(&dir.join("usr-bin"), "python3", 9);
     let newer = fake_python(&dir.join("brew"), "python3.13", 13);
     // A newer Python that cannot run is passed over, and builds says why.
     let broken = dir.join("brew/python3.14");
     std::fs::write(&broken, "#!/bin/sh\nexit 3\n").unwrap();
     std::fs::set_permissions(&broken, std::fs::Permissions::from_mode(0o755)).unwrap();
     let path = std::env::join_paths([
-        dir.join("system"),
+        dir.join("usr-bin"),
         dir.join("brew"),
         "/bin".into(),
         "/usr/bin".into(),
     ])
     .unwrap();
-    let ran = Command::new(BUILDS)
+    let ran = common::builds(&dir)
         .current_dir(&dir)
         .env("HOME", &home)
         .env("XDG_CACHE_HOME", dir.join("cache"))
-        .env("BUILDS_ROOT", dir.join("volume"))
-        .env("BUILDS_POWER_RECORD", dir.join("power"))
-        .env("BUILDS_TEMP", dir.join("temp"))
         .env("BUILDS_LISTS", dir.join("lists"))
         .env("PATH", path)
-        .env_remove("CLAUDE_CODE_SESSION_ID")
-        .env_remove("CODEX_SESSION_ID")
-        .env_remove("CODEX_THREAD_ID")
-        .env_remove("BUILDS_AGENT")
         .args([
             "programs",
             "hold",

@@ -20,7 +20,7 @@
 use crate::app_remote::split;
 use crate::app_timing;
 use crate::fail::Result;
-use crate::host::{Host, Ssh, Terminal};
+use crate::host::{Host, Ssh};
 use crate::host_scan::Row;
 use crate::host_scan::parse_ps;
 use crate::lane_size::{IDLE_MINUTES, RepoLane, last_use};
@@ -255,10 +255,7 @@ pub fn lane_use(places: &Places, ssh: &Ssh, host: &Host, platform: Platform) -> 
 }
 
 fn run_script(ssh: &Ssh, host: &Host, script: &str) -> std::result::Result<String, String> {
-    crate::host::output_of(
-        crate::host::command_at(ssh, host, script, Terminal::None),
-        &format!("`{script}` on {}", host.name),
-    )
+    crate::host::output_at(ssh, host, script, &format!("`{script}` on {}", host.name))
 }
 
 /// The user id on the first line of <listing> (`LISTING_SCRIPT`'s output) and

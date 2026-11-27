@@ -156,7 +156,7 @@ fn the_judges_token_is_kept_and_not_logged() {
 #[test]
 fn the_judge_listens_while_its_session_runs() {
     let h = held("judge-runs");
-    let sessions = h.tool.places.sessions();
+    let sessions = h.tool.sessions();
     let listening = || {
         let running = crate::testing::running_claude(&h.tool.places);
         listening(&h.store.open_existing().unwrap(), &sessions, &running).unwrap()
@@ -278,7 +278,7 @@ impl Reviewed {
         tell(
             &self.demo.store,
             &stamp("tester"),
-            &self.demo.tool.places.sessions(),
+            &self.demo.tool.sessions(),
             &crate::testing::running_claude(&self.demo.tool.places),
             &self.to_settle().notice().unwrap(),
             caller,
@@ -416,7 +416,7 @@ fn a_judge_whose_session_runs_but_whose_inbox_is_gone_is_still_the_judge() {
     let conn = r.demo.store.open_existing().unwrap();
     let refused = may_judge(
         &conn,
-        &r.demo.tool.places.sessions(),
+        &r.demo.tool.sessions(),
         &crate::testing::running_claude(&r.demo.tool.places),
         r.finding,
         Some(&caller("s1", "s1")),
@@ -638,7 +638,7 @@ impl Reviewed {
         tell(
             &self.demo.store,
             &stamp("tester"),
-            &self.demo.tool.places.sessions(),
+            &self.demo.tool.sessions(),
             &crate::testing::running_claude(&self.demo.tool.places),
             &dispute_notice(&conn, "demo", &finding).unwrap(),
             caller,
@@ -948,7 +948,7 @@ fn a_codex_main_thread_cannot_settle_a_finding_on_its_own_branch() {
     let db = r.demo.store.open_existing().unwrap();
     let refusal = may_judge(
         &db,
-        &r.demo.tool.places.sessions(),
+        &r.demo.tool.sessions(),
         &crate::testing::running_claude(&r.demo.tool.places),
         r.finding,
         Some(&main),
@@ -975,7 +975,7 @@ fn the_judge_does_not_receive_findings_from_its_own_review() {
         crate::review::judge_told::tell_waiting(
             &r.demo.store,
             &stamp("tester"),
-            &r.demo.tool.places.sessions(),
+            &r.demo.tool.sessions(),
             &crate::testing::running_claude(&r.demo.tool.places)
         )
         .unwrap()

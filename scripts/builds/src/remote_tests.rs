@@ -33,7 +33,7 @@ fn setup(name: &str) -> Setup {
         ],
     );
     fake_builds(&home);
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(&scratch, &home);
     let host = Host {
         band: None,
         name: "m1".to_string(),
@@ -479,7 +479,7 @@ fn killed_caller() {
     };
     let transport = Transport {
         places: &places,
-        ssh: &Ssh { program: ssh },
+        ssh: &crate::testing::ssh_at(std::path::Path::new(&ssh)),
         host: &host,
     };
     // As `builds cargo` runs it: builds reads the command's stderr.
@@ -510,7 +510,10 @@ fn a_killed_caller_stops_the_command_on_the_host() {
             "--nocapture",
             "--test-threads=1",
         ])
-        .env(CALLER_SSH, &s.ssh.program)
+        .env(
+            CALLER_SSH,
+            s.ssh.system().path(crate::system::Program::Ssh).unwrap(),
+        )
         .env(CALLER_WORKTREE, &wt)
         .stdin(Stdio::null())
         .spawn()
@@ -883,7 +886,7 @@ fn a_command_on_this_mac_runs_without_the_git_variables_of_a_hook() {
         ssh,
         host: &host,
     };
-    let command = transport.command("true");
+    let command = transport.command("true").unwrap();
     let removed: Vec<String> = command
         .get_envs()
         .filter(|(_, value)| value.is_none())
@@ -908,7 +911,13 @@ fn holding_ssh(dir: &Path, fake: &Ssh) -> Ssh {
         &program,
         format!(
             "#!/bin/bash\nset -o pipefail\n{} \"$@\" | cat\n",
-            crate::host::sh_quote(&fake.program)
+            crate::host::sh_quote(
+                &fake
+                    .system()
+                    .path(crate::system::Program::Ssh)
+                    .unwrap()
+                    .to_string_lossy()
+            )
         ),
     )
     .unwrap();
@@ -917,9 +926,7 @@ fn holding_ssh(dir: &Path, fake: &Ssh) -> Ssh {
         std::os::unix::fs::PermissionsExt::from_mode(0o755),
     )
     .unwrap();
-    Ssh {
-        program: program.display().to_string(),
-    }
+    crate::testing::ssh_at(&program)
 }
 
 /// An app checkout on the host, with the claim folder that holds a step's
@@ -977,12 +984,14 @@ fn a_command_passes_on_all_it_printed() {
     let output = s.scratch.dir.join("output");
     // The script's own output goes to a file, so this test reads what the
     // relays passed on.
-    let mut start = transport.command(&run_script(
-        &s.host,
-        &wt.display().to_string(),
-        &args(&["sh", "-c", "seq 1 20000; printf 'no end of line'; exit 4"]),
-        "test",
-    ));
+    let mut start = transport
+        .command(&run_script(
+            &s.host,
+            &wt.display().to_string(),
+            &args(&["sh", "-c", "seq 1 20000; printf 'no end of line'; exit 4"]),
+            "test",
+        ))
+        .unwrap();
     let mut started = start
         .stdin(Stdio::piped())
         .stdout(std::fs::File::create(&output).unwrap())
@@ -1013,12 +1022,14 @@ fn a_finished_job_leaves_no_job_status_lines_on_stderr() {
         host: &s.host,
     };
     let errors = s.scratch.dir.join("errors");
-    let mut start = transport.command(&run_script(
-        &s.host,
-        &wt.display().to_string(),
-        &args(&["sh", "-c", "echo out; echo oops >&2"]),
-        "test",
-    ));
+    let mut start = transport
+        .command(&run_script(
+            &s.host,
+            &wt.display().to_string(),
+            &args(&["sh", "-c", "echo out; echo oops >&2"]),
+            "test",
+        ))
+        .unwrap();
     let mut started = start
         .stdin(Stdio::piped())
         .stdout(Stdio::null())

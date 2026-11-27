@@ -73,7 +73,7 @@ pub fn make(tool: &Tool, checkout: &Checkout) -> Result<PathBuf> {
 /// paths join the volume's.
 pub fn delete(tool: &Tool, dir: &Path, recreate: Recreate, removal: Removal) -> Result<Evicted> {
     tool.changed.add_holding(dir)?;
-    evict(&tool.places, dir, recreate, removal)
+    evict(&tool.places, &tool.system, dir, recreate, removal)
 }
 
 #[cfg(test)]

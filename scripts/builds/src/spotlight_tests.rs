@@ -88,7 +88,7 @@ fn an_answer_without_a_root_that_is_there_fails() {
 fn reads_this_macs_build_root() {
     let scratch = Scratch::new("spotlight-local");
     let mut places = scratch.places();
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &scratch.dir.join("remote-home"));
+    let ssh = fake_ssh(&scratch, &scratch.dir.join("remote-home"));
     let found = read(&places, &ssh, &Host::local()).unwrap();
     assert_eq!(
         found,
@@ -115,7 +115,7 @@ fn reads_a_hosts_build_root_over_ssh() {
     let scratch = Scratch::new("spotlight-remote");
     let places = scratch.places();
     let home = scratch.dir.join("remote-home");
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(&scratch, &home);
     std::fs::create_dir_all(home.join(crate::host::REMOTE_ROOT)).unwrap();
     let found = read(&places, &ssh, &host("m1")).unwrap();
     assert_eq!(

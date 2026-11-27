@@ -11,7 +11,7 @@ fn a_listening_judge_with_no_acknowledgement_is_told_to_acknowledge() {
     r.listen_as_judge(&inbox);
     running_session(&r.demo.tool.places, "s-judge");
     let received = FakeInbox::listen(Path::new(inbox.stored().1));
-    let sessions = r.demo.tool.places.sessions();
+    let sessions = r.demo.tool.sessions();
     let line = tell_outdated(
         &r.demo.store,
         &sessions,
@@ -32,7 +32,7 @@ fn a_listening_judge_with_no_acknowledgement_is_told_to_acknowledge() {
 #[test]
 fn nobody_is_told_when_no_judge_listens() {
     let r = reviewed("judge-ack-none", None);
-    let sessions = r.demo.tool.places.sessions();
+    let sessions = r.demo.tool.sessions();
     assert_eq!(
         tell_outdated(
             &r.demo.store,

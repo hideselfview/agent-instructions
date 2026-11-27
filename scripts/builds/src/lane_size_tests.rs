@@ -46,9 +46,7 @@ cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/no-volume' exec sh -c "$*"
         )
         .unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let ssh = Ssh {
-            program: program.display().to_string(),
-        };
+        let ssh = crate::testing::ssh_at(&program);
         let world = World {
             scratch,
             places,

@@ -17,8 +17,15 @@ use crate::places::Places;
 /// approval, or the effect the person gives a question.
 pub const BY: &str = "person (dashboard)";
 
-/// Approves open design change <id> of project <project>, at <now>.
-pub fn approve_design(places: &Places, now: i64, project: &str, id: u32) -> Result<Approval> {
+/// Approves open design change <id> of project <project>, at <now>, and
+/// tells the session that recorded it through <sessions>.
+pub fn approve_design(
+    places: &Places,
+    sessions: &crate::inbox::Sessions,
+    now: i64,
+    project: &str,
+    id: u32,
+) -> Result<Approval> {
     let id = Id(id);
     let store = Store::named(places, project)?;
     if store.load()?.design(id).is_none() {
@@ -28,7 +35,7 @@ pub fn approve_design(places: &Places, now: i64, project: &str, id: u32) -> Resu
         at: now,
         by: BY.to_string(),
     };
-    approve_and_tell(&store, &places.sessions(), id, &stamp)
+    approve_and_tell(&store, sessions, id, &stamp)
 }
 
 #[cfg(test)]

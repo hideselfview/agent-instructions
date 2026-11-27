@@ -307,9 +307,12 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
     Ok(())
 }
 
-/// Where Xcode puts DerivedData by default, as `defaults` reads it.
-fn xcode_derived_data() -> Option<String> {
-    let output = Command::new("defaults")
+/// Where Xcode puts DerivedData by default, as <system>'s `defaults` reads
+/// it.
+fn xcode_derived_data(system: &crate::system::System) -> Option<String> {
+    let output = system
+        .command(crate::system::Program::Defaults)
+        .ok()?
         .args(["read", "com.apple.dt.Xcode", "IDECustomDerivedDataLocation"])
         .stderr(Stdio::null())
         .output()
@@ -344,7 +347,7 @@ fn derived_data_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
             last_write(Some(entry.newest))
         ));
     }
-    let xcode = xcode_derived_data();
+    let xcode = xcode_derived_data(&tool.system);
     if xcode.as_deref() != Some(dir.to_string_lossy().as_ref()) {
         out.push(format!(
             "    Xcode's default DerivedData is {}, not this: run agent-instructions' install.sh",
@@ -453,9 +456,9 @@ fn capped_line(tool: &Tool, dir: &Path, what: &str, cap_kib: u64) -> Result<Stri
 }
 
 /// `sccache: ...` lines from a running server, or the line that says why
-/// lsof could not tell whether one listens.
-fn sccache_lines(out: &mut Vec<String>) {
-    match crate::sccache::listening() {
+/// <system>'s lsof could not tell whether one listens.
+fn sccache_lines(system: &crate::system::System, out: &mut Vec<String>) {
+    match crate::sccache::listening(system) {
         Ok(true) => {}
         Ok(false) => return,
         Err(fail) => {
@@ -641,7 +644,7 @@ pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         crate::spotlight::read(&tool.places, ssh, &Host::local()),
         is_host,
     ));
-    sccache_lines(&mut out);
+    sccache_lines(&tool.system, &mut out);
     out.push(volume_line(&tool.places.root)?);
     for line in out {
         crate::output::answer_line(line);

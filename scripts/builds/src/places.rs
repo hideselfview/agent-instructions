@@ -98,16 +98,6 @@ pub struct Places {
     /// The folder holding one store folder per project of the lists
     /// (BUILDS_LISTS, else `default_lists`).
     pub lists: PathBuf,
-    /// The Codex CLI that delivers and checks registered thread notifications.
-    pub codex_program: PathBuf,
-    /// The Claude Code CLI that `builds agent run` and `resume` start.
-    pub claude_program: PathBuf,
-    /// The `ioreg` that says whether this Mac's screen is locked
-    /// (host_screen_lock.rs).
-    pub ioreg_program: PathBuf,
-    /// Where builds takes the power assertions that keep this Mac awake
-    /// (awake.rs).
-    pub power: crate::awake::Power,
     /// The folder of the SF Mono files that the boards whose mono stack names
     /// them draw mono text in: the Mac's Terminal.app ships them
     /// (`boards::fonts`).
@@ -162,13 +152,6 @@ impl Places {
             tmpdir,
             uid: unsafe { libc::getuid() },
             lists,
-            codex_program: PathBuf::from("codex"),
-            claude_program: PathBuf::from("claude"),
-            ioreg_program: PathBuf::from("ioreg"),
-            power: match std::env::var_os(crate::awake::RECORD_VARIABLE) {
-                Some(record) => crate::awake::Power::Record(PathBuf::from(record)),
-                None => crate::awake::Power::Powerd,
-            },
             fonts: cfg!(target_os = "macos").then(|| PathBuf::from(boards::fonts::TERMINAL_FONTS)),
         })
     }
@@ -448,14 +431,6 @@ impl Places {
     /// session with its log and its scratch folder (agent_command.rs).
     pub fn agents(&self) -> PathBuf {
         self.root.join(AGENTS_FOLDER)
-    }
-
-    /// How this machine reaches the agent sessions registered with builds.
-    pub fn sessions(&self) -> crate::inbox::Sessions {
-        crate::inbox::Sessions {
-            claude: self.claude_sessions(),
-            codex: self.codex_program.clone(),
-        }
     }
 
     /// The daemon's own folder: its socket, its log, its run records and the

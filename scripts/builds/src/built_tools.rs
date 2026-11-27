@@ -453,7 +453,8 @@ fn fetch(places: &Places, ssh: &Ssh, name: &str, key: &Key, toolchain: &Path) ->
             }
         }
         let staged = staging(toolchain)?;
-        let sender = transport.command(&format!("{}tar -cf - -C {remote} .", root_script(&host)));
+        let sender =
+            transport.command(&format!("{}tar -cf - -C {remote} .", root_script(&host)))?;
         let copied = crate::remote::unpack(
             sender,
             &staged,
@@ -574,7 +575,7 @@ fi"#,
     sender.arg("-cf").arg("-").arg("-C").arg(here).arg(".");
     crate::remote::pipe(
         sender,
-        transport.command(&receive),
+        transport.command(&receive)?,
         &format!("tool {name} to host {}", host.name),
     )
 }

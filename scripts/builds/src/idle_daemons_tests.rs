@@ -146,7 +146,7 @@ fn a_lane_is_in_use_on_the_host_whose_checkout_a_build_holds() {
         "5000\n",
     )
     .unwrap();
-    let ssh = Ssh::from_env();
+    let ssh = crate::testing::no_ssh();
     let host = |name: &str, remote: bool| Host {
         band: None,
         name: name.to_string(),
@@ -193,7 +193,7 @@ fn a_repo_two_projects_hold_is_read_in_both_projects() {
         format!("{entry}\n"),
     )
     .unwrap();
-    let ssh = Ssh::from_env();
+    let ssh = crate::testing::no_ssh();
     let m1 = Host {
         band: None,
         name: "m1".to_string(),

@@ -847,7 +847,7 @@ pub fn listen_command(
     };
     let store = Store::named(&tool.places, project)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let sessions = tool.places.sessions();
+    let sessions = tool.sessions();
     let running = running_claude(&sessions)?;
     store.write(&stamp, "judge listen", |db| {
         listen(db, inbox, caller, &stamp)

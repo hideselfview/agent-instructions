@@ -331,7 +331,7 @@ fn a_prune_runs_each_hosts_own_prune_with_its_options() {
     let scratch = Scratch::new("prune-hosts");
     let places = scratch.places();
     let home = scratch.dir.join("remote-home");
-    let ssh = crate::host::tests::fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = crate::host::tests::fake_ssh(&scratch, &home);
     crate::testing::host_builds(
         &home,
         r#"echo "builds $*" >> "$HOME/runs.txt"

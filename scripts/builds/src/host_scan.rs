@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use crate::fail;
 use crate::fail::Result;
-use crate::host::{Host, Ssh, Terminal, command_at, output_of, place};
+use crate::host::{Host, Ssh, output_of, place};
 use crate::host_front_app::FrontApp;
 use crate::process_readings::{self, Reading, measure};
 
@@ -345,8 +345,10 @@ fn read_scan(text: &str, readings: &[Reading]) -> std::result::Result<(Scan, Rea
 /// when the newest is a minute old (process_readings.rs).
 pub fn read(ssh: &Ssh, host: &Host, home: &Path) -> std::result::Result<Scan, String> {
     let mut readings = process_readings::read(home, &host.name).map_err(|fault| fault.text())?;
-    let text = output_of(
-        command_at(ssh, host, &script(host), Terminal::None),
+    let text = crate::host::output_at(
+        ssh,
+        host,
+        &script(host),
         &format!("reading {}", place(&host.name)),
     )?;
     let (scan, current) = read_scan(&text, &readings)?;

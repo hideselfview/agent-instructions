@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
+mod common;
 
 #[test]
 fn the_tmpdir_probe_preserves_spaces_equals_and_newlines_in_a_process_path() {
@@ -34,7 +34,7 @@ fn the_tmpdir_probe_preserves_spaces_equals_and_newlines_in_a_process_path() {
     BufReader::new(child.stderr.take().unwrap())
         .read_line(&mut ready)
         .unwrap();
-    let report = Command::new(BUILDS)
+    let report = common::builds(&root)
         .args(["sccache-tmpdir", &child.id().to_string()])
         .env("BUILDS_ROOT", &root)
         .output();

@@ -302,7 +302,9 @@ pub fn prune(
     cap_kib: u64,
     groups: impl FnOnce() -> Result<Option<Vec<Group>>>,
 ) -> Result<()> {
-    prune_with(tool, run, root, cap_kib, groups, HeldPaths::read)
+    prune_with(tool, run, root, cap_kib, groups, || {
+        HeldPaths::read(&tool.system)
+    })
 }
 
 fn prune_with(

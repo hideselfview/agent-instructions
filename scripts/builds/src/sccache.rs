@@ -3,6 +3,7 @@
 //! runs, and stopping it. Read stats only for a listening server, since
 //! sccache prints default stats when no server listens.
 
+use crate::system::{Program, System};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -285,9 +286,10 @@ pub fn parse_listener_lines(text: &str) -> Result<Option<u32>> {
 
 /// The pid of the sccache server, the process that listens on sccache's
 /// port and whose parent does not, or None when no process listens there.
-/// Fails when lsof fails.
-pub fn listener() -> Result<Option<u32>> {
-    let output = Command::new("lsof")
+/// Fails when <system>'s lsof fails.
+pub fn listener(system: &System) -> Result<Option<u32>> {
+    let output = system
+        .command(Program::Lsof)?
         .args(listener_args())
         .output()
         .context(|| "running lsof".to_string())?;
@@ -368,8 +370,8 @@ pub fn cmd_tmpdir(root: &Path, args: &[String]) -> Result<()> {
 }
 
 /// Is a server listening on sccache's port? Fails when lsof fails.
-pub fn listening() -> Result<bool> {
-    Ok(listener()?.is_some())
+pub fn listening(system: &System) -> Result<bool> {
+    Ok(listener(system)?.is_some())
 }
 
 /// What the service manager says about the server's job, once it has loaded
@@ -432,10 +434,11 @@ pub fn parse_job(text: &str) -> Result<Job> {
     })
 }
 
-/// What launchd says about <service>, or None when launchd has not loaded
-/// it.
-pub fn read_job(service: &str) -> Result<Option<Job>> {
-    let output = Command::new("launchctl")
+/// What <system>'s launchd says about <service>, or None when launchd has
+/// not loaded it.
+pub fn read_job(system: &System, service: &str) -> Result<Option<Job>> {
+    let output = system
+        .command(Program::Launchctl)?
         .args(["print", service])
         .stderr(Stdio::null())
         .output()
@@ -459,8 +462,9 @@ pub fn job_serves(job: Option<&Job>, listener: Option<u32>) -> bool {
 /// How many compiles the server with pid <pid> runs now. The server runs
 /// each compile as a child process, so `compiles` counts the server's child
 /// processes.
-pub fn compiles(pid: u32) -> Result<usize> {
-    let output = Command::new("pgrep")
+pub fn compiles(system: &System, pid: u32) -> Result<usize> {
+    let output = system
+        .command(Program::Pgrep)?
         .args(["-P", &pid.to_string()])
         .stderr(Stdio::null())
         .output()
@@ -475,11 +479,11 @@ pub fn compiles(pid: u32) -> Result<usize> {
 /// Waits until the server with pid <pid> runs no compile, so that no compile
 /// fails when the server stops. Fails when the server still runs compiles
 /// after <limit>.
-pub fn wait_for_compiles(pid: u32, limit: Duration) -> Result<()> {
+pub fn wait_for_compiles(system: &System, pid: u32, limit: Duration) -> Result<()> {
     let start = Instant::now();
     let mut said = false;
     loop {
-        let running = compiles(pid)?;
+        let running = compiles(system, pid)?;
         if running == 0 {
             return Ok(());
         }
@@ -509,13 +513,13 @@ const STOP_LIMIT: Duration = Duration::from_secs(20);
 /// `--stop-server`, which lets the requests in progress finish for up to 10
 /// seconds, and waits until no process listens there. Fails, with what
 /// sccache said, when a process still listens on the port after STOP_LIMIT.
-pub fn stop(sccache: &Path) -> Result<()> {
+pub fn stop(system: &System, sccache: &Path) -> Result<()> {
     let output = Command::new(sccache)
         .arg("--stop-server")
         .output()
         .context(|| "stopping the sccache server".to_string())?;
     let start = Instant::now();
-    while let Some(pid) = listener()? {
+    while let Some(pid) = listener(system)? {
         if start.elapsed() >= STOP_LIMIT {
             fail!(
                 "the sccache server (pid {pid}) still listens on port {PORT} {} seconds after sccache --stop-server, which said: {}",
@@ -615,11 +619,11 @@ pub mod tests {
             self.0.id()
         }
 
-        /// Returns once sh has started its one child, and panics when it has
-        /// not after 10 seconds.
-        fn wait_for_child(&self) {
+        /// Returns once sh has started its one child, as <system>'s pgrep
+        /// says, and panics when it has not after 10 seconds.
+        fn wait_for_child(&self, system: &System) {
             let start = std::time::Instant::now();
-            while compiles(self.pid()).unwrap() != 1 {
+            while compiles(system, self.pid()).unwrap() != 1 {
                 assert!(
                     start.elapsed() < Duration::from_secs(10),
                     "sh (pid {}) started no child in 10 seconds",
@@ -642,16 +646,21 @@ pub mod tests {
     /// the process and its compiles, when a child outlasts the limit.
     #[test]
     fn waits_for_a_servers_compiles_to_finish() {
+        // The stand-in pgrep is this Mac's: it reads the children of the
+        // processes the test starts, and nothing else.
+        let scratch = crate::testing::Scratch::new("sccache-compiles");
+        scratch.stand_in("pgrep", "exec /usr/bin/pgrep \"$@\"");
+        let system = scratch.system();
         // sh runs `sleep 0.5` as a child, then becomes `sleep 30` itself.
         let finishing = Group::start("sleep 0.5; exec sleep 30");
-        finishing.wait_for_child();
-        wait_for_compiles(finishing.pid(), Duration::from_secs(10)).unwrap();
-        assert_eq!(compiles(finishing.pid()).unwrap(), 0);
+        finishing.wait_for_child(&system);
+        wait_for_compiles(&system, finishing.pid(), Duration::from_secs(10)).unwrap();
+        assert_eq!(compiles(&system, finishing.pid()).unwrap(), 0);
 
         let busy = Group::start("sleep 30; exit 0");
-        busy.wait_for_child();
+        busy.wait_for_child(&system);
         let Err(crate::fail::Fail::Message(message)) =
-            wait_for_compiles(busy.pid(), Duration::from_millis(300))
+            wait_for_compiles(&system, busy.pid(), Duration::from_millis(300))
         else {
             panic!("expected a failure");
         };

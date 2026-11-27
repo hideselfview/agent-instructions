@@ -920,17 +920,22 @@ fn refuse_not_here(stream: &mut TcpStream) -> std::io::Result<()> {
 /// "session": null|"unrecorded"|"told"|"queued"|"ended"}`.
 fn approve(stream: &mut TcpStream, model: &Model, project: &str, id: u32) -> std::io::Result<()> {
     use crate::lists::design_session::Approval;
-    let answer =
-        super::approve::approve_design(&model.places, super::model::now_seconds(), project, id)
-            .map(|approval| {
-                let (already, session) = match approval {
-                    Approval::Already => (true, None),
-                    Approval::Recorded(session) => (false, Some(session)),
-                };
-                serde_json::json!({ "approved": true, "already": already, "session": session })
-                    .to_string()
-                    .into_bytes()
-            });
+    let answer = super::approve::approve_design(
+        &model.places,
+        &model.sessions(),
+        super::model::now_seconds(),
+        project,
+        id,
+    )
+    .map(|approval| {
+        let (already, session) = match approval {
+            Approval::Already => (true, None),
+            Approval::Recorded(session) => (false, Some(session)),
+        };
+        serde_json::json!({ "approved": true, "already": already, "session": session })
+            .to_string()
+            .into_bytes()
+    });
     json(stream, answer)
 }
 

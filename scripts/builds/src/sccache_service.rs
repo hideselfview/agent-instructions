@@ -5,12 +5,13 @@
 //! start a server of its own (install.rs `run_sccache_server`).
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host_platform::Os;
 use crate::sccache::Job;
+use crate::system::{Program, System};
 
 /// The name of the server's job: launchd's label, and the stem of systemd's
 /// unit file.
@@ -66,12 +67,14 @@ impl Manager {
     }
 
     /// What the manager says about the server's job, or None when it has
-    /// not loaded the job. <uid> is the user's.
-    pub fn read_job(self, uid: u32) -> Result<Option<Job>> {
+    /// not loaded the job. <uid> is the user's, and <system> runs the
+    /// manager's program.
+    pub fn read_job(self, system: &System, uid: u32) -> Result<Option<Job>> {
         match self.0 {
-            Os::Mac => crate::sccache::read_job(&format!("gui/{uid}/{LABEL}")),
+            Os::Mac => crate::sccache::read_job(system, &format!("gui/{uid}/{LABEL}")),
             Os::Linux => {
-                let output = Command::new("systemctl")
+                let output = system
+                    .command(Program::Systemctl)?
                     .args(["--user", "show", &unit_name()])
                     .args(SYSTEMD_PROPERTIES.iter().flat_map(|name| ["-p", name]))
                     .stderr(Stdio::null())
@@ -90,18 +93,27 @@ impl Manager {
     }
 
     /// Stops the server's job, which the manager has loaded.
-    pub fn stop(self, uid: u32) -> Result<()> {
+    pub fn stop(self, system: &System, uid: u32) -> Result<()> {
         match self.0 {
-            Os::Mac => run("launchctl", &["bootout", &format!("gui/{uid}/{LABEL}")]),
-            Os::Linux => run("systemctl", &["--user", "stop", &unit_name()]),
+            Os::Mac => run(
+                system,
+                Program::Launchctl,
+                &["bootout", &format!("gui/{uid}/{LABEL}")],
+            ),
+            Os::Linux => run(
+                system,
+                Program::Systemctl,
+                &["--user", "stop", &unit_name()],
+            ),
         }
     }
 
     /// Loads the job from its file and starts it.
-    pub fn start(self, uid: u32, job_file: &Path) -> Result<()> {
+    pub fn start(self, system: &System, uid: u32, job_file: &Path) -> Result<()> {
         match self.0 {
             Os::Mac => run(
-                "launchctl",
+                system,
+                Program::Launchctl,
                 &[
                     "bootstrap",
                     &format!("gui/{uid}"),
@@ -109,9 +121,17 @@ impl Manager {
                 ],
             ),
             Os::Linux => {
-                run("systemctl", &["--user", "daemon-reload"])?;
-                run("systemctl", &["--user", "enable", &unit_name()])?;
-                run("systemctl", &["--user", "restart", &unit_name()])
+                run(system, Program::Systemctl, &["--user", "daemon-reload"])?;
+                run(
+                    system,
+                    Program::Systemctl,
+                    &["--user", "enable", &unit_name()],
+                )?;
+                run(
+                    system,
+                    Program::Systemctl,
+                    &["--user", "restart", &unit_name()],
+                )
             }
         }
     }
@@ -181,15 +201,18 @@ pub fn parse_systemd_job(text: &str) -> Result<Option<Job>> {
     }))
 }
 
-/// Runs <program> <args>, and fails with what it said when it fails.
-fn run(program: &str, args: &[&str]) -> Result<()> {
-    let output = Command::new(program)
+/// Runs <system>'s <program> <args>, and fails with what it said when it
+/// fails.
+fn run(system: &System, program: Program, args: &[&str]) -> Result<()> {
+    let name = program.name();
+    let output = system
+        .command(program)?
         .args(args)
         .output()
-        .context(|| format!("running {program}"))?;
+        .context(|| format!("running {name}"))?;
     if !output.status.success() {
         fail!(
-            "{program} {} failed ({}): {}",
+            "{name} {} failed ({}): {}",
             args.join(" "),
             output.status,
             String::from_utf8_lossy(&[output.stdout, output.stderr].concat()).trim()
@@ -282,6 +305,7 @@ pub fn job_path(home: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     /// The launchd job runs the server with TMPDIR on the build volume: the
     /// shell command it names makes the folder and starts the server there.

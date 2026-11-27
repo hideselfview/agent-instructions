@@ -4,9 +4,8 @@
 //! build (app_queue.rs, `a_shots_step_sees_a_tmpdir_on_the_build_volume`).
 
 use std::path::PathBuf;
-use std::process::Command;
 
-const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
+mod common;
 
 #[test]
 fn a_child_of_builds_cargo_sees_a_tmpdir_on_the_build_volume_that_the_end_of_the_run_deletes() {
@@ -40,13 +39,9 @@ test "$?" -ne 0
     let path = std::env::var_os("PATH").unwrap();
     let path =
         std::env::join_paths(std::iter::once(bin).chain(std::env::split_paths(&path))).unwrap();
-    let ran = Command::new(BUILDS)
+    let ran = common::builds(&dir)
         .args(["cargo", "check"])
         .current_dir(&work)
-        .env("BUILDS_ROOT", &volume)
-        .env("BUILDS_POWER_RECORD", dir.join("power"))
-        .env("BUILDS_TEMP", dir.join("temp"))
-        .env("HOME", dir.join("home"))
         .env("PATH", path)
         .env("TMPDIR", dir.join("system-tmp"))
         .env("RECORD", &record)
@@ -56,10 +51,6 @@ test "$?" -ne 0
         .env("SCCACHE_DIR", dir.join("cache"))
         .env("SCCACHE_CONF", dir.join("sccache.conf"))
         .env("SCCACHE_IDLE_TIMEOUT", "2")
-        .env_remove("CLAUDE_CODE_SESSION_ID")
-        .env_remove("CODEX_SESSION_ID")
-        .env_remove("CODEX_THREAD_ID")
-        .env_remove("BUILDS_AGENT")
         .output()
         .unwrap();
     let said = String::from_utf8_lossy(&ran.stderr).into_owned();

@@ -103,6 +103,7 @@ fn an_eviction_after_the_trash_was_taken_makes_a_fresh_one() {
     assert_eq!(
         crate::evict::evict(
             &places,
+            &scratch.with_lsof(),
             &folder,
             crate::evict::Recreate::No,
             crate::evict::Removal::Now

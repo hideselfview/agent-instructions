@@ -42,9 +42,7 @@ fn tool_repo(top: &Path, key: &str, check: &str) -> BuiltTool {
 }
 
 fn no_ssh() -> Ssh {
-    Ssh {
-        program: "false".to_string(),
-    }
+    crate::testing::no_ssh()
 }
 
 fn key_of(text: &str) -> Key {
@@ -152,7 +150,7 @@ fn a_build_whose_check_fails_never_takes_its_place() {
 fn host_m1(scratch: &Scratch, places: &Places) -> (Ssh, Host, PathBuf) {
     let home = scratch.dir.join("remote-home");
     std::fs::create_dir_all(home.join("volume")).unwrap();
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(scratch, &home);
     let file = crate::host::hosts_file(places);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(&file, "m1 user@m1 10 1.0\n").unwrap();

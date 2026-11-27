@@ -457,9 +457,17 @@ pub fn standing(places: &Places, project: &str) -> Result<Standing> {
 
 /// Asks the design session that listens for project <project> to publish
 /// the designs at <rev> of the repo <repo> is in, for the person at the
-/// dashboard at <now> (`publish::ask_and_tell`). Fails when <rev> names no
-/// commit or one with no `CANVASES`, so that nothing publishes it.
-pub fn ask(places: &Places, project: &str, repo: &Path, rev: &str, now: i64) -> Result<Request> {
+/// dashboard at <now> (`publish::ask_and_tell`), telling it through
+/// <sessions>. Fails when <rev> names no commit or one with no `CANVASES`,
+/// so that nothing publishes it.
+pub fn ask(
+    places: &Places,
+    sessions: &crate::inbox::Sessions,
+    project: &str,
+    repo: &Path,
+    rev: &str,
+    now: i64,
+) -> Result<Request> {
     let commit = Source::Commit { repo, rev }
         .check()?
         .expect("a commit source names a commit");
@@ -472,7 +480,7 @@ pub fn ask(places: &Places, project: &str, repo: &Path, rev: &str, now: i64) -> 
         at: now,
         by: super::approve::BY.to_string(),
     };
-    ask_and_tell(&store, &places.sessions(), &commit, &stamp)
+    ask_and_tell(&store, sessions, &commit, &stamp)
 }
 
 /// Board <name> of commit <commit> of the repo <repo> is in, drawn in the

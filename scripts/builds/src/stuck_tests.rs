@@ -475,11 +475,9 @@ fn the_dashboard_is_never_a_busy_build() {
 #[test]
 fn remote_busy_processes_survive_a_cwd_lookup_without_matches() {
     let scratch = crate::testing::Scratch::new("busy-cwd-exit");
-    let ssh = Ssh {
-        program: scratch
-            .script(
-                "ssh",
-                r#"case "${9}" in
+    let ssh = crate::testing::ssh_at(&scratch.script(
+        "ssh",
+        r#"case "${9}" in
   m1) ;;
   denied) echo "lsof: Permission denied" >&2; exit 1 ;;
   invalid) echo "not a folder record"; echo "lsof: failed" >&2; exit 1 ;;
@@ -517,10 +515,7 @@ case "${10}" in
     '45 0 501 0.0 00:01.00 00:03 R /usr/bin/new' ;;
   *) exit 2 ;;
 esac"#,
-            )
-            .display()
-            .to_string(),
-    };
+    ));
     let mut host = Host {
         name: "m1".into(),
         target: Some("m1".into()),

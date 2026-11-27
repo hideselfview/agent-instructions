@@ -6,6 +6,8 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+mod common;
+
 const FIXTURE: &str = r##"{
   "capture": { "ready": "#x", "steps": [] },
   "stage": {
@@ -31,19 +33,14 @@ fn folder(name: &str, fixture: &str) -> PathBuf {
 }
 
 fn stage(dir: &Path) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_builds"));
+    let mut command = common::builds(dir);
     command
         .args(["dashboard", "stage", "--fixtures"])
         .arg(dir)
         .arg("web.demo.page")
         .current_dir(dir)
         .env("BUILDS_ROOT", dir.join("no-volume"))
-        .env("BUILDS_POWER_RECORD", dir.join("power"))
-        .env("BUILDS_TEMP", dir.join("temp"))
-        .env("HOME", dir.join("home"))
-        .env("BUILDS_LISTS", dir.join("lists"))
-        .env_remove("CLAUDE_CODE_SESSION_ID")
-        .env_remove("BUILDS_AGENT");
+        .env("BUILDS_LISTS", dir.join("lists"));
     command
 }
 

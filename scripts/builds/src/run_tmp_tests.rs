@@ -178,7 +178,7 @@ fn the_sweep_deletes_the_folders_of_runs_that_ended_and_reports_what_no_run_made
     let (finished, running, stray) = folders(&places);
     let swept = sweep(
         &places,
-        &crate::host::Ssh::from_env(),
+        &crate::testing::no_ssh(),
         &local_host(),
         &Holders::read().unwrap(),
     )

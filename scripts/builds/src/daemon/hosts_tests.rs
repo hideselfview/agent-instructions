@@ -10,7 +10,7 @@ fn a_host_row_says_the_hosts_load_and_a_host_that_does_not_answer_says_why() {
     let file = host::hosts_file(&places);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(&file, "m1 user@m1 10\ngone unreachable 4\n").unwrap();
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &scratch.dir.join("remote-home"));
+    let ssh = fake_ssh(&scratch, &scratch.dir.join("remote-home"));
 
     let rows = read(&places, &ssh).unwrap();
     let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
@@ -31,6 +31,6 @@ fn a_host_row_says_the_hosts_load_and_a_host_that_does_not_answer_says_why() {
 fn no_remote_host_means_no_rows() {
     let scratch = Scratch::new("daemon-hosts-empty");
     let places = scratch.places();
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &scratch.dir.join("remote-home"));
+    let ssh = fake_ssh(&scratch, &scratch.dir.join("remote-home"));
     assert!(read(&places, &ssh).unwrap().is_empty());
 }

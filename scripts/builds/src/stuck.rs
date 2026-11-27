@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use serde::Serialize;
 
 use crate::health::Advice;
-use crate::host::{Host, Ssh, command_at, command_output, output_of};
+use crate::host::{Host, Ssh, command_at, command_output};
 use crate::host_scan::{Row, Sustained};
 use crate::shells::{basename, command_of, is_agent_argv, shown};
 use crate::text::duration;
@@ -471,15 +471,7 @@ impl HostBusy {
 /// The start time of each process that still runs, by the host's clock.
 fn live_starts(ssh: &Ssh, host: &Host) -> Result<HashMap<i32, i64>, String> {
     let what = format!("process lifetimes on {}", crate::host::place(&host.name));
-    let listing = output_of(
-        command_at(
-            ssh,
-            host,
-            &crate::host_scan::timed_ps_script(),
-            crate::host::Terminal::None,
-        ),
-        &what,
-    )?;
+    let listing = crate::host::output_at(ssh, host, &crate::host_scan::timed_ps_script(), &what)?;
     let (_, at, rows) =
         crate::host_scan::timed_rows(&listing).map_err(|error| format!("{what}: {error}"))?;
     Ok(rows
@@ -503,7 +495,8 @@ fn folders_on(
             host,
             &format!("lsof -a -d cwd -Fpn -p {}", list.join(",")),
             crate::host::Terminal::None,
-        ),
+        )
+        .map_err(crate::fail::Fail::text)?,
         &what,
     )?;
     let folders = parse_lsof(&String::from_utf8_lossy(&output.stdout));

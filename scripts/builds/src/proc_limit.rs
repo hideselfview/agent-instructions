@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::health::Advice;
-use crate::host::{Host, Ssh, Terminal, answer_value, command_at, output_of, place};
+use crate::host::{Host, Ssh, answer_value, output_at, place};
 use crate::host_scan::Row;
 use crate::shells::{basename, shown};
 use crate::text::duration;
@@ -75,15 +75,12 @@ pub fn parse(text: &str) -> Result<ProcessUse> {
 }
 
 /// This Mac's process count and limit, read by the lines the probe script
-/// runs on other hosts.
-pub fn local() -> Result<ProcessUse> {
-    let printed = output_of(
-        command_at(
-            &Ssh::from_env(),
-            &Host::local(),
-            PROBE_LINES,
-            Terminal::None,
-        ),
+/// runs on other hosts, with <ssh>'s programs.
+pub fn local(ssh: &Ssh) -> Result<ProcessUse> {
+    let printed = output_at(
+        ssh,
+        &Host::local(),
+        PROBE_LINES,
         "counting this Mac's processes",
     )
     .map_err(Fail::Message)?;
@@ -204,9 +201,9 @@ pub fn finding(
 /// Stops each test-binary parent of zombies of <uid> on this Mac when this
 /// Mac is near its process limit, with SIGTERM: the zombies then belong to
 /// init, which reaps them. Returns one line per parent and the number it
-/// could not stop.
-pub fn stop(uid: u32) -> Result<(Vec<String>, usize)> {
-    let used = local()?;
+/// could not stop. <ssh> counts the processes.
+pub fn stop(ssh: &Ssh, uid: u32) -> Result<(Vec<String>, usize)> {
+    let used = local(ssh)?;
     if !used.near_limit() {
         return Ok((Vec::new(), 0));
     }

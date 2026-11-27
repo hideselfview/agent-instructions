@@ -6,7 +6,14 @@ fn model_in(scratch: &Scratch) -> Arc<Model> {
     let tool = scratch.tool(0);
     let places = tool.places.clone();
     let runs = Runs::start(places.clone(), vec!["/usr/bin/false".to_string()]).unwrap();
-    Model::start(places, tool.rules.clone(), runs, tool.program.clone()).unwrap()
+    Model::start(
+        places,
+        tool.system.clone(),
+        tool.rules.clone(),
+        runs,
+        tool.program.clone(),
+    )
+    .unwrap()
 }
 
 /// The reply `answer` writes for <question>.

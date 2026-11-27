@@ -392,6 +392,7 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
     // The source's incremental folders and the like: a side worktree's
     // builds read none of them. 0 incremental hours deletes every one.
     units::prune::prune(
+        &tool.system,
         &Ages::new(tool.rules.unused_days, 0),
         Run::Real,
         std::slice::from_ref(&dest),
@@ -530,6 +531,7 @@ pub fn clone_lane(tool: &Tool, lane: Lane, source: &Checkout, dest: &Checkout) -
     drop(held);
     // An app checkout's builds run without incremental compilation.
     units::prune::prune(
+        &tool.system,
         &Ages::new(tool.rules.unused_days, 0),
         Run::Real,
         &cloned,

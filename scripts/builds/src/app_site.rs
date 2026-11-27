@@ -14,12 +14,14 @@ use crate::lane::Lane;
 use crate::places::Places;
 use crate::roots::Changed;
 use crate::side_git::{UNCOMMITTED_STATUS, paths_in_status};
+use crate::system::System;
 
 /// One of a repo's app checkouts, on this Mac or on a host.
 pub enum Site<'a> {
-    /// The checkout's folder here, and the file Xcode reads its settings from
-    /// for builds in it (xcode_cache.rs).
-    Local(PathBuf, PathBuf, CheckoutLock<'a>),
+    /// The checkout's folder here, the file Xcode reads its settings from
+    /// for builds in it (xcode_cache.rs), and the programs that act on this
+    /// Mac (system.rs).
+    Local(PathBuf, PathBuf, CheckoutLock<'a>, System),
     Remote(Box<RemoteApp<'a>>),
 }
 
@@ -42,8 +44,8 @@ impl<'a> Site<'a> {
                 None => {
                     changed.add(places.root.join(repo).join(entry));
                     let top = app_checkout_top(places, repo, entry)?;
-                    let settings = crate::xcode_cache::settings_for(places, &top)?;
-                    Site::Local(top, settings, checkout)
+                    let settings = crate::xcode_cache::settings_for(places, ssh.system(), &top)?;
+                    Site::Local(top, settings, checkout, ssh.system().clone())
                 }
             },
         )
@@ -54,7 +56,7 @@ impl<'a> Site<'a> {
     /// checkout on a host, whose clone gets commits only from this Mac.
     pub fn fetched_source(&self, places: &Places, repo: &str) -> Result<PathBuf> {
         match self {
-            Site::Local(top, _, checkout) => {
+            Site::Local(top, _, checkout, _) => {
                 checkout_git(top, None, &["fetch", "-q", "origin"], *checkout)?;
                 Ok(top.clone())
             }
@@ -66,11 +68,7 @@ impl<'a> Site<'a> {
     /// checkout); a failure says <what> and what the script wrote to stderr.
     fn print_of(&self, script: &str, what: &str) -> Result<String> {
         match self {
-            Site::Local(..) => {
-                let mut command = std::process::Command::new("sh");
-                command.args(["-c", script]);
-                output_of(command, what).map_err(Fail::Message)
-            }
+            Site::Local(.., system) => output_of(system.sh(script), what).map_err(Fail::Message),
             Site::Remote(remote) => remote.on_host(script, what),
         }
     }
@@ -103,7 +101,7 @@ impl<'a> Site<'a> {
     /// The commit the checkout is on.
     pub fn head(&mut self) -> Result<String> {
         match self {
-            Site::Local(top, _, checkout) => resolve_checkout(top, "HEAD", *checkout),
+            Site::Local(top, _, checkout, _) => resolve_checkout(top, "HEAD", *checkout),
             Site::Remote(remote) => remote.head(),
         }
     }
@@ -120,7 +118,7 @@ impl<'a> Site<'a> {
     /// <index> when given.
     pub fn git(&mut self, index: Option<&str>, args: &[&str]) -> Result<String> {
         match self {
-            Site::Local(top, _, checkout) => checkout_git(top, index, args, *checkout),
+            Site::Local(top, _, checkout, _) => checkout_git(top, index, args, *checkout),
             Site::Remote(remote) => remote.git(index, args),
         }
     }
@@ -137,7 +135,7 @@ impl<'a> Site<'a> {
     /// the switch holds out against every signal but SIGKILL (`switch_to`).
     pub fn force_to(&mut self, commit: &str) -> Result<()> {
         match self {
-            Site::Local(top, _, checkout) => switch_to(top, commit, true, *checkout),
+            Site::Local(top, _, checkout, _) => switch_to(top, commit, true, *checkout),
             Site::Remote(remote) => remote
                 .git(None, &["checkout", "-q", "--detach", "--force", commit])
                 .map(|_| ()),

@@ -201,7 +201,7 @@ fn a_writer_can_take_its_lease_while_prune_waits_for_the_process_scan() {
     let tool = scratch.tool(0);
     let root = scratch.dir.join("root");
     let unit = store(&root, "g/a", 400, 30);
-    let lsof = scratch.script("lsof", "exit 0");
+    scratch.stand_in("lsof", "exit 0");
     let (scanning, started) = mpsc::channel();
     let (release, finish) = mpsc::channel();
     let (wrote, acquired) = mpsc::channel();
@@ -218,7 +218,7 @@ fn a_writer_can_take_its_lease_while_prune_waits_for_the_process_scan() {
                 || {
                     scanning.send(()).unwrap();
                     finish.recv().unwrap();
-                    HeldPaths::read_with(&lsof)
+                    HeldPaths::read(&tool.system)
                 },
             )
         });
@@ -311,6 +311,7 @@ fn the_open_file_snapshot_follows_discovery_and_prune_selects_an_alternative() {
     use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
     let scratch = Scratch::new("capped-held-in-discovery");
+    scratch.with_lsof();
     let tool = scratch.tool(0);
     let root = scratch.dir.join("root");
     let oldest = store(&root, "g/oldest", 400, 30);
@@ -404,7 +405,7 @@ fn a_failed_open_file_scan_keeps_folder_candidates() {
     let tool = scratch.tool(0);
     let root = scratch.dir.join("root");
     let unit = store(&root, "g/a", 400, 30);
-    let probe = scratch.script(
+    scratch.stand_in(
         "lsof",
         "printf 'p123\\nn/tmp/partial\\n'; echo 'process listing failed' >&2; exit 1",
     );
@@ -414,7 +415,7 @@ fn a_failed_open_file_scan_keeps_folder_candidates() {
         &root,
         100,
         || Ok(Some(vec![group(&root)])),
-        || HeldPaths::read_with(&probe),
+        || HeldPaths::read(&tool.system),
     )
     .unwrap_err()
     .text();

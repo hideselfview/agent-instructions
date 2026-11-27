@@ -5,22 +5,13 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
+mod common;
 
 fn command(dir: &PathBuf, session: Option<&str>, args: &[&str]) -> Command {
-    let mut command = Command::new(BUILDS);
+    let mut command = common::builds(dir);
     command
         .current_dir(dir)
-        .env("BUILDS_ROOT", dir.join("volume"))
-        .env("BUILDS_POWER_RECORD", dir.join("power"))
-        .env("BUILDS_TEMP", dir.join("temp"))
-        .env("HOME", dir.join("home"))
         .env("BUILDS_LISTS", dir.join("lists"))
-        .env_remove("CLAUDE_CODE_SESSION_ID")
-        .env_remove("CODEX_SESSION_ID")
-        .env_remove("CODEX_THREAD_ID")
-        .env_remove("BUILDS_ACKNOWLEDGED")
-        .env_remove("BUILDS_AGENT")
         .args(args);
     if let Some(session) = session {
         command.env("CLAUDE_CODE_SESSION_ID", session);

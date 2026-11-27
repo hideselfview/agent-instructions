@@ -23,7 +23,7 @@ fn take_on_thread(
     let (free, freed): (_, Receiver<()>) = channel();
     let places = places.clone();
     std::thread::spawn(move || {
-        let held = take(&places, "demo", Lane::MAC).unwrap();
+        let held = take(&places, &crate::testing::no_ssh(), "demo", Lane::MAC).unwrap();
         said.send(name).unwrap();
         freed.recv().unwrap();
         held.release();
@@ -72,7 +72,7 @@ fn waiters_take_the_lock_in_the_order_they_came() {
 fn a_build_in_a_group_finishes_or_fails_with_its_exit_status() {
     let scratch = Scratch::new("lock-ran");
     let places = places(&scratch);
-    let held = take(&places, "demo", Lane::MAC).unwrap();
+    let held = take(&places, &crate::testing::no_ssh(), "demo", Lane::MAC).unwrap();
     assert_eq!(
         run_in_group(Command::new("true"), "true").unwrap(),
         Ran::Finished
@@ -95,7 +95,7 @@ fn an_android_step_can_leave_a_daemon_without_holding_the_checkout() {
     let places = places(&scratch);
     let lane = Lane::ANDROID;
     std::fs::write(places.app_checkouts_file("demo", lane), "app-1\n").unwrap();
-    let held = take(&places, "demo", lane).unwrap();
+    let held = take(&places, &crate::testing::no_ssh(), "demo", lane).unwrap();
     let lock = places.app_lock_file("demo", lane, &held.checkout);
     let ticket = held.queue.ticket_path(&held.ticket.name);
 
@@ -157,8 +157,8 @@ fn builds_take_different_checkouts_at_once_and_wait_when_every_lock_is_held() {
     let scratch = Scratch::new("lock-set");
     let places = places(&scratch);
     set_of(&places, 2);
-    let first = take(&places, "demo", Lane::MAC).unwrap();
-    let second = take(&places, "demo", Lane::MAC).unwrap();
+    let first = take(&places, &crate::testing::no_ssh(), "demo", Lane::MAC).unwrap();
+    let second = take(&places, &crate::testing::no_ssh(), "demo", Lane::MAC).unwrap();
     let mut held = [first.checkout.clone(), second.checkout.clone()];
     held.sort();
     assert_eq!(
@@ -292,9 +292,7 @@ fn ssh_with_load(dir: &std::path::Path, load: &str) -> Ssh {
     )
     .unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Ssh {
-        program: program.display().to_string(),
-    }
+    crate::testing::ssh_at(&program)
 }
 
 fn places_with_host(scratch: &Scratch, entries: &str) -> Places {
@@ -375,9 +373,7 @@ fn a_host_that_does_not_answer_is_skipped_and_named_when_it_was_the_only_one() {
     )
     .unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let down = Ssh {
-        program: program.display().to_string(),
-    };
+    let down = crate::testing::ssh_at(&program);
     let Err(error) = take_where(&places, &down, "demo", Lane::ANDROID, Where::Anywhere, 0) else {
         panic!("the only checkout is on a host that is down");
     };
@@ -393,12 +389,12 @@ fn a_holder_records_how_long_it_waited_and_the_step_it_runs() {
     let scratch = Scratch::new("lock-record");
     let places = places(&scratch);
     let record = places.app_lock_run_file("demo", Lane::MAC, "app-1");
-    let first = take(&places, "demo", Lane::MAC).unwrap();
+    let first = take(&places, &crate::testing::no_ssh(), "demo", Lane::MAC).unwrap();
     let (said, heard) = channel();
     let (free, freed): (_, Receiver<()>) = channel();
     let waiter = places.clone();
     std::thread::spawn(move || {
-        let held = take(&waiter, "demo", Lane::MAC).unwrap();
+        let held = take(&waiter, &crate::testing::no_ssh(), "demo", Lane::MAC).unwrap();
         said.send(()).unwrap();
         freed.recv().unwrap();
         held.runs("macos-tests").unwrap();
@@ -441,9 +437,7 @@ fn ssh_with_screen(dir: &std::path::Path, screen: &str) -> Ssh {
     )
     .unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Ssh {
-        program: program.display().to_string(),
-    }
+    crate::testing::ssh_at(&program)
 }
 
 #[test]

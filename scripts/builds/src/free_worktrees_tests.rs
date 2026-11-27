@@ -52,7 +52,7 @@ fn app_checkout(tool: &Tool, scratch: &Scratch, main: &Path) -> std::path::PathB
     );
     crate::worktree::cmd_app_checkout(
         tool,
-        &crate::host::Ssh::from_env(),
+        &crate::testing::no_ssh(),
         &["mac".to_string(), top.display().to_string()],
     )
     .unwrap();
@@ -292,7 +292,7 @@ fn a_side_worktree_is_never_recorded_as_an_app_checkout() {
 
     let result = crate::worktree::cmd_app_checkout(
         &tool,
-        &crate::host::Ssh::from_env(),
+        &crate::testing::no_ssh(),
         &["mac".to_string(), side(&scratch, 1).display().to_string()],
     );
     assert!(
@@ -364,7 +364,7 @@ fn a_harness_worktree_is_never_recorded_as_an_app_checkout() {
     let harness = harness_worktree(&tool, &main);
     let result = crate::worktree::cmd_app_checkout(
         &tool,
-        &crate::host::Ssh::from_env(),
+        &crate::testing::no_ssh(),
         &["mac".to_string(), harness.display().to_string()],
     );
     assert!(

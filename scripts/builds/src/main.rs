@@ -197,6 +197,7 @@ mod status;
 mod step_failure;
 mod step_outcomes;
 mod stuck;
+mod system;
 mod temp_builds;
 #[cfg(test)]
 mod testing;
@@ -233,6 +234,7 @@ fn run_program() -> ExitCode {
     let mut argv = std::env::args_os();
     let program = argv.next().unwrap_or_default();
     let args: Vec<std::ffi::OsString> = argv.collect();
+    let system = system::System::from_env();
     #[cfg(target_os = "macos")]
     if args.len() == 1 && args[0] == app_lock_guard::COMMAND {
         return match app_lock_guard::watch() {
@@ -243,7 +245,7 @@ fn run_program() -> ExitCode {
     if let [word, pid, what] = args.as_slice()
         && word == awake::HOLD_COMMAND
     {
-        return match hold_awake(pid, what) {
+        return match system.and_then(|system| hold_awake(&system, pid, what)) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => exit_code_after(awake::HOLD_COMMAND, error),
         };
@@ -273,10 +275,14 @@ fn run_program() -> ExitCode {
         }
     };
     let session = ack::agent::Session::from_env(agent);
-    run_command(&args, session)
+    let system = match system {
+        Ok(system) => system,
+        Err(fail) => return exit_code_after(command_of(&args), fail),
+    };
+    run_command(&args, session, &system)
 }
 
-fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
+fn run_command(args: &[String], session: ack::agent::Session, system: &system::System) -> ExitCode {
     let Some((command, rest)) = args.split_first() else {
         output::answer(help::HELP);
         return ExitCode::from(2);
@@ -311,7 +317,7 @@ fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
         return exit_code_after(command, fail);
     }
     // Held until the command ends, the measuring of what it wrote included.
-    let _awake = match awake_for(command, rest) {
+    let _awake = match awake_for(system, command, rest) {
         Ok(held) => held,
         Err(fail) => return exit_code_after(command, fail),
     };
@@ -322,7 +328,7 @@ fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
         Err(fail) => return exit_code_after(command, fail),
     };
     let changed = roots::Changed::default();
-    let result = run(command, rest, session, &changed);
+    let result = run(command, rest, session, &changed, system);
     // The roots the command changed are measured whether it succeeded or
     // not: a failed build left what it wrote.
     if let Ok(places) = Places::from_env() {
@@ -336,7 +342,11 @@ fn run_command(args: &[String], session: ack::agent::Session) -> ExitCode {
 
 /// Keeps this Mac awake while `builds <command> <args>` runs, when it runs
 /// work (`awake::does_work`).
-fn awake_for(command: &str, args: &[String]) -> Result<Option<awake::KeepAwake>> {
+fn awake_for(
+    system: &system::System,
+    command: &str,
+    args: &[String],
+) -> Result<Option<awake::KeepAwake>> {
     if !awake::does_work(command, args) {
         return Ok(None);
     }
@@ -344,16 +354,20 @@ fn awake_for(command: &str, args: &[String]) -> Result<Option<awake::KeepAwake>>
         .chain(args.iter().map(String::as_str))
         .collect::<Vec<_>>()
         .join(" ");
-    awake::KeepAwake::while_working(&Places::from_env()?.power, &what).map(Some)
+    awake::KeepAwake::while_working(&system.power(), &what).map(Some)
 }
 
 /// `builds __hold-awake <pid> <what>` (`awake::hold_while`), which a job's
 /// script runs on a host.
-fn hold_awake(pid: &std::ffi::OsStr, what: &std::ffi::OsStr) -> Result<()> {
+fn hold_awake(
+    system: &system::System,
+    pid: &std::ffi::OsStr,
+    what: &std::ffi::OsStr,
+) -> Result<()> {
     let Some(pid) = pid.to_str().and_then(|pid| pid.parse().ok()) else {
         crate::fail!("{} takes a process id", awake::HOLD_COMMAND);
     };
-    awake::hold_while(&Places::from_env()?.power, pid, &what.to_string_lossy())
+    awake::hold_while(&system.power(), pid, &what.to_string_lossy())
 }
 
 /// The command that <args> name: the first word that is not `--agent ID`, ""
@@ -495,6 +509,7 @@ fn run(
     args: &[String],
     session: ack::agent::Session,
     changed: &roots::Changed,
+    system: &system::System,
 ) -> Result<()> {
     if python::STEP_COMMANDS.contains(&command) {
         python::use_new_python(&Places::from_env()?)?;
@@ -502,18 +517,18 @@ fn run(
     match command {
         // These run in the caller's environment as it is, which cargo
         // inherits; `cargo` asks git about its checkout without changing it.
-        "cargo" => return cargo_run::cmd_cargo(args, changed),
-        "lake" => return lake_run::cmd_lake(args, changed),
+        "cargo" => return cargo_run::cmd_cargo(system, args, changed),
+        "lake" => return lake_run::cmd_lake(system, args, changed),
         "version" => {
             output::answer_line(version());
             return Ok(());
         }
-        "programs" => return programs::cmd_programs(&Places::from_env()?, args),
+        "programs" => return programs::cmd_programs(&Places::from_env()?, system, args),
         "sccache-tmpdir" => return sccache::cmd_tmpdir(&Places::from_env()?.root, args),
         "checks" => return checks_run::cmd_checks(args),
         "waits" => return waits::cmd_waits(args),
         "install-hook" => return install_hook::cmd_install_hook(args),
-        "lock" => return lock::cmd_lock(&Places::from_env()?, args),
+        "lock" => return lock::cmd_lock(&Places::from_env()?, system, args),
         "app-build" => {
             return app_build::cmd_app_build(
                 &Tool::new(
@@ -522,6 +537,7 @@ fn run(
                     this_program()?,
                     session,
                     changed.clone(),
+                    system.clone(),
                 )?,
                 args,
             );
@@ -534,6 +550,7 @@ fn run(
                     this_program()?,
                     session,
                     changed.clone(),
+                    system.clone(),
                 )?,
                 &args[1..],
             );
@@ -573,10 +590,11 @@ fn run(
         this_program()?,
         session,
         changed.clone(),
+        system.clone(),
     )?;
     match command {
-        "setup" => setup::cmd_setup(&tool, &host::Ssh::from_env(), args),
-        "new" => worktree::cmd_new(&tool, &host::Ssh::from_env(), args),
+        "setup" => setup::cmd_setup(&tool, &tool.ssh(), args),
+        "new" => worktree::cmd_new(&tool, &tool.ssh(), args),
         "retire" => worktree::cmd_retire(&tool, args),
         "land" => land::cmd_land(&tool, args),
         "review" => review::cmd_review(&tool, args),
@@ -584,10 +602,13 @@ fn run(
         "claim" => claim::cmd_claim(&tool.places, args, tool.now),
         "note" => claim::cmd_note(&tool.places, args, tool.now),
         "release" => claim::cmd_release(&tool.places, args),
-        "app-checkout" => worktree::cmd_app_checkout(&tool, &host::Ssh::from_env(), args),
+        "app-checkout" => worktree::cmd_app_checkout(&tool, &tool.ssh(), args),
         "app-clone" => warm::cmd_app_clone(&tool, args),
         "build-app" => build_app::cmd_build_app(&tool, args),
-        "status" => status::cmd_status(&mut tool, &host::Ssh::from_env(), args),
+        "status" => {
+            let ssh = tool.ssh();
+            status::cmd_status(&mut tool, &ssh, args)
+        }
         "prune" => prune::cmd_prune(&tool, args),
         "install" => install::cmd_install(&tool, args),
         "units" => units::cmd_units(&tool, args),
@@ -598,13 +619,13 @@ fn run(
         "design" => lists::cmd_design(&tool, args),
         "question" => lists::question_command::cmd_question(&tool, args),
         "agent" => agent_command::cmd_agent(&tool, args),
-        "item" => lists::cmd_item(&tool, &host::Ssh::from_env(), args),
+        "item" => lists::cmd_item(&tool, &tool.ssh(), args),
         "next" => lists::cmd_next(&tool, args),
         "area" => lists::cmd_area(&tool, args),
         "dashboard" => daemon::cmd_dashboard(&tool, args),
-        "host" => host::cmd_host(&tool, &host::Ssh::from_env(), args),
-        "remote" => remote::cmd_remote(&tool, &host::Ssh::from_env(), args),
-        "tool" => built_tools::cmd_tool(&tool.places, &host::Ssh::from_env(), args),
+        "host" => host::cmd_host(&tool, &tool.ssh(), args),
+        "remote" => remote::cmd_remote(&tool, &tool.ssh(), args),
+        "tool" => built_tools::cmd_tool(&tool.places, &tool.ssh(), args),
         other => fail!(
             "builds has no command {other}. Its commands are ack, agent, rules-on-edit, setup, new, land, review, judge, claim, note, release, retire, app-checkout, app-clone, status, health, lists, brief, decision, design, question, item, next, area, dashboard, host, remote, prune, tool, cargo, lake, lock, app-build, shots, queue, takeover, build-app, install, checks, install-hook and version."
         ),

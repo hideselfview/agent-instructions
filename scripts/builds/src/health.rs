@@ -506,9 +506,13 @@ pub struct Machine {
 /// `sccache_readings::READING_MINUTES` old; this reading joins the record
 /// when the newest of this Mac in it is a minute old or more
 /// (sccache_readings.rs).
-pub fn sccache_reading(home: &Path, now: i64) -> Result<SccacheServer> {
+pub fn sccache_reading(
+    system: &crate::system::System,
+    home: &Path,
+    now: i64,
+) -> Result<SccacheServer> {
     use crate::sccache_readings::{Reading, compared, read, record, write};
-    let Some(server) = crate::sccache::listener()? else {
+    let Some(server) = crate::sccache::listener(system)? else {
         return Ok(SccacheServer::Silent);
     };
     let stats = match crate::sccache::running_stats() {
@@ -1368,7 +1372,7 @@ fn read_health(
     let roots = tool.roots()?;
     let live: Vec<&Root> = roots.iter().filter(|root| root.live.is_some()).collect();
     let places = places_of(&roots);
-    let sccache = sccache_reading(&tool.places.home, now)?;
+    let sccache = sccache_reading(&tool.system, &tool.places.home, now)?;
     let machine = sample(
         &places,
         &crate::host::all(&tool.places)?,
@@ -1907,7 +1911,7 @@ pub(crate) type ClaudeSessions = std::result::Result<Vec<crate::claude_sessions:
 
 /// What health says of each project whose findings wait for a missing judge.
 fn judge_findings(tool: &Tool, stores: &[Store], running: &ClaudeSessions) -> Vec<Finding> {
-    let sessions = tool.places.sessions();
+    let sessions = tool.sessions();
     let running = match running {
         Ok(running) => running,
         Err(error) => {
@@ -2116,7 +2120,7 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
         if lines.is_empty() {
             crate::output::say("no junk shells");
         }
-        let (zombie_lines, zombie_failed) = crate::proc_limit::stop(tool.places.uid)?;
+        let (zombie_lines, zombie_failed) = crate::proc_limit::stop(&tool.ssh(), tool.places.uid)?;
         lines.extend(zombie_lines);
         failed += zombie_failed;
         for line in lines {
@@ -2151,7 +2155,7 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
     // builds health reads the busy processes itself: the daemon's health
     // holds none, and builds health prints every busy process, not only the
     // ones stuck.rs judges stuck.
-    let ssh = crate::host::Ssh::from_env();
+    let ssh = tool.ssh();
     let mut hosts = crate::host::all(&tool.places)?;
     let lock = tool.places.daemon_lock();
     let dashboard = crate::daemon::live::DashboardLock::new(&lock)
@@ -2243,8 +2247,10 @@ fn report(tool: &Tool, json: bool, stop_junk: bool, release_failures: Vec<Advice
     let mut scanned = Scanned::judge(&tool.places, scans, &holders, tool.now);
     let stops =
         crate::health_fix::stop_orphans(std::mem::take(&mut scanned.orphans), &|host, script| {
-            crate::host::output_of(
-                crate::host::command_at(&ssh, host, script, crate::host::Terminal::None),
+            crate::host::output_at(
+                &ssh,
+                host,
+                script,
                 &format!("the stop script on {}", crate::host::place(&host.name)),
             )
         });
@@ -3380,11 +3386,9 @@ mod tests {
     #[test]
     fn process_limit_health_keeps_zombie_parents_when_placement_fails() {
         let scratch = crate::testing::Scratch::new("health-lost-placement");
-        let ssh = crate::host::Ssh {
-            program: scratch
-                .script(
-                    "ssh",
-                    r#"case "${10}" in
+        let ssh = crate::testing::ssh_at(&scratch.script(
+            "ssh",
+            r#"case "${10}" in
   *"cpu_idle="*) printf '%s\n' uid=501 now=5000 cpu_idle=10 ps_follows=1 \
     '41 0 501 0.0 0:01 40:00 S /usr/bin/builds cargo test' \
     '43 41 501 0.0 11:01 40:00 S /tmp/target/debug/deps/demo-0123456789abcdef' \
@@ -3393,10 +3397,7 @@ mod tests {
   *"ps -axww -o "*) echo "ps: Permission denied" >&2; exit 1 ;;
   *) exit 2 ;;
 esac"#,
-                )
-                .display()
-                .to_string(),
-        };
+        ));
         let host = Host {
             name: "m1".into(),
             target: Some("m1".into()),

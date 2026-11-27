@@ -209,20 +209,37 @@ impl Sent {
 /// Programs and state that reach registered sessions.
 #[derive(Clone, Debug)]
 pub struct Sessions {
+    /// Claude Code's record of its running sessions
+    /// (`Places::claude_sessions`).
     pub claude: std::path::PathBuf,
-    pub codex: std::path::PathBuf,
+    /// The system whose Codex CLI delivers and checks registered thread
+    /// notifications.
+    pub system: crate::system::System,
 }
 
 impl Sessions {
+    /// The sessions that run in <places>' home, reached with <system>'s
+    /// programs.
+    pub fn of(places: &crate::places::Places, system: &crate::system::System) -> Sessions {
+        Sessions {
+            claude: places.claude_sessions(),
+            system: system.clone(),
+        }
+    }
+
     pub fn send(&self, to: &Messaging, text: &str) -> Result<Sent> {
         match to {
             Messaging::Claude(inbox) => send_claude(inbox, text),
-            Messaging::Codex(thread) => codex::queue(thread, &self.codex, text),
+            Messaging::Codex(thread) => codex::queue(thread, &self.codex()?, text),
         }
     }
 
     pub fn codex_can_resume(&self, thread: &ThreadId) -> Result<bool> {
-        codex::exists(thread, &self.codex)
+        codex::exists(thread, &self.codex()?)
+    }
+
+    fn codex(&self) -> Result<std::path::PathBuf> {
+        self.system.path(crate::system::Program::Codex)
     }
 }
 

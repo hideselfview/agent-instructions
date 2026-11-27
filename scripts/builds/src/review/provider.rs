@@ -148,17 +148,13 @@ impl Program {
     }
 }
 
-pub(super) fn default_program(
-    explicit: Option<std::ffi::OsString>,
-    session: &crate::ack::agent::Session,
-) -> PathBuf {
-    if let Some(executable) = explicit {
-        return PathBuf::from(executable);
-    }
+/// The reviewer of a command in <session>: Codex in a Codex session, Claude
+/// in a Claude Code session or from a terminal.
+pub(super) fn default_program(session: &crate::ack::agent::Session) -> crate::system::Program {
     if matches!(session, crate::ack::agent::Session::Codex { .. }) {
-        PathBuf::from("codex")
+        crate::system::Program::Codex
     } else {
-        PathBuf::from("claude")
+        crate::system::Program::Claude
     }
 }
 

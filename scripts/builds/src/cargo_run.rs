@@ -292,7 +292,7 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
 /// recorder's when cargo succeeded and a reported unit could not be recorded.
 /// An update builds nothing and runs as cargo_update.rs says, and a read as
 /// cargo_read.rs says. A build adds its checkout's build root to <changed>.
-pub fn cmd_cargo(args: &[String], changed: &Changed) -> Result<()> {
+pub fn cmd_cargo(system: &crate::system::System, args: &[String], changed: &Changed) -> Result<()> {
     let (subcommand, format, tool): (&[String], &str, cargo_place::CargoTool) = match args
         .first()
         .map(String::as_str)
@@ -341,7 +341,7 @@ pub fn cmd_cargo(args: &[String], changed: &Changed) -> Result<()> {
     let named = cargo_place::named_host(&env)?;
     let project = cargo_place::text_variable(&env, APP_BUILD_PROJECT_VARIABLE)?;
     let runner = crate::lake_run::Runner::from_env(&env)?;
-    let ssh = Ssh::from_env();
+    let ssh = system.ssh();
     let choice = match cargo_place::stays_here(args, tool, checkout.as_ref(), &env) {
         Some(why) => {
             cargo_place::note_runs_here(named.as_deref(), &why);

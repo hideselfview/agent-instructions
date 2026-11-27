@@ -11,7 +11,9 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+mod common;
 mod programs;
+mod stand_in;
 
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 
@@ -75,7 +77,8 @@ impl World {
         }
         std::fs::create_dir_all(dir.join("home")).unwrap();
         programs::programs_folder(&dir.join("home"));
-        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        let system = common::system(&dir);
+        stand_in::xcode(&system);
         std::fs::create_dir_all(dir.join("volume/demo")).unwrap();
         run(&source, &["init", "-q", "-b", "main"]);
         run(&source, &["config", "user.email", "test@example.com"]);
@@ -135,16 +138,23 @@ impl World {
                 second_home.join("dev/demo").to_str().unwrap(),
             ],
         );
-        // The hosts run on this Mac, so each reads its screen lock from this
-        // ioreg: whether this Mac's screen is locked never holds a window
-        // step. BUILDS_VOLUME names no folder, so each host's builds root is
-        // in its own home, not on this Mac's build volume.
+        // The hosts run on this Mac, so each reads its screen lock from the
+        // stand-in system's ioreg: whether this Mac's screen is locked never
+        // holds a window step. BUILDS_VOLUME names no folder, so each host's
+        // builds root is in its own home, not on this Mac's build volume.
         script(
-            &dir.join("bin/ioreg"),
+            &system.join("ioreg"),
             "#!/bin/sh\necho '\"IOConsoleLocked\" = No'\n",
         );
+        // A step that opens windows runs under caffeinate, which here only
+        // runs the step.
+        stand_in::stand_in(
+            &system,
+            "caffeinate",
+            r#"while [ "${1#-}" != "$1" ]; do shift; done; exec "$@""#,
+        );
         script(
-            &dir.join("bin/ssh"),
+            &system.join("ssh"),
             &format!(
                 r#"#!/bin/sh
 while [ $# -gt 0 ]; do
@@ -159,9 +169,8 @@ case "$1" in
   *) home='{home}';;
 esac
 shift
-cd "$home" && HOME="$home" BUILDS_VOLUME="$home/no-volume" PATH='{bin}':"$PATH" exec sh -c "$*"
+cd "$home" && HOME="$home" BUILDS_VOLUME="$home/no-volume" exec sh -c "$*"
 "#,
-                bin = dir.join("bin").display(),
                 home = remote_home.display(),
                 second = second_home.display()
             ),
@@ -174,20 +183,11 @@ cd "$home" && HOME="$home" BUILDS_VOLUME="$home/no-volume" PATH='{bin}':"$PATH" 
     /// A `builds` command with <args>, run in the repo with the world's
     /// volume, home, store and ssh.
     fn builds(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(BUILDS);
+        let mut command = common::builds(&self.dir);
         command
             .args(args)
             .current_dir(&self.source)
-            .env("BUILDS_ROOT", self.dir.join("volume"))
-            .env("BUILDS_POWER_RECORD", self.dir.join("power"))
-            .env("BUILDS_TEMP", self.dir.join("temp"))
-            .env("HOME", self.dir.join("home"))
-            .env_remove("CLAUDE_CODE_SESSION_ID")
-            .env_remove("CODEX_SESSION_ID")
-            .env_remove("CODEX_THREAD_ID")
-            .env_remove("BUILDS_AGENT")
-            .env("BUILDS_LISTS", self.dir.join("lists"))
-            .env("BUILDS_SSH", self.dir.join("bin/ssh"));
+            .env("BUILDS_LISTS", self.dir.join("lists"));
         command
     }
 
@@ -394,7 +394,7 @@ fn a_step_on_a_host_keeps_this_mac_and_the_host_awake() {
     let world = World::new("awake");
     let output = world.app_build(&["main", "hello"]);
     assert!(output.status.success(), "{}", text(&output.stderr));
-    let record = std::fs::read_to_string(world.dir.join("power")).unwrap();
+    let record = std::fs::read_to_string(common::system(&world.dir).join("power")).unwrap();
     let lines: Vec<&str> = record.lines().collect();
     let found = |start: &str, parts: &[&str]| {
         assert!(
@@ -440,7 +440,7 @@ fn a_hosts_hold_ends_with_the_process_it_watches() {
         "PreventUserIdleSystemSleep {} builds: a command\n",
         hold.id()
     );
-    let record = || std::fs::read_to_string(world.dir.join("power")).unwrap();
+    let record = || std::fs::read_to_string(common::system(&world.dir).join("power")).unwrap();
     assert_eq!(record(), format!("take {taken}"));
     // Its stdin closed, cat ends.
     drop(script.stdin.take());

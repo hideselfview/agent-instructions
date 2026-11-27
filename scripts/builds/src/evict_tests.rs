@@ -37,7 +37,13 @@ fn a_held_cargo_lock_keeps_the_folder() {
     )
     .unwrap();
     assert_eq!(said, "held\n");
-    let kept = evict(&places, &folder, Recreate::Yes, Removal::Now);
+    let kept = evict(
+        &places,
+        &scratch.with_lsof(),
+        &folder,
+        Recreate::Yes,
+        Removal::Now,
+    );
     kill_group(&mut build);
     assert_eq!(
         kept.unwrap(),
@@ -46,7 +52,14 @@ fn a_held_cargo_lock_keeps_the_folder() {
     );
     assert!(folder.join("debug/blob").exists());
     assert_eq!(
-        evict(&places, &folder, Recreate::Yes, Removal::Now).unwrap(),
+        evict(
+            &places,
+            &scratch.with_lsof(),
+            &folder,
+            Recreate::Yes,
+            Removal::Now
+        )
+        .unwrap(),
         Evicted::Deleted
     );
     assert!(
@@ -66,7 +79,13 @@ fn a_process_working_inside_keeps_the_folder() {
         .current_dir(folder.join("Build"))
         .spawn()
         .unwrap();
-    let kept = evict(&places, &folder, Recreate::No, Removal::Now);
+    let kept = evict(
+        &places,
+        &scratch.with_lsof(),
+        &folder,
+        Recreate::No,
+        Removal::Now,
+    );
     sleeper.kill().unwrap();
     sleeper.wait().unwrap();
     assert_eq!(
@@ -75,7 +94,14 @@ fn a_process_working_inside_keeps_the_folder() {
         "a folder a process works in was deleted"
     );
     assert_eq!(
-        evict(&places, &folder, Recreate::No, Removal::Now).unwrap(),
+        evict(
+            &places,
+            &scratch.with_lsof(),
+            &folder,
+            Recreate::No,
+            Removal::Now
+        )
+        .unwrap(),
         Evicted::Deleted
     );
     assert!(!folder.exists());
@@ -112,7 +138,13 @@ fn a_build_holding_the_checkouts_guard_keeps_the_folder() {
     )
     .unwrap();
     assert_eq!(said, "held\n");
-    let kept = evict(&places, &folder, Recreate::Yes, Removal::Now);
+    let kept = evict(
+        &places,
+        &scratch.with_lsof(),
+        &folder,
+        Recreate::Yes,
+        Removal::Now,
+    );
     kill_group(&mut build);
     assert_eq!(
         kept.unwrap(),
@@ -121,7 +153,14 @@ fn a_build_holding_the_checkouts_guard_keeps_the_folder() {
     );
     assert!(folder.join("debug/deps/test-binary").exists());
     assert_eq!(
-        evict(&places, &folder, Recreate::Yes, Removal::Now).unwrap(),
+        evict(
+            &places,
+            &scratch.with_lsof(),
+            &folder,
+            Recreate::Yes,
+            Removal::Now
+        )
+        .unwrap(),
         Evicted::Deleted
     );
 }
@@ -182,7 +221,14 @@ fn an_eviction_of_a_build_root_without_a_guard_makes_the_guard_and_moves_the_fol
     let scratch = Scratch::new("evict-new-guard-moves");
     let (places, folder, guard) = root_without_a_guard(&scratch);
     assert_eq!(
-        evict(&places, &folder, Recreate::Yes, Removal::Now).unwrap(),
+        evict(
+            &places,
+            &scratch.with_lsof(),
+            &folder,
+            Recreate::Yes,
+            Removal::Now
+        )
+        .unwrap(),
         Evicted::Deleted
     );
     assert!(guard.is_file(), "the eviction made no guard");
@@ -202,7 +248,13 @@ fn a_refused_move_returns_the_filesystem_error_and_cleans_the_empty_slot() {
     let folder = parent.join("entry");
     fill(&folder.join("Build/blob"), 4);
     std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o500)).unwrap();
-    let moved = evict(&places, &folder, Recreate::No, Removal::Now);
+    let moved = evict(
+        &places,
+        &scratch.with_lsof(),
+        &folder,
+        Recreate::No,
+        Removal::Now,
+    );
     std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
 
     assert!(matches!(moved, Err(Fail::Move { from, error, .. })
@@ -223,7 +275,13 @@ fn a_removal_that_never_completes_leaves_the_slot_to_the_next_emptier() {
     fill(&folder.join("Build/blob"), 4);
     let read_only = std::fs::Permissions::from_mode(0o500);
     std::fs::set_permissions(folder.join("Build"), read_only).unwrap();
-    let moved = evict(&places, &folder, Recreate::No, Removal::Now);
+    let moved = evict(
+        &places,
+        &scratch.with_lsof(),
+        &folder,
+        Recreate::No,
+        Removal::Now,
+    );
     let slots: Vec<PathBuf> = std::fs::read_dir(places.trash())
         .unwrap()
         .map(|slot| slot.unwrap().path())

@@ -10,11 +10,14 @@ use crate::fail::Result;
 use crate::places::{DiskSpace, Places, Rules};
 use crate::review::Reviewer;
 use crate::roots::Changed;
+use crate::system::System;
 use crate::usage::{Measure, measure_many};
 
 pub struct Tool {
     pub places: Places,
     pub rules: Rules,
+    /// The programs builds runs on this Mac's OS and its hosts' (system.rs).
+    pub system: System,
     /// Seconds since 1970 when the command started.
     pub now: i64,
     /// The reviewer the commands that check text before they write it ask.
@@ -36,14 +39,15 @@ pub struct Tool {
 }
 
 impl Tool {
-    /// A tool whose builds program is <program>, which adds the build roots
-    /// the command changes to <changed>.
+    /// A tool whose builds program is <program>, which runs <system>'s
+    /// programs and adds the build roots the command changes to <changed>.
     pub fn new(
         places: Places,
         rules: Rules,
         program: PathBuf,
         session: Session,
         changed: Changed,
+        system: System,
     ) -> Result<Tool> {
         let dir = crate::lists::args::current_dir()?;
         let now = std::time::SystemTime::now()
@@ -51,7 +55,8 @@ impl Tool {
             .expect("the clock is after 1970")
             .as_secs() as i64;
         Ok(Tool {
-            reviewer: Reviewer::installed(&places, &session, std::env::var_os("BUILDS_REVIEWER")),
+            reviewer: Reviewer::installed(&places, &session, &system),
+            system,
             session,
             dir,
             program,
@@ -122,6 +127,16 @@ impl Tool {
     /// <minutes>?
     pub fn written_within(&self, measured: &Measure, minutes: u64) -> bool {
         measured.written_since(self.now - (minutes * 60) as i64)
+    }
+
+    /// How builds runs scripts on hosts (host.rs `Ssh`).
+    pub fn ssh(&self) -> crate::host::Ssh {
+        self.system.ssh()
+    }
+
+    /// How this machine reaches the agent sessions registered with builds.
+    pub fn sessions(&self) -> crate::inbox::Sessions {
+        crate::inbox::Sessions::of(&self.places, &self.system)
     }
 
     pub fn roots(&self) -> Result<Vec<Root>> {

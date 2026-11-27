@@ -109,7 +109,7 @@ fn a_sample_of_this_mac_goes_to_every_stores_table() {
     std::fs::create_dir_all(&places.home).unwrap();
     let first = make_store(&places, &["bae"]);
     let second = crate::lists::fixtures::make_store_named(&places, "other", &["coven"]);
-    sample_once(&places, &Ssh::from_env(), 1_790_000_000).unwrap();
+    sample_once(&places, &crate::testing::no_ssh(), 1_790_000_000).unwrap();
     for store in [first, second] {
         let db = store.open_existing().unwrap();
         let found = rows(&db);

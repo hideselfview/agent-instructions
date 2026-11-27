@@ -106,7 +106,7 @@ fn differing(site: &mut Site, commit: &str) -> Result<BTreeSet<String>> {
 /// answer diff-files reads, not a failure. Every other exit fails.
 fn refresh(site: &mut Site, index: &str) -> Result<()> {
     match site {
-        Site::Local(top, _, checkout) => {
+        Site::Local(top, _, checkout, _) => {
             let mut command = git(top);
             command
                 .args(["update-index", "-q", "--refresh"])

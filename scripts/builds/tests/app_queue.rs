@@ -9,13 +9,15 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 mod common;
-use common::pruned_now;
+mod pruned;
+use pruned::pruned_now;
 mod programs;
 use programs::programs_folder;
 mod spawned;
 use spawned::{Spawned, wait_for_free_lanes};
+mod stand_in;
+use stand_in::stand_in;
 
-const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 const PATIENCE: Duration = Duration::from_secs(30);
 const LABELS: [&str; 5] = ["H", "A", "B", "C", "X"];
 
@@ -27,29 +29,20 @@ struct Volume {
     started: Vec<Spawned>,
 }
 
-/// Writes `xcodebuild`, `sw_vers` and `ioreg` into <bin>: the mac lane reads
-/// the host's Xcode, macOS and screen lock from them, so a test never depends
-/// on the Xcode the Mac it runs on has installed or has agreed to the license
-/// of, or on whether its screen is locked.
-fn fake_apple_tools(bin: &Path) {
+/// Writes `xcodebuild` and `ioreg` into the stand-in system <system>, and
+/// `sw_vers` into <bin>, which the builds commands find first on PATH: the mac
+/// lane reads the host's Xcode, macOS and screen lock from them, so a test
+/// never depends on the Mac it runs on (`stand_in::xcode`), or on whether its
+/// screen is locked.
+fn fake_apple_tools(system: &Path, bin: &Path) {
+    stand_in::xcode(system);
+    stand_in(system, "ioreg", "echo '\"IOConsoleLocked\" = No'");
     std::fs::create_dir_all(bin).unwrap();
-    for (name, script) in [
-        (
-            "xcodebuild",
-            "#!/bin/sh\nif [ \"$1\" = -version ]; then echo 'Xcode 26.3'; echo 'Build version 17C529'; else exit 1; fi\n",
-        ),
-        (
-            "sw_vers",
-            "#!/bin/sh\nif [ \"$1\" = -buildVersion ]; then cat \"$QUEUE_TEST_DIR/macos-build\" 2>/dev/null || echo 26B131; else exit 1; fi\n",
-        ),
-        ("ioreg", "#!/bin/sh\necho '\"IOConsoleLocked\" = No'\n"),
-    ] {
-        let path = bin.join(name);
-        std::fs::write(&path, script).unwrap();
-        let mut mode = std::fs::metadata(&path).unwrap().permissions();
-        std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
-        std::fs::set_permissions(&path, mode).unwrap();
-    }
+    stand_in(
+        bin,
+        "sw_vers",
+        "if [ \"$1\" = -buildVersion ]; then cat \"$QUEUE_TEST_DIR/macos-build\" 2>/dev/null || echo 26B131; else exit 1; fi",
+    );
 }
 
 /// Links the folder the volume at <volume> keeps pinned Chrome in to the one
@@ -105,7 +98,7 @@ impl Volume {
         std::fs::create_dir_all(dir.join("volume/demo")).unwrap();
         std::fs::write(dir.join("volume/demo/app-mac-checkouts"), "mac-1\n").unwrap();
         let pinned_builds = programs_folder(&dir.join("home"));
-        fake_apple_tools(&dir.join("bin"));
+        fake_apple_tools(&common::system(&dir), &dir.join("bin"));
         share_chrome(&dir.join("volume"));
         Volume {
             dir,
@@ -115,17 +108,9 @@ impl Volume {
     }
 
     fn builds(&self) -> Command {
-        let mut command = Command::new(BUILDS);
+        let mut command = common::builds(&self.dir);
         command
-            .env("BUILDS_ROOT", self.dir.join("volume"))
-            .env("BUILDS_POWER_RECORD", self.dir.join("power"))
-            .env("BUILDS_TEMP", self.dir.join("temp"))
-            .env("HOME", self.dir.join("home"))
             .env("PATH", path_with(&self.dir.join("bin")))
-            .env_remove("CLAUDE_CODE_SESSION_ID")
-            .env_remove("CODEX_SESSION_ID")
-            .env_remove("CODEX_THREAD_ID")
-            .env_remove("BUILDS_AGENT")
             .env("QUEUE_TEST_DIR", &self.dir);
         command
     }
@@ -587,7 +572,8 @@ fn the_dashboard_moves_a_waiter_only_for_its_own_page() {
     let before = volume.order();
     assert_eq!(before.len(), 3);
 
-    assert!(request(port, "POST", "/api/queue", Some(&own), &body).contains("200"));
+    let moved = request(port, "POST", "/api/queue", Some(&own), &body);
+    assert!(moved.contains("200"), "{moved}");
     let order = volume.order();
     assert_ne!(order, before, "B moved");
     assert_eq!(
@@ -713,7 +699,7 @@ fn an_install_leaves_a_waiting_or_running_app_build_to_build_once() {
     std::fs::write(install.join("generation"), "2\n").unwrap();
     let bin = volume.dir.join("home/.local/bin");
     std::fs::create_dir_all(&bin).unwrap();
-    std::os::unix::fs::symlink(BUILDS, bin.join("builds")).unwrap();
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_builds"), bin.join("builds")).unwrap();
     drop(gate);
     volume.open_gate("one");
     volume.open_gate("two");
@@ -794,7 +780,7 @@ exec "$OLD_BUILDS" "$@"
 
     let ran = volume
         .builds()
-        .env("OLD_BUILDS", BUILDS)
+        .env("OLD_BUILDS", env!("CARGO_BIN_EXE_builds"))
         .args(["app-build", "demo", "main", "one"])
         .output()
         .unwrap();

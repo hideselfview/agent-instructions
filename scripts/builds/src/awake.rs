@@ -30,11 +30,6 @@ use std::path::PathBuf;
 use crate::fail::Result;
 use crate::host::Host;
 
-/// The variable that names a file to stand in for macOS's assertions, which
-/// builds' tests set: builds then writes there each assertion it takes and
-/// releases, and takes none from macOS.
-pub const RECORD_VARIABLE: &str = "BUILDS_POWER_RECORD";
-
 /// The command line word that makes builds hold a host's assertion for
 /// another Mac's command (`hold_while`).
 pub const HOLD_COMMAND: &str = "__hold-awake";
@@ -47,8 +42,9 @@ pub const HELD: &str = "held";
 pub enum Power {
     /// macOS's power management daemon.
     Powerd,
-    /// A file, with a line `take <kind> <pid> <name>` for each assertion
-    /// taken and `release <kind> <pid> <name>` for each released.
+    /// A file of a stand-in system (system.rs), with a line `take <kind>
+    /// <pid> <name>` for each assertion taken and `release <kind> <pid>
+    /// <name>` for each released.
     Record(PathBuf),
 }
 

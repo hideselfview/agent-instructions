@@ -145,7 +145,11 @@ fn help_and_version_work_with_a_malformed_claude_session_id() {
                 .contains("not a UTF-8 session ID")
         );
         assert_eq!(
-            crate::run_command(&[command.to_string()], session),
+            crate::run_command(
+                &[command.to_string()],
+                session,
+                &crate::testing::no_system()
+            ),
             ExitCode::SUCCESS
         );
     }

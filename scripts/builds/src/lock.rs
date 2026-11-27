@@ -193,7 +193,7 @@ pub fn takeover_stopped() -> bool {
     STOPPED.load(Ordering::SeqCst)
 }
 
-pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
+pub fn cmd_lock(places: &Places, system: &crate::system::System, args: &[String]) -> Result<()> {
     const USAGE: &str = "usage: builds lock <repo> --lane <app> <command> [<args>...]";
     let (lane, args) = match args {
         [repo, flag, word, rest @ ..] if flag == "--lane" => (
@@ -206,7 +206,7 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
         fail!("{USAGE}");
     };
     end_on_stop_signals();
-    let mut held = take(places, repo, lane)?;
+    let mut held = take(places, &system.ssh(), repo, lane)?;
     loop {
         let mut start = Command::new(command);
         start.args(rest).env("BUILDS_APP_CHECKOUT", &held.checkout);
@@ -343,9 +343,9 @@ impl Held {
         };
         let unlocked = crate::host_screen_lock::wait_until_unlocked(
             host_name,
-            &|| crate::host_screen_lock::read(&self.places, &self.ssh, &host),
+            &|| crate::host_screen_lock::read(&self.ssh, &host),
             &|words| note(words),
-            &|| crate::host_screen_lock::wait(&self.places, &self.ssh, &host),
+            &|| crate::host_screen_lock::wait(&self.ssh, &host),
         )?;
         Ok(unlocked.then_some(window))
     }
@@ -680,11 +680,11 @@ pub fn take_checkout(places: &Places, repo: &str, lane: Lane, checkout: &str) ->
 }
 
 /// Joins <repo>'s queue for <lane> and waits its turn for one of the lane's app
-/// locks on this Mac. Fails for a repo with no such app checkout in the lane.
-pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
+/// locks on this Mac, reading hosts through <ssh>. Fails for a repo with no such app checkout in the lane.
+pub fn take(places: &Places, ssh: &Ssh, repo: &str, lane: Lane) -> Result<Held> {
     take_in(
         places,
-        &Ssh::from_env(),
+        ssh,
         repo,
         lane,
         Takes {

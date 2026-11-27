@@ -64,7 +64,7 @@ fn standing_at(
     let verdict = reads.verdict_at(&demo.store, version, &worktree)?;
     super::standing(
         &demo.store,
-        &demo.tool.places.sessions(),
+        &demo.tool.sessions(),
         &crate::testing::running_claude(&demo.tool.places),
         &git.ahead.first().unwrap().full,
         &verdict,

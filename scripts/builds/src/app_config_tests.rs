@@ -84,7 +84,9 @@ fn the_commit_named_is_checked_out_and_built_in_the_checkout() {
     let commit = run_git(&top, &["rev-parse", "HEAD"]).unwrap();
     let lock = checkout_lock(&scratch);
     let checkout = CheckoutLock::new(lock.as_fd(), None);
-    let config = check_out(&top, commit.trim(), checkout).unwrap().config;
+    let config = check_out(&top, &scratch.system(), commit.trim(), checkout)
+        .unwrap()
+        .config;
     assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap(), commit);
     assert!(
         run_git(&top, &["symbolic-ref", "-q", "HEAD"]).is_err(),
@@ -105,7 +107,15 @@ fn a_checkout_with_changes_builds_nothing() {
     let top = checkout(&scratch, "demo");
     std::fs::write(top.join("unsaved"), "").unwrap();
     let lock = checkout_lock(&scratch);
-    assert!(check_out(&top, "origin/main", CheckoutLock::new(lock.as_fd(), None)).is_err());
+    assert!(
+        check_out(
+            &top,
+            &scratch.system(),
+            "origin/main",
+            CheckoutLock::new(lock.as_fd(), None)
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -115,10 +125,15 @@ fn a_git_lock_that_no_process_holds_stops_the_build_with_a_line_that_names_it() 
     let lock = checkout_lock(&scratch);
     let index_lock = top.join(".git/index.lock");
     std::fs::write(&index_lock, "").unwrap();
-    let error = check_out(&top, "origin/main", CheckoutLock::new(lock.as_fd(), None))
-        .err()
-        .expect("the lock stops the build")
-        .text();
+    let error = check_out(
+        &top,
+        &scratch.system(),
+        "origin/main",
+        CheckoutLock::new(lock.as_fd(), None),
+    )
+    .err()
+    .expect("the lock stops the build")
+    .text();
     assert!(
         error.contains(&index_lock.display().to_string()) && error.contains("no process holds"),
         "{error}"

@@ -88,7 +88,13 @@ pub fn prune_root(
     if folders.is_empty() {
         return Ok(());
     }
-    let mut freed = units::prune::prune(&cargo_ages(tool), run, &folders, &tool.changed)?;
+    let mut freed = units::prune::prune(
+        &tool.system,
+        &cargo_ages(tool),
+        run,
+        &folders,
+        &tool.changed,
+    )?;
     freed.extend(prune_trees(tool, root, checkout, &folders, run, pruner)?);
     let claimed = checkout.claim_file().is_file();
     let lane = checkout.app_lane(&tool.places)?;
@@ -171,7 +177,13 @@ pub fn prune_after_build(tool: &Tool, checkout: &Checkout) -> Result<()> {
         .map(|entry| root.join(&entry.path))
         .filter(|folder| folder.is_dir())
         .collect();
-    units::prune::prune(&cargo_ages(tool), Run::Real, &folders, &tool.changed)?;
+    units::prune::prune(
+        &tool.system,
+        &cargo_ages(tool),
+        Run::Real,
+        &folders,
+        &tool.changed,
+    )?;
     Ok(())
 }
 
@@ -369,9 +381,10 @@ fn prune_caches(
         } else if run.dry() {
             note(format!("would delete {} ({reason})", dir.display()));
         } else {
-            let moved = crate::evict::replace(&tool.places, &dir, &|live, replacement| {
-                copy_settings(live, replacement, cache.settings, &copy)
-            });
+            let moved =
+                crate::evict::replace(&tool.places, &tool.system, &dir, &|live, replacement| {
+                    copy_settings(live, replacement, cache.settings, &copy)
+                });
             match pruner.after_move(moved)? {
                 Some(Evicted::Deleted) => note(format!(
                     "deleted {} ({reason}); every checkout downloads into it again",
@@ -850,7 +863,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     // Remove the host worktrees after retire_free runs, because the jobs of
     // a worktree it retires no longer use that worktree's copies on the
     // hosts.
-    let ssh = crate::host::Ssh::from_env();
+    let ssh = tool.ssh();
     crate::remote_worktrees::prune(&tool.places, &ssh, run)?;
     crate::lane_size::shrink_all(&tool.places, &ssh, run, crate::app_timing::now())?;
     prune_hosts(&tool.places, &ssh, args)?;

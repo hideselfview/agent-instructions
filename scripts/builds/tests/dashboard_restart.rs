@@ -5,26 +5,24 @@ use std::io::Read;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 
 mod common;
+mod pruned;
 
 #[test]
 fn the_dashboard_reports_readiness_to_installs_startup_connection() {
     let dir = PathBuf::from(format!("/private/tmp/builds-ready-{}", std::process::id()));
     let volume = dir.join("volume");
-    common::pruned_now(&volume);
+    pruned::pruned_now(&volume);
     let log = dir.join("startup.log");
     let (mut installer, dashboard) = UnixStream::pair().unwrap();
     installer
         .set_read_timeout(Some(Duration::from_secs(30)))
         .unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_builds"))
+    let mut child = common::builds(&dir)
         .args(["dashboard", "--port", "0"])
-        .env("BUILDS_ROOT", &volume)
-        .env("BUILDS_POWER_RECORD", dir.join("power"))
-        .env("BUILDS_TEMP", dir.join("temp"))
         .env("BUILDS_LISTS", dir.join("lists"))
         .env("BUILDS_DASHBOARD_RESTART", "1")
         .stdin(Stdio::from(OwnedFd::from(dashboard)))

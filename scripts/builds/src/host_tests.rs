@@ -3,21 +3,17 @@ use crate::fail::Fail;
 use crate::host_band::Band;
 use crate::host_memory::{Memory, Pressure};
 use crate::testing::Scratch;
-use std::os::unix::fs::PermissionsExt;
 
-/// A program in place of ssh: it runs the command it is given in <home>
-/// (which stands for the remote Mac's home), and refuses the host named
-/// `unreachable` as ssh refuses a host that does not answer. Named `ssh`, so
-/// git treats it as ssh.
-pub fn fake_ssh(dir: &Path, home: &Path) -> Ssh {
-    std::fs::create_dir_all(dir).unwrap();
+/// The scratch's stand-in system with a program in place of ssh: it runs the
+/// command it is given in <home> (which stands for the remote Mac's home), and
+/// refuses the host named `unreachable` as ssh refuses a host that does not
+/// answer. Named `ssh`, so git treats it as ssh.
+pub fn fake_ssh(scratch: &Scratch, home: &Path) -> Ssh {
     std::fs::create_dir_all(home).unwrap();
-    let program = dir.join("ssh");
-    std::fs::write(
-        &program,
-        format!(
-            r#"#!/bin/sh
-while [ $# -gt 0 ]; do
+    scratch.stand_in(
+        "ssh",
+        &format!(
+            r#"while [ $# -gt 0 ]; do
   case "$1" in
     -o|-p|-i|-l) shift 2;;
     -*) shift;;
@@ -30,16 +26,11 @@ if [ "$host" = unreachable ]; then
   echo "ssh: connect to host unreachable port 22: Connection refused" >&2
   exit 255
 fi
-cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/volume' exec sh -c "$*"
-"#,
+cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/volume' exec sh -c "$*""#,
             home = home.display()
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Ssh {
-        program: program.display().to_string(),
-    }
+    );
+    scratch.system().ssh()
 }
 
 use std::path::Path;
@@ -405,7 +396,7 @@ fn adds_lists_and_removes_a_host() {
     let scratch = Scratch::new("host-add");
     let places = scratch.places();
     std::fs::create_dir_all(&places.home).unwrap();
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &scratch.dir.join("remote-home"));
+    let ssh = fake_ssh(&scratch, &scratch.dir.join("remote-home"));
     let added = add(&places, &ssh, "m1", "dmitry@example.local").unwrap();
     assert!(added.cores >= 1);
     assert_eq!(read_remote(&places).unwrap(), vec![added.clone()]);
@@ -430,7 +421,7 @@ fn adds_lists_and_removes_a_host() {
 fn an_unreachable_host_is_not_added() {
     let scratch = Scratch::new("host-unreachable");
     let places = scratch.places();
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &scratch.dir.join("remote-home"));
+    let ssh = fake_ssh(&scratch, &scratch.dir.join("remote-home"));
     let Err(Fail::Message(message)) = add(&places, &ssh, "gone", "unreachable") else {
         panic!("expected a failure");
     };
@@ -680,7 +671,7 @@ fn a_host_without_a_band_keeps_the_shares_of_its_cores_and_a_bad_band_fails() {
 fn a_script_at_the_terminal_runs_on_the_host() {
     let scratch = Scratch::new("host-terminal");
     let home = scratch.dir.join("remote-home");
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(&scratch, &home);
     let m1 = Host {
         band: None,
         name: "m1".to_string(),
@@ -806,17 +797,23 @@ fn an_answer_that_names_no_lid_or_no_screens_count_is_an_error_not_a_yes() {
     assert!(screen_lacking("lid=closed\nscreens=many\n").is_err());
 }
 
+/// The screen script reads the lid from the system's ioreg and the
+/// displays from its system_profiler.
 #[test]
-fn the_screen_script_answers_on_this_mac_with_a_lid_line() {
-    let said = output_of(
-        command_at(
-            &Ssh::from_env(),
-            &Host::local(),
-            SCREEN_SCRIPT,
-            Terminal::None,
-        ),
+fn the_screen_script_reads_the_lid_and_the_displays() {
+    let scratch = Scratch::new("screen-script");
+    scratch.stand_in("ioreg", "echo '\"AppleClamshellState\" = Yes'");
+    scratch.stand_in(
+        "system_profiler",
+        "echo 'Resolution: 1920 x 1080'; echo 'Resolution: 3024 x 1964'",
+    );
+    let said = output_at(
+        &scratch.system().ssh(),
+        &Host::local(),
+        SCREEN_SCRIPT,
         "running the screen script here",
     )
     .unwrap();
-    assert!(screen_lacking(&said).is_ok(), "{said:?}");
+    assert_eq!(said, "lid=closed\nscreens=2\n");
+    assert_eq!(screen_lacking(&said), Ok(None));
 }

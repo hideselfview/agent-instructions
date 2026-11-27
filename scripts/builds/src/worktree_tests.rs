@@ -88,7 +88,7 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
     let arg = side.display().to_string();
     cmd_app_checkout(
         &tool,
-        &crate::host::Ssh::from_env(),
+        &crate::testing::no_ssh(),
         &["android".to_string(), arg.clone()],
     )
     .unwrap();
@@ -105,7 +105,7 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
     assert!(
         refusal(cmd_app_checkout(
             &tool,
-            &crate::host::Ssh::from_env(),
+            &crate::testing::no_ssh(),
             &["mac".to_string(), arg.clone()]
         ))
         .contains("android app checkout already")
@@ -113,7 +113,7 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
     assert!(
         refusal(cmd_app_checkout(
             &tool,
-            &crate::host::Ssh::from_env(),
+            &crate::testing::no_ssh(),
             &["ios".to_string(), arg]
         ))
         .contains("is no app")
@@ -151,17 +151,12 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
                 &side.display().to_string(),
             ],
         );
-        cmd_app_checkout(
-            &tool,
-            &crate::host::Ssh::from_env(),
-            &args(&["android"], side),
-        )
-        .unwrap();
+        cmd_app_checkout(&tool, &crate::testing::no_ssh(), &args(&["android"], side)).unwrap();
     }
     // Recording one again changes nothing.
     cmd_app_checkout(
         &tool,
-        &crate::host::Ssh::from_env(),
+        &crate::testing::no_ssh(),
         &args(&["android"], &sides[0]),
     )
     .unwrap();
@@ -188,7 +183,7 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     assert!(
         refusal(cmd_app_checkout(
             &tool,
-            &crate::host::Ssh::from_env(),
+            &crate::testing::no_ssh(),
             &args(&["remove", "android"], &sides[1])
         ))
         .contains("holds")
@@ -208,7 +203,7 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     let removing = scratch.tool(0);
     cmd_app_checkout(
         &removing,
-        &crate::host::Ssh::from_env(),
+        &crate::testing::no_ssh(),
         &args(&["remove", "android"], &sides[1]),
     )
     .unwrap();
@@ -227,14 +222,14 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     assert!(
         refusal(cmd_app_checkout(
             &tool,
-            &crate::host::Ssh::from_env(),
+            &crate::testing::no_ssh(),
             &args(&["remove", "android"], &sides[1])
         ))
         .contains("not one of")
     );
     cmd_app_checkout(
         &tool,
-        &crate::host::Ssh::from_env(),
+        &crate::testing::no_ssh(),
         &args(&["remove", "android"], &sides[0]),
     )
     .unwrap();
@@ -418,7 +413,7 @@ fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
     use crate::host::tests::fake_ssh;
     let scratch = Scratch::new("app-checkout-host");
     let tool = scratch.tool(0);
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &scratch.dir.join("remote-home"));
+    let ssh = fake_ssh(&scratch, &scratch.dir.join("remote-home"));
     crate::host::add(&tool.places, &ssh, "m1", "user@m1").unwrap();
     let words = |words: &[&str]| -> Vec<String> { words.iter().map(|w| w.to_string()).collect() };
     let path = "/Users/me/dev/demo-worktrees/app-1";
@@ -478,7 +473,7 @@ fn a_hosts_app_checkout_has_its_lane_file_exactly_while_it_is_in_a_lane() {
     let scratch = Scratch::new("app-checkout-host-mark");
     let tool = scratch.tool(0);
     let home = scratch.dir.join("remote-home");
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(&scratch, &home);
     let clone = home.join("dev/demo");
     repo(&clone, "target 1G\n");
     let wt = home.join("dev/demo-worktrees/app-1");

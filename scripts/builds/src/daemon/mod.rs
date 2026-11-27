@@ -246,9 +246,10 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
     )?;
     crate::prune_schedule::start(tool.places.clone(), exe)?;
     crate::rust_stable::start(tool.places.clone())?;
-    crate::host_sample::start(tool.places.clone())?;
+    crate::host_sample::start(tool.places.clone(), tool.ssh())?;
     let model = Model::start(
         tool.places.clone(),
+        tool.system.clone(),
         tool.rules.clone(),
         runs,
         tool.program.clone(),

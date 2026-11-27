@@ -19,6 +19,7 @@ use crate::output::note;
 use crate::places::Places;
 use crate::sccache::{Job, job_serves};
 use crate::sccache_service::Manager;
+use crate::system::Program;
 use crate::text::{human, tilde};
 use crate::tool::Tool;
 
@@ -307,7 +308,7 @@ const START_LIMIT: Duration = Duration::from_secs(10);
 /// manager runs it or a client started it, starts the manager's, and checks
 /// that the manager's server is the one listening. It fails, with what the
 /// manager and the server's log say, when it is not.
-pub fn run_sccache_server(places: &Places) -> Result<()> {
+pub fn run_sccache_server(places: &Places, system: &crate::system::System) -> Result<()> {
     let (home, uid) = (places.home.as_path(), places.uid);
     let manager = Manager::here();
     let sccache_cap = sccache_cap_kib();
@@ -336,8 +337,8 @@ pub fn run_sccache_server(places: &Places) -> Result<()> {
         note(format!("wrote {}", job_path.display()));
         changed = true;
     }
-    let job = manager.read_job(uid)?;
-    let listener = crate::sccache::listener()?;
+    let job = manager.read_job(system, uid)?;
+    let listener = crate::sccache::listener(system)?;
     let serving = job_serves(job.as_ref(), listener);
     // A server reads its config when it starts, so one that started before
     // the config held this cap still runs with the old one.
@@ -362,21 +363,26 @@ pub fn run_sccache_server(places: &Places) -> Result<()> {
         ));
     }
     if let Some(pid) = listener {
-        crate::sccache::wait_for_compiles(pid, COMPILES_LIMIT)?;
+        crate::sccache::wait_for_compiles(system, pid, COMPILES_LIMIT)?;
     }
     if job.is_some() {
-        manager.stop(uid)?;
+        manager.stop(system, uid)?;
     }
     // A server that a client started holds sccache's port, and the
     // manager's server could not listen there.
-    if crate::sccache::listening()? {
-        crate::sccache::stop(&sccache)?;
+    if crate::sccache::listening(system)? {
+        crate::sccache::stop(system, &sccache)?;
     }
-    manager.start(uid, &job_path)?;
+    manager.start(system, uid, &job_path)?;
     let log = home.join(manager.log_file());
     let pid = confirm_serving(
         manager,
-        || Ok((manager.read_job(uid)?, crate::sccache::listener()?)),
+        || {
+            Ok((
+                manager.read_job(system, uid)?,
+                crate::sccache::listener(system)?,
+            ))
+        },
         START_LIMIT,
         &log,
         &tilde(&log, home),
@@ -463,18 +469,22 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
         }
     }
     crate::cargo_program::install_all(home)?;
-    run_sccache_server(&tool.places)?;
+    run_sccache_server(&tool.places, &tool.system)?;
     crate::programs::remove_others(home, &[])?;
     // xcodebuild runs without -derivedDataPath, and the Xcode app, write
     // here.
-    let current = Command::new("defaults")
+    let current = tool
+        .system
+        .command(Program::Defaults)?
         .args(["read", "com.apple.dt.Xcode", "IDECustomDerivedDataLocation"])
         .stderr(Stdio::null())
         .output()
         .context(|| "running defaults".to_string())?;
     let current = String::from_utf8_lossy(&current.stdout).trim().to_string();
     if current != derived_data.to_string_lossy() {
-        let status = Command::new("defaults")
+        let status = tool
+            .system
+            .command(Program::Defaults)?
             .args([
                 "write",
                 "com.apple.dt.Xcode",
@@ -497,7 +507,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
             }
         ));
     }
-    install_on_hosts(&tool.places, &crate::host::Ssh::from_env(), &tool.program)
+    install_on_hosts(&tool.places, &tool.ssh(), &tool.program)
 }
 
 /// Installs <builds>, this build, on every recorded host
@@ -797,7 +807,7 @@ mod tests {
         let scratch = crate::testing::Scratch::new("install-hosts");
         let places = scratch.places();
         let home = scratch.dir.join("remote-home");
-        let ssh = crate::host::tests::fake_ssh(&scratch.dir.join("bin"), &home);
+        let ssh = crate::host::tests::fake_ssh(&scratch, &home);
         let hosts = crate::host::hosts_file(&places);
         std::fs::create_dir_all(hosts.parent().unwrap()).unwrap();
         std::fs::write(&hosts, "m1 u@m1 10\ngone unreachable 4\n").unwrap();

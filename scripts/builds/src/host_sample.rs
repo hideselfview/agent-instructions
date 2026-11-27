@@ -101,11 +101,10 @@ pub fn sample_once(places: &Places, ssh: &Ssh, at: i64) -> Result<()> {
 
 /// Starts the daemon's thread that samples the hosts every `EVERY_SECONDS`
 /// seconds, the first sample at once.
-pub fn start(places: Places) -> Result<()> {
+pub fn start(places: Places, ssh: Ssh) -> Result<()> {
     std::thread::Builder::new()
         .name("builds-host-samples".into())
         .spawn(move || {
-            let ssh = Ssh::from_env();
             loop {
                 if let Err(error) = sample_once(&places, &ssh, crate::app_timing::now()) {
                     crate::output::note(format!("sampling the hosts: {}", error.text()));

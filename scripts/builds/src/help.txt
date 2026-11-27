@@ -2498,6 +2498,16 @@ that do. When builds runs a command on a host that is a Mac, a builds there
 holds the assertion until the command ends, and the command does not run when
 it cannot.
 
+builds lists in one table each program it runs that reads or changes more
+of the machine than the files builds names: ssh, claude, codex, launchctl,
+systemctl, ioreg, system_profiler, pmset, caffeinate, defaults, osascript,
+xcodebuild, xcrun, lsof, pgrep and sudo. builds finds each by name on PATH.
+When BUILDS_SYSTEM names a folder, as builds' own tests set it, builds runs
+each program from that folder instead, refuses to run one the folder lacks
+and names it, and writes each power assertion it would take and release to
+the file `power` in the folder. A script that builds runs on a host runs the
+same programs.
+
 While builds works on a host over ssh, in a lane's app checkout there or in
 a job of `builds remote run` or `builds cargo`, it also keeps this Mac awake
 with NetworkClientActive, which keeps it awake through a maintenance wake
@@ -2741,8 +2751,7 @@ volume's device>` (`df /Volumes/Builds` names it).
                               host and the ssh error.
                               A host that refuses the job fails it with what
                               the host said, and builds records the host as
-                              refusing jobs. BUILDS_SSH names a program to use
-                              in place of ssh
+                              refusing jobs.
   builds remote step <host> <worktree> -- <command> [<args>...]
                               run the command in <worktree>, a folder on the
                               host that already holds the files, and pass its
@@ -3914,8 +3923,7 @@ The rules are grouped in folders, and each group that covers a changed path
 gets one reviewer in a read-only checkout of the reviewed commit. Claude has
 Read, Grep and Glob. Codex runs in its read-only sandbox. Builds chooses Codex
 in a Codex session and Claude in a Claude Code session or from a terminal.
-Set BUILDS_REVIEWER to codex or claude to choose the reviewer outside that
-default. A command that accepts --reviewer overrides that choice. Builds fails
+A command that accepts --reviewer overrides that choice. Builds fails
 the check if the chosen reviewer cannot answer.
 The reviewer's instructions include the group's rules, the project's
 projects/<project>.md and the brief of the first --item that has one. Builds

@@ -33,10 +33,11 @@ use std::process::{Command, Stdio};
 
 use crate::checkout::parallel_map;
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Fail, Result};
 use crate::host_band::Band;
 use crate::host_memory::Memory;
 use crate::places::Places;
+use crate::system::{Program, System};
 use crate::text::{human, local_minute};
 use crate::tool::{Tool, volume_space};
 
@@ -52,21 +53,22 @@ const CONNECT_SECONDS: u32 = 10;
 const ALIVE_SECONDS: u32 = 15;
 const ALIVE_MISSES: u32 = 4;
 
-/// The program that runs commands on another Mac: ssh, or in tests a program
-/// that runs them in a temporary folder. `BUILDS_SSH` names another.
+/// How builds runs a script on a host: over the system's ssh to another Mac,
+/// or with sh on this Mac, with the system's programs (system.rs) either way.
 #[derive(Clone, Debug)]
 pub struct Ssh {
-    pub program: String,
+    system: System,
 }
 
 impl Ssh {
-    pub fn from_env() -> Ssh {
-        Ssh {
-            program: std::env::var("BUILDS_SSH")
-                .ok()
-                .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| "ssh".to_string()),
-        }
+    /// The way <system> runs scripts on hosts (`System::ssh`).
+    pub fn of(system: System) -> Ssh {
+        Ssh { system }
+    }
+
+    /// The programs the scripts run.
+    pub fn system(&self) -> &System {
+        &self.system
     }
 
     /// The options every connection takes: never ask for a password, and give
@@ -84,22 +86,28 @@ impl Ssh {
         ]
     }
 
-    /// `ssh <options> [-t] <target> <command>`; ssh hands the command to
-    /// the remote shell as one line, with a terminal there when <terminal>
-    /// says so.
-    pub fn command(&self, target: &str, remote_command: &str, terminal: Terminal) -> Command {
-        let mut command = Command::new(&self.program);
+    /// `ssh <options> [-t] <target> sh -c <script>`, with the system's
+    /// programs (`System::script`) and a terminal on the host when
+    /// <terminal> says so.
+    pub fn command(&self, target: &str, script: &str, terminal: Terminal) -> Result<Command> {
+        let mut command = self.system.command(Program::Ssh)?;
         command.args(Self::options());
         if terminal == Terminal::Person {
             command.arg("-t");
         }
-        command.arg(target).arg(remote_command);
         command
+            .arg(target)
+            .arg(format!("sh -c {}", sh_quote(&self.system.script(script))));
+        Ok(command)
     }
 
     /// What git runs for `ssh` when it pushes to `<target>:<path>`.
-    pub fn git_command(&self) -> String {
-        format!("{} {}", sh_quote(&self.program), Self::options().join(" "))
+    pub fn git_command(&self) -> Result<String> {
+        Ok(format!(
+            "{} {}",
+            sh_quote(&self.system.path(Program::Ssh)?.to_string_lossy()),
+            Self::options().join(" ")
+        ))
     }
 }
 
@@ -114,15 +122,12 @@ pub enum Terminal {
 }
 
 /// The command that runs <script> on <host>: `ssh` to its target, or `sh -c`
-/// here. <terminal> says whether a person at this terminal can answer it.
-pub fn command_at(ssh: &Ssh, host: &Host, script: &str, terminal: Terminal) -> Command {
+/// here, with the system's programs either way. <terminal> says whether a
+/// person at this terminal can answer it.
+pub fn command_at(ssh: &Ssh, host: &Host, script: &str, terminal: Terminal) -> Result<Command> {
     match &host.target {
-        Some(target) => ssh.command(target, &format!("sh -c {}", sh_quote(script)), terminal),
-        None => {
-            let mut command = Command::new("sh");
-            command.arg("-c").arg(script);
-            command
-        }
+        Some(target) => ssh.command(target, script, terminal),
+        None => Ok(ssh.system.sh(script)),
     }
 }
 
@@ -150,10 +155,24 @@ pub fn output_of(command: Command, what: &str) -> std::result::Result<String, St
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// What <script> printed on <host> when it exited successfully, or why it
+/// failed, naming <what>.
+pub fn output_at(
+    ssh: &Ssh,
+    host: &Host,
+    script: &str,
+    what: &str,
+) -> std::result::Result<String, String> {
+    output_of(
+        command_at(ssh, host, script, Terminal::None).map_err(Fail::text)?,
+        what,
+    )
+}
+
 /// Runs <script> on <host> with this terminal as its input and output, so
 /// sudo there can ask the person for the password.
 pub fn run_at_terminal(ssh: &Ssh, host: &Host, script: &str) -> Result<()> {
-    let status = command_at(ssh, host, script, Terminal::Person)
+    let status = command_at(ssh, host, script, Terminal::Person)?
         .status()
         .context(|| format!("running sudo on {}", place(&host.name)))?;
     if !status.success() {
@@ -442,9 +461,10 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
 pub fn probe_target(ssh: &Ssh, target: &str) -> std::result::Result<Probe, String> {
     let output = ssh
         .command(target, &probe_script(), Terminal::None)
+        .map_err(Fail::text)?
         .stdin(Stdio::null())
         .output()
-        .map_err(|error| format!("running {}: {error}", ssh.program))?;
+        .map_err(|error| format!("running ssh to {target}: {error}"))?;
     if !output.status.success() {
         let said = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
@@ -456,8 +476,8 @@ pub fn probe_target(ssh: &Ssh, target: &str) -> std::result::Result<Probe, Strin
     parse_probe(&String::from_utf8_lossy(&output.stdout)).map_err(|fail| fail.text())
 }
 
-/// This Mac's cores, load and free disk.
-pub fn probe_local(places: &Places) -> Result<Probe> {
+/// This Mac's cores, load and free disk, read with <ssh>'s programs.
+pub fn probe_local(places: &Places, ssh: &Ssh) -> Result<Probe> {
     let mut loads = [0f64; 3];
     if unsafe { libc::getloadavg(loads.as_mut_ptr(), 3) } != 3 {
         fail!("reading this Mac's load average");
@@ -473,7 +493,7 @@ pub fn probe_local(places: &Places) -> Result<Probe> {
         nextest: crate::cargo_program::NEXTEST.has(&places.home),
         mutants: crate::cargo_program::MUTANTS.has(&places.home),
         node: crate::cargo_program::NODE.has(&places.home),
-        processes: crate::proc_limit::local()?,
+        processes: crate::proc_limit::local(ssh)?,
     })
 }
 
@@ -527,7 +547,7 @@ pub fn screen_lacking(text: &str) -> std::result::Result<Option<String>, String>
 /// say.
 pub fn screen_lacks(ssh: &Ssh, host: &Host) -> std::result::Result<Option<String>, String> {
     let what = format!("asking host {} about its displays", host.name);
-    let said = output_of(command_at(ssh, host, SCREEN_SCRIPT, Terminal::None), &what)?;
+    let said = output_at(ssh, host, SCREEN_SCRIPT, &what)?;
     screen_lacking(&said).map_err(|why| format!("{what}: {why}"))
 }
 
@@ -537,7 +557,7 @@ pub fn screen_lacks(ssh: &Ssh, host: &Host) -> std::result::Result<Option<String
 /// keeps its record as it is.
 pub fn probe(places: &Places, ssh: &Ssh, host: &Host) -> std::result::Result<Probe, String> {
     let Some(target) = &host.target else {
-        return probe_local(places).map_err(|fail| fail.text());
+        return probe_local(places, ssh).map_err(|fail| fail.text());
     };
     let probe = probe_target(ssh, target)?;
     let kept = match &probe.git_fails {
@@ -1370,7 +1390,7 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
             tool.places.mark_host()?;
             crate::programs::remove_others(&tool.places.home, kept)?;
             crate::cargo_program::install_all(&tool.places.home)?;
-            crate::install::run_sccache_server(&tool.places)
+            crate::install::run_sccache_server(&tool.places, &tool.system)
         }
         [word] if word == "speed-here" => crate::host_setup::cmd_speed_here(),
         [word, rest @ ..] if word == "band" => crate::host_band::cmd_band(tool, rest),

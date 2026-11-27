@@ -11,6 +11,11 @@ pub struct Scratch {
     pub dir: PathBuf,
 }
 
+/// An lsof on a machine where no process holds a file the test made and none
+/// listens on a port: a listing of every process's files prints none, and a
+/// query of a port (`-i`) finds no process, which lsof says by exiting 1.
+const QUIET_LSOF: &str = r#"case "$*" in *-i*) exit 1;; esac"#;
+
 /// The folder every scratch folder is in, and the start of its name.
 fn scratch_prefix() -> PathBuf {
     std::fs::canonicalize(std::env::temp_dir())
@@ -68,12 +73,42 @@ impl Scratch {
             tmpdir: None,
             uid: unsafe { libc::getuid() },
             lists: self.dir.join("lists"),
-            codex_program: self.dir.join("codex"),
-            claude_program: self.dir.join("claude"),
-            ioreg_program: self.dir.join("ioreg"),
-            power: crate::awake::Power::Record(self.dir.join("power")),
             fonts: None,
         }
+    }
+
+    /// The test's stand-in system (system.rs): the folder `system` in the
+    /// scratch folder, which holds the programs the test writes there with
+    /// `stand_in`, and until the test writes its own, an lsof that finds no
+    /// process holding a file (`QUIET_LSOF`).
+    pub fn system(&self) -> crate::system::System {
+        let folder = self.dir.join("system");
+        if !folder.join("lsof").exists() {
+            std::fs::create_dir_all(&folder).expect("the scratch folder is writable");
+            self.script("system/lsof", QUIET_LSOF);
+        }
+        crate::system::System::StandIn(folder)
+    }
+
+    /// The stand-in system's program <name>, a shell script whose body is
+    /// <body>.
+    pub fn stand_in(&self, name: &str, body: &str) -> PathBuf {
+        self.system();
+        self.script(&format!("system/{name}"), body)
+    }
+
+    /// The stand-in system with this Mac's lsof, for a test of what builds
+    /// does with the files the processes it starts hold open: lsof only
+    /// reads.
+    pub fn with_lsof(&self) -> crate::system::System {
+        self.stand_in("lsof", "exec /usr/sbin/lsof \"$@\"");
+        self.system()
+    }
+
+    /// How the test reaches agent sessions: Claude Code's records in the
+    /// scratch home, and the stand-in system's Codex CLI.
+    pub fn sessions(&self) -> crate::inbox::Sessions {
+        crate::inbox::Sessions::of(&self.places(), &self.system())
     }
 
     /// A `builds` program that says `builds test` with `builds version`, to
@@ -111,6 +146,7 @@ impl Scratch {
             self.shots_script("states-shown", "differs"),
             crate::ack::agent::Session::Terminal,
             crate::roots::Changed::default(),
+            self.system(),
         )
         .expect("the test's directory exists");
         tool.reviewer = self.empty_reviewer();
@@ -428,12 +464,34 @@ pub fn run_script(script: &str, expression: &str) -> serde_json::Value {
     serde_json::from_slice(&out.stdout).unwrap()
 }
 
+/// The system of a test that runs none of its programs: its stand-in folder
+/// holds nothing, so builds refuses each (system.rs).
+pub fn no_system() -> crate::system::System {
+    crate::system::System::StandIn(PathBuf::from("/nonexistent/builds-test-system"))
+}
+
 /// The ssh for a test that reaches no host: its store records none, so builds
-/// never runs it.
+/// never runs it, and a script it runs on this Mac runs none of the
+/// machine's programs of the table (`no_system`).
 pub fn no_ssh() -> crate::host::Ssh {
-    crate::host::Ssh {
-        program: "false".to_string(),
-    }
+    no_system().ssh()
+}
+
+/// The ssh of the stand-in system whose folder holds <program>, a stand-in
+/// named `ssh` (system.rs).
+pub fn ssh_at(program: &Path) -> crate::host::Ssh {
+    assert_eq!(
+        program.file_name(),
+        Some(std::ffi::OsStr::new("ssh")),
+        "a stand-in system names its ssh `ssh`"
+    );
+    crate::system::System::StandIn(
+        program
+            .parent()
+            .expect("a program is in a folder")
+            .to_path_buf(),
+    )
+    .ssh()
 }
 
 /// A program at <path> that prints <said> when it is run with `version`.

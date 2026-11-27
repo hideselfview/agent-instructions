@@ -163,9 +163,9 @@ impl Reviewer {
     pub fn installed(
         places: &crate::places::Places,
         session: &crate::ack::agent::Session,
-        explicit: Option<std::ffi::OsString>,
+        system: &crate::system::System,
     ) -> Reviewer {
-        let executable = provider::default_program(explicit, session);
+        let executable = system.location(provider::default_program(session));
         let temporary = places
             .tmpdir
             .as_ref()
@@ -1203,7 +1203,7 @@ fn tell_settlers(
     caller: Option<&Caller>,
     own: Option<&crate::inbox::Messaging>,
 ) -> Result<String> {
-    let sessions = tool.places.sessions();
+    let sessions = tool.sessions();
     let running = judge::running_claude(&sessions)?;
     let mut text = match to_settle.notice() {
         Some(notice) => judge::tell(store, stamp, &sessions, &running, &notice, caller, own)?,
@@ -1474,7 +1474,7 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
     let why = args.why()?;
     let (store, _) = store_of(tool, &args)?;
     let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
-    let sessions = tool.places.sessions();
+    let sessions = tool.sessions();
     let running = judge::running_claude(&sessions)?;
     if again {
         store.write(&stamp, &format!("review settle {id} again"), |db| {
@@ -1557,7 +1557,7 @@ fn dispute_command(
     let why = args.why()?;
     let (store, conn) = store_of(tool, &args)?;
     let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
-    let sessions = tool.places.sessions();
+    let sessions = tool.sessions();
     let running = judge::running_claude(&sessions)?;
     let finding = store.write(&stamp, &format!("review dispute {id}"), |db| {
         judge::dispute(db, id, why, &stamp)
@@ -1585,7 +1585,7 @@ fn keep_command(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result
     let why = args.why()?;
     let (store, _) = store_of(tool, &args)?;
     let stamp = Stamp::resolve(tool.now, &args, &tool.dir)?;
-    let sessions = tool.places.sessions();
+    let sessions = tool.sessions();
     let running = judge::running_claude(&sessions)?;
     store.write(&stamp, &format!("review keep {id}"), |db| {
         judge::may_judge(db, &sessions, &running, id, caller)?;

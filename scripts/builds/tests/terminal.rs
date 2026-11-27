@@ -6,10 +6,11 @@
 use std::os::fd::FromRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
+mod common;
+
 const PATIENCE: Duration = Duration::from_secs(20);
 
 #[test]
@@ -33,16 +34,8 @@ fn a_build_that_sets_terminal_modes_finishes_when_builds_runs_on_a_terminal() {
         0
     );
 
-    let mut command = Command::new(BUILDS);
+    let mut command = common::builds(&dir);
     command
-        .env("BUILDS_ROOT", dir.join("volume"))
-        .env("BUILDS_POWER_RECORD", dir.join("power"))
-        .env("BUILDS_TEMP", dir.join("temp"))
-        .env("HOME", dir.join("home"))
-        .env_remove("CLAUDE_CODE_SESSION_ID")
-        .env_remove("CODEX_SESSION_ID")
-        .env_remove("CODEX_THREAD_ID")
-        .env_remove("BUILDS_AGENT")
         .args([
             "lock",
             "demo",

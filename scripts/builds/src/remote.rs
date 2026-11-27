@@ -592,8 +592,8 @@ pub struct Transport<'a> {
 
 impl Transport<'_> {
     /// A command that runs <script> with `sh` on the host.
-    pub fn command(&self, script: &str) -> Command {
-        let mut command = host::command_at(self.ssh, self.host, script, host::Terminal::None);
+    pub fn command(&self, script: &str) -> Result<Command> {
+        let mut command = host::command_at(self.ssh, self.host, script, host::Terminal::None)?;
         if self.host.target.is_none() {
             command.env("HOME", &self.places.home);
             // The claim script's git commands name their own worktrees; a
@@ -601,13 +601,13 @@ impl Transport<'_> {
             // hook's repository instead.
             without_git_variables(&mut command);
         }
-        command
+        Ok(command)
     }
 
     /// Runs <script> to its end and returns its stdout; a failure names the
     /// host and what the script printed.
     pub fn capture(&self, script: &str, what: &str) -> Result<String> {
-        self.capture_command(self.command(script), what)
+        self.capture_command(self.command(script)?, what)
     }
 
     /// Captures a prepared command, after the caller has configured its launch.
@@ -619,7 +619,7 @@ impl Transport<'_> {
     /// would not start); the inner one is the host's: the script failed
     /// there, and the text names the host and what the script printed.
     pub fn ask(&self, script: &str, what: &str) -> Result<std::result::Result<String, String>> {
-        self.ask_command(self.command(script), what)
+        self.ask_command(self.command(script)?, what)
     }
 
     fn ask_command(
@@ -673,7 +673,7 @@ impl Transport<'_> {
         let output = source_git(source)
             .args(["push", "-q", &format!("{target}:{}", clone_path(repo))])
             .arg(format!("{sha}:{JOBS_REF}/{id}"))
-            .env("GIT_SSH_COMMAND", self.ssh.git_command())
+            .env("GIT_SSH_COMMAND", self.ssh.git_command()?)
             .stdin(Stdio::null())
             .output()
             .context(|| "running git push".to_string())?;
@@ -964,7 +964,7 @@ pub fn run_command(
     let run = job_id();
     let started = crate::app_timing::now();
     let mut child = transport
-        .command(&run_script(transport.host, worktree, command, &run))
+        .command(&run_script(transport.host, worktree, command, &run))?
         // The command's lifeline (`run_script`): this process holds the
         // pipe's only write end until the command has ended or a stop signal
         // cuts it (`Lifeline`), and the kernel closes it when this process
@@ -1105,7 +1105,11 @@ pub fn start_job<'a>(
     source: &Path,
     request: &Request,
 ) -> Result<Start<'a>> {
-    let awake = KeepAwake::for_host(&places.power, host, &format!("a job of {}", request.repo))?;
+    let awake = KeepAwake::for_host(
+        &ssh.system().power(),
+        host,
+        &format!("a job of {}", request.repo),
+    )?;
     let sha = commit_of(source, &request.what)?;
     let pinned = pinned_name(source)?;
     let id = job_id();

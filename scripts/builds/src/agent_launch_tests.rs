@@ -47,7 +47,9 @@ fn a_resumed_agent_gets_the_same_flags_and_resume_in_place_of_a_session_id() {
 
 #[test]
 fn the_command_clears_the_callers_identity_and_the_claude_code_variables() {
-    let command = command(Path::new("claude"), &[], Path::new("/w"));
+    let scratch = crate::testing::Scratch::new("agent-launch-command");
+    scratch.stand_in("claude", "exit 0");
+    let command = command(&scratch.system(), &[], Path::new("/w")).unwrap();
     let cleared: Vec<String> = command
         .get_envs()
         .filter(|(_, value)| value.is_none())

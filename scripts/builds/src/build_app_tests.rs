@@ -105,7 +105,9 @@ fn no_ref_builds_the_origin_main_the_fetch_brought_not_a_stale_local_main() {
 
     let lock = lock::take_checkout(&scratch.places(), "demo", Lane::MAC, "side-1").unwrap();
     let checkout = CheckoutLock::new(lock.as_fd(), None);
-    let config = check_out(&top, default, checkout).unwrap().config;
+    let config = check_out(&top, &scratch.system(), default, checkout)
+        .unwrap()
+        .config;
     assert_eq!(
         run_git(&top, &["rev-parse", "HEAD"]).unwrap(),
         newer,

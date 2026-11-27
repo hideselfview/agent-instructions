@@ -326,7 +326,7 @@ fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<
     let item_numbers: Vec<u32> = ids.iter().map(|id| id.0).collect();
     let name = agent_name(&lists.project, role, &item_numbers);
     let arguments = agent_launch::arguments(model, &name, Session::New(&session));
-    let command = agent_launch::command(&tool.places.claude_program, &arguments, &folder);
+    let command = agent_launch::command(&tool.system, &arguments, &folder)?;
     let started = agent_launch::start(command, &prompt, Log::append(&made.log)?)?;
     let agent = Agent {
         session: session.clone(),
@@ -579,7 +579,7 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
     let socket = running_session(&running, session).and_then(|own| own.messaging_socket.as_deref());
     if let Some(socket) = socket {
         let inbox = crate::inbox::Messaging::new(socket, None)?;
-        if tool.places.sessions().send(&inbox, &message)? == crate::inbox::Sent::Delivered {
+        if tool.sessions().send(&inbox, &message)? == crate::inbox::Sent::Delivered {
             let mut conn = db::open(&store.database(), db::Make::Never)?;
             let tx = conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -603,7 +603,7 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
         Some(place) => &place.worktree,
         None => &agent.folder,
     };
-    let command = agent_launch::command(&tool.places.claude_program, &arguments, Path::new(folder));
+    let command = agent_launch::command(&tool.system, &arguments, Path::new(folder))?;
     let started = agent_launch::start(command, &message, Log::append(&log)?)?;
     let (started, number) = record_process(&store, started, &message, tool.now, |db, process| {
         agent_record::join(db, session, &joined.work, &new_ids, tool.now)?;

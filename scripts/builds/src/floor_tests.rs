@@ -145,6 +145,7 @@ fn increment(profile: &std::path::Path, name: &str, hours: u64) -> std::path::Pa
 #[test]
 fn under_the_floor_idle_incremental_folders_go_in_every_checkout() {
     let scratch = Scratch::new("floor-incremental");
+    scratch.with_lsof();
     let tool = scratch.tool(0);
     three_checkouts(&scratch, &tool);
     let root = tool.places.root.join("demo");

@@ -61,20 +61,28 @@ pub enum Evicted {
 /// (instant; see `trash`) and removes it as <removal> says. The trash is
 /// <root>/.trash on the build volume, and for a folder on another volume a new
 /// folder beside it, since a rename can't cross volumes. Deletes nothing when the
-/// folder is in use or gone. A folder in a build root goes through
-/// roots.rs `delete`, which adds its root to the command's changed roots.
-pub fn evict(places: &Places, dir: &Path, recreate: Recreate, removal: Removal) -> Result<Evicted> {
-    displace(places, dir, Change::Move(recreate, removal))
+/// folder is in use, as <system>'s lsof says, or gone. A folder in a build
+/// root goes through roots.rs `delete`, which adds its root to the command's
+/// changed roots.
+pub fn evict(
+    places: &Places,
+    system: &crate::system::System,
+    dir: &Path,
+    recreate: Recreate,
+    removal: Removal,
+) -> Result<Evicted> {
+    displace(places, system, dir, Change::Move(recreate, removal))
 }
 
 /// Prepares a replacement and exchanges it with the live folder in one
 /// rename. After the exchange, only the old contents remain in the trash.
 pub fn replace(
     places: &Places,
+    system: &crate::system::System,
     dir: &Path,
     prepare: &dyn Fn(&Path, &Path) -> Result<()>,
 ) -> Result<Evicted> {
-    displace(places, dir, Change::Replace(prepare))
+    displace(places, system, dir, Change::Replace(prepare))
 }
 
 enum Change<'a> {
@@ -139,8 +147,14 @@ struct Claimed {
     slot: EvictionSlot,
 }
 
-/// Claims <dir> for <change>: None while a build or a process uses it.
-fn claim(places: &Places, dir: &Path, change: &Change<'_>) -> Result<Option<Claimed>> {
+/// Claims <dir> for <change>: None while a build or a process uses it, as
+/// <system>'s lsof says.
+fn claim(
+    places: &Places,
+    system: &crate::system::System,
+    dir: &Path,
+    change: &Change<'_>,
+) -> Result<Option<Claimed>> {
     let folder = std::fs::canonicalize(dir).context(|| format!("resolving {}", dir.display()))?;
     let parent = folder.parent().expect("a folder to delete has a parent");
     let guard = match crate::units::lock_guard_creating(&folder)? {
@@ -150,7 +164,7 @@ fn claim(places: &Places, dir: &Path, change: &Change<'_>) -> Result<Option<Clai
     let Some(locks) = cargo_locks(&folder)? else {
         return Ok(None);
     };
-    if matches!(change, Change::Move(..)) && held_by_a_process(&folder)? {
+    if matches!(change, Change::Move(..)) && held_by_a_process(system, &folder)? {
         return Ok(None);
     }
     let slot = EvictionSlot::make(places, parent)?;
@@ -162,8 +176,13 @@ fn claim(places: &Places, dir: &Path, change: &Change<'_>) -> Result<Option<Clai
     }))
 }
 
-fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<Evicted> {
-    let claimed = match claim(places, dir, &change) {
+fn displace(
+    places: &Places,
+    system: &crate::system::System,
+    dir: &Path,
+    change: Change<'_>,
+) -> Result<Evicted> {
+    let claimed = match claim(places, system, dir, &change) {
         Ok(Some(claimed)) => claimed,
         Ok(None) => return Ok(Evicted::InUse),
         // A program may delete its folder at any moment after a caller listed
@@ -193,7 +212,7 @@ fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<Evicted> 
         }
         Change::Replace(prepare) => {
             let replacement = slot.path().join(name);
-            let moved = replace_from(&folder, &replacement, prepare);
+            let moved = replace_from(system, &folder, &replacement, prepare);
             drop(locks);
             let cleanup = if matches!(moved, Ok(true)) {
                 slot.remove(Removal::Background)
@@ -210,13 +229,14 @@ fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<Evicted> 
 }
 
 fn replace_from(
+    system: &crate::system::System,
     folder: &Path,
     replacement: &Path,
     prepare: &dyn Fn(&Path, &Path) -> Result<()>,
 ) -> Result<bool> {
     std::fs::create_dir(replacement).context(|| format!("creating {}", replacement.display()))?;
     prepare(folder, replacement)?;
-    if held_by_a_process(folder)? {
+    if held_by_a_process(system, folder)? {
         return Ok(false);
     }
     // A writer can change a copied file and close it before the check above.
@@ -402,13 +422,11 @@ pub fn try_lock(path: &Path) -> Result<Option<File>> {
 pub struct HeldPaths(Vec<Vec<u8>>);
 
 impl HeldPaths {
-    pub fn read() -> Result<HeldPaths> {
-        Self::read_with(Path::new("lsof"))
-    }
-
-    pub(crate) fn read_with(program: &Path) -> Result<HeldPaths> {
+    /// What <system>'s lsof lists.
+    pub fn read(system: &crate::system::System) -> Result<HeldPaths> {
         let me = std::process::id().to_string();
-        let output = Command::new(program)
+        let output = system
+            .command(crate::system::Program::Lsof)?
             .args(["-n", "-Fpn"])
             .stdin(Stdio::null())
             .output()
@@ -442,9 +460,9 @@ impl HeldPaths {
 }
 
 /// Does any process but this one hold a file, a working directory or a
-/// mapped file at or inside <folder>? (`lsof -n -Fpn`)
-pub fn held_by_a_process(folder: &Path) -> Result<bool> {
-    Ok(HeldPaths::read()?.holds(folder))
+/// mapped file at or inside <folder>? (<system>'s `lsof -n -Fpn`)
+pub fn held_by_a_process(system: &crate::system::System, folder: &Path) -> Result<bool> {
+    Ok(HeldPaths::read(system)?.holds(folder))
 }
 
 /// A new folder in <dir> named <prefix> and eight random characters.

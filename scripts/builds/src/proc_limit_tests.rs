@@ -54,7 +54,8 @@ fn reads_the_count_and_the_limit_from_the_probe_lines() {
 
 #[test]
 fn this_mac_counts_its_processes_with_the_same_lines() {
-    let used = local().unwrap();
+    let scratch = crate::testing::Scratch::new("proc-limit-local");
+    let used = local(&scratch.system().ssh()).unwrap();
     assert!(used.count > 0 && used.limit > used.count / 2);
 }
 

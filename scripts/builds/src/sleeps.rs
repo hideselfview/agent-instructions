@@ -17,7 +17,7 @@
 //!
 //! where the last number is how long the Mac slept.
 
-use crate::host::{self, Host, Ssh, Terminal};
+use crate::host::{self, Host, Ssh};
 use crate::text::{local_second, parse_tm};
 
 /// Prints the lines of the power log that record a sleep. The log of a Mac
@@ -119,10 +119,7 @@ fn epoch_of(date: &str, time: &str, zone: &str) -> Option<i64> {
 /// The sleeps <host>'s power log records from <from> to <to> (this Mac's
 /// for host local), or what stopped builds reading the log.
 fn read(ssh: &Ssh, host: &Host, from: i64, to: i64) -> std::result::Result<Vec<Sleep>, String> {
-    let printed = host::output_of(
-        host::command_at(ssh, host, SCRIPT, Terminal::None),
-        "reading the power log",
-    )?;
+    let printed = host::output_at(ssh, host, SCRIPT, "reading the power log")?;
     Ok(parse(&printed)?
         .into_iter()
         .filter(|sleep| sleep.overlaps(from, to))

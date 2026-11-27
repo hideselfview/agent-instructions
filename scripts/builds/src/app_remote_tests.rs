@@ -92,7 +92,7 @@ fn setup(name: &str, lane: Lane) -> Setup {
         ],
     );
     host_builds(&home, r#"echo "builds $*" >> "$HOME/runs.txt""#);
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(&scratch, &home);
     let places = scratch.places();
     host::add(&places, &ssh, "m1", "user@m1").unwrap();
     let lock = crate::lock::take_checkout(&places, "demo", lane, "m1:app-1").unwrap();
@@ -589,12 +589,24 @@ fn chrome_starts_on_a_host_without_a_checkout_or_programs_hold() {
 /// as they are.
 #[test]
 fn a_mac_lane_step_runs_under_a_display_assertion() {
+    let scratch = crate::testing::Scratch::new("display-assertion");
+    let caffeinate = scratch.stand_in("caffeinate", "exec \"$@\"");
+    let system = scratch.system();
     let command = vec!["xcodebuild".to_string(), "test".to_string()];
     assert_eq!(
-        keeping_display_on(Lane::MAC, &command),
-        ["/usr/bin/caffeinate", "-d", "-u", "xcodebuild", "test"]
+        keeping_display_on(&system, Lane::MAC, &command).unwrap(),
+        [
+            &caffeinate.display().to_string(),
+            "-d",
+            "-u",
+            "xcodebuild",
+            "test"
+        ]
     );
-    assert_eq!(keeping_display_on(Lane::ANDROID, &command), command);
+    assert_eq!(
+        keeping_display_on(&system, Lane::ANDROID, &command).unwrap(),
+        command
+    );
 }
 
 #[test]

@@ -20,7 +20,7 @@ fn held_in(scratch: &Scratch) -> lock::Held {
             &[crate::lane::AppCheckout::by_person("app-1").unwrap()],
         )
         .unwrap();
-    lock::take(&places, "steps", Lane::MAC).unwrap()
+    lock::take(&places, &crate::testing::no_ssh(), "steps", Lane::MAC).unwrap()
 }
 
 fn config() -> Config {
@@ -144,7 +144,8 @@ fn steps_stop_at_the_first_failure() {
             &mut Vec::new(),
             &any_store(&scratch),
             Path::new("no.xcconfig"),
-            false
+            false,
+            &scratch.system()
         ),
         Err(Fail::Exit(1))
     ));
@@ -161,7 +162,8 @@ fn steps_stop_at_the_first_failure() {
             &mut Vec::new(),
             &any_store(&scratch),
             Path::new("no.xcconfig"),
-            false
+            false,
+            &scratch.system()
         )
         .unwrap(),
         Ended::Finished
@@ -196,7 +198,8 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
             &mut Vec::new(),
             &any_store(&scratch),
             Path::new("no.xcconfig"),
-            true
+            true,
+            &scratch.system()
         )
         .unwrap(),
         Ended::HostFault(Refused::Xcode, said.to_string())
@@ -210,7 +213,8 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
                 &mut Vec::new(),
                 &any_store(&scratch),
                 Path::new("no.xcconfig"),
-                false
+                false,
+                &scratch.system()
             ),
             Err(Fail::Exit(70))
         ),
@@ -225,7 +229,8 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
             &mut Vec::new(),
             &any_store(&scratch),
             Path::new("no.xcconfig"),
-            true
+            true,
+            &scratch.system()
         )
         .unwrap(),
         Ended::Finished
@@ -238,7 +243,8 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
             &mut Vec::new(),
             &any_store(&scratch),
             Path::new("no.xcconfig"),
-            true
+            true,
+            &scratch.system()
         ),
         Err(Fail::Exit(65))
     ));
@@ -279,6 +285,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         &any_store(&scratch),
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     ) else {
         panic!("fails")
     };
@@ -338,6 +345,7 @@ fn a_shots_run_longer_than_the_plain_limit_finishes_when_its_scenes_account_for_
         &cached,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     )
     .expect("1.2 s is within 500 ms and three scenes of 400 ms");
 }
@@ -363,6 +371,7 @@ fn a_local_step_runs_with_the_checkouts_xcode_settings_file() {
         &cached,
         Path::new("/settings/side-1.xcconfig"),
         false,
+        &scratch.system(),
     )
     .unwrap();
     assert_eq!(
@@ -387,6 +396,7 @@ fn a_shots_run_that_hangs_is_killed_whatever_its_scenes() {
         &cached,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     ) else {
         panic!("fails")
     };
@@ -1026,6 +1036,7 @@ fn running_fake_steps_times_each_one_with_its_kind_and_result() {
         &any_store(&scratch),
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     );
     let seen: Vec<(&str, StepKind, &str)> = log
         .iter()
@@ -1069,6 +1080,7 @@ fn a_shots_run_whose_pairs_fail_lets_the_lane_run_the_rest() {
         &any_store(&scratch),
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     );
     assert!(matches!(ran, Err(Fail::Exit(2))), "{ran:?}");
     let seen: Vec<(&str, &str)> = log
@@ -1096,6 +1108,7 @@ fn a_shots_run_whose_pairs_fail_lets_the_lane_run_the_rest() {
         &any_store(&scratch),
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     );
     assert!(matches!(ran, Err(Fail::Exit(1))), "{ran:?}");
     assert_eq!(log.len(), 2, "the test class ran after the shots run");
@@ -1125,6 +1138,7 @@ fn a_shots_run_the_host_failed_stops_the_lane() {
         &store,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     );
     assert!(matches!(ran, Err(Fail::Exit(1))), "{ran:?}");
     assert_eq!(log.len(), 1, "no step ran after the run the host failed");
@@ -1151,6 +1165,7 @@ fn a_failed_step_keeps_what_its_output_said() {
         &any_store(&scratch),
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     );
     assert_eq!(log[0].result, StepResult::Passed);
     let StepResult::Failed(failure) = log[1].result.clone() else {
@@ -1185,6 +1200,7 @@ fn each_step_is_recorded_beside_the_lock_as_the_step_that_runs() {
         &any_store(&scratch),
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     )
     .unwrap();
     let run = crate::holder_run::HolderRun::read(&record)
@@ -1211,6 +1227,7 @@ fn a_fake_step_that_burns_cpu_records_cpu_time_and_one_past_its_limit_records_a_
         &any_store(&scratch),
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     )
     .unwrap();
     assert!(log[0].cpu_ms > 0, "{:?}", log[0]);
@@ -1228,6 +1245,7 @@ fn a_fake_step_that_burns_cpu_records_cpu_time_and_one_past_its_limit_records_a_
         &any_store(&scratch),
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     );
     assert_eq!(log[0].result.word(), "timed out");
 }
@@ -1260,6 +1278,7 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
         &any_store(&scratch),
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     )
     .unwrap();
     timing
@@ -1500,6 +1519,7 @@ fn a_shots_run_that_printed_findings_is_cached_under_its_commit_platform_prefix_
         &cached,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     );
     assert!(matches!(result, Err(Fail::Exit(1))));
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
@@ -1553,6 +1573,7 @@ fn a_shots_run_that_died_on_an_error_caches_nothing() {
         &cached,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     );
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
     assert!(shots_cache::lookup(&places, &key).unwrap().is_none());
@@ -1585,6 +1606,7 @@ fn app_build_returns_a_cached_failure_and_takes_no_lane_without_a_project() {
         &cached,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     );
     let args = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     // Served from the store: no lane process starts (one would run this test
@@ -1655,6 +1677,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
         &cached,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     );
     let commit = resolve(&top, "HEAD").unwrap();
     let store = crate::lists::fixtures::make_store_named(&places, "demo-project", &["demo"]);
@@ -1720,6 +1743,7 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
         &cached,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     )
     .unwrap();
     assert!(serve().pending.is_empty());
@@ -1783,6 +1807,7 @@ fn a_shots_run_caches_its_report_and_the_pictures_it_shows_under_its_key_in_the_
         &cached,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     )
     .unwrap();
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
@@ -1828,6 +1853,7 @@ fn a_report_whose_findings_name_another_shots_checker_caches_nothing() {
         &cached,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     )
     .unwrap();
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
@@ -1867,6 +1893,7 @@ fn a_shots_run_is_given_the_picture_folder_its_app_tree_and_its_before_runs_find
             &cached,
             Path::new("no.xcconfig"),
             false,
+            &scratch.system(),
         )
         .unwrap();
         std::fs::read_to_string(&out).unwrap()
@@ -2302,6 +2329,7 @@ fn a_shots_steps_record_says_its_base_run_and_its_screenshots() {
         &cached,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     )
     .unwrap();
     run_steps(
@@ -2312,6 +2340,7 @@ fn a_shots_steps_record_says_its_base_run_and_its_screenshots() {
         &cached,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     )
     .unwrap();
     let used = |at: usize| log[at].shots.clone().expect("a shots step has its use");
@@ -2343,6 +2372,7 @@ fn only_a_shots_step_that_finished_counts_screenshots() {
         &cached,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     );
     assert_eq!(log[0].shots, None);
     assert_eq!(log[1].shots.as_ref().map(|used| used.pictures), Some(None));
@@ -2377,6 +2407,7 @@ fn the_capture_step_counts_the_screenshots_and_the_runs_after_it_count_none() {
         &cached,
         Path::new("no.xcconfig"),
         false,
+        &scratch.system(),
     )
     .unwrap();
     let used = |at: usize| log[at].shots.clone().expect("a picture step has its use");

@@ -148,7 +148,7 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
     let scratch = Scratch::new("host-installed");
     let places = scratch.places();
     let home = scratch.dir.join("remote-home");
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(&scratch, &home);
     let mine = places.home.join(".local/bin/builds");
     std::fs::create_dir_all(mine.parent().unwrap()).unwrap();
     std::fs::copy(scratch.builds_program(), &mine).unwrap();
@@ -239,7 +239,7 @@ fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
 
     let scratch = Scratch::new("host-sccache");
     let places = scratch.places();
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &scratch.dir.join("remote-home"));
+    let ssh = fake_ssh(&scratch, &scratch.dir.join("remote-home"));
     let reads = read_all_installed(&places, &ssh, &[Host::local(), host("m1")]);
     let under: Vec<bool> = reads
         .iter()
@@ -282,9 +282,7 @@ esac"#,
             missing_issue = crate::host::sh_quote(&missing_issue.to_string()),
         ),
     );
-    let ssh = Ssh {
-        program: fake_ssh.display().to_string(),
-    };
+    let ssh = crate::testing::ssh_at(&fake_ssh);
     let mut installed = vec![HostInstalled {
         host: LOCAL.to_string(),
         read: Ok(parse_installed(&answer).unwrap()),
@@ -370,7 +368,7 @@ fn a_host_whose_sccache_config_does_not_hold_builds_cap_is_a_finding() {
     let scratch = Scratch::new("host-sccache-cap");
     let places = scratch.places();
     let home = scratch.dir.join("remote-home");
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let ssh = fake_ssh(&scratch, &home);
     let config = crate::install::sccache_config_path(&home);
     std::fs::create_dir_all(config.parent().unwrap()).unwrap();
     std::fs::write(&config, format!("[cache.disk]\nsize = {}\n", cap * 1024)).unwrap();

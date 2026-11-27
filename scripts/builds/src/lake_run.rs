@@ -23,7 +23,7 @@ use crate::cargo_place::{self, Choice};
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::host::{Runs, Ssh};
+use crate::host::Runs;
 use crate::places::{Places, Rules};
 use crate::roots::Changed;
 
@@ -31,7 +31,7 @@ const USAGE: &str = "usage: builds lake build [<args>...]: builds runs lake buil
 
 /// `builds lake build [<args>...]`, which adds its checkout's build root to
 /// <changed>.
-pub fn cmd_lake(args: &[String], changed: &Changed) -> Result<()> {
+pub fn cmd_lake(system: &crate::system::System, args: &[String], changed: &Changed) -> Result<()> {
     if args.first().map(String::as_str) != Some("build") {
         fail!("{USAGE}");
     }
@@ -43,7 +43,7 @@ pub fn cmd_lake(args: &[String], changed: &Changed) -> Result<()> {
     }
     let env = |name: &str| std::env::var_os(name);
     let named = cargo_place::named_host(&env)?;
-    let ssh = Ssh::from_env();
+    let ssh = system.ssh();
     let choice = match stays_here(args, checkout.as_ref()) {
         Some(why) => {
             cargo_place::note_runs_here(named.as_deref(), &why);

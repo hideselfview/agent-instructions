@@ -141,6 +141,7 @@ use crate::shot_findings;
 use crate::shots_cache;
 use crate::shots_cache::MissCause;
 use crate::shots_declared::ShotDeclarations;
+use crate::system::System;
 use crate::tool::Tool;
 use crate::window_lock::Access;
 
@@ -711,7 +712,9 @@ fn keep_for<'a>(
     }
 }
 
-/// Runs <steps> in the checkout <top>, as `run_steps_with` does with <watch>.
+/// Runs <steps> in the checkout <top>, as `run_steps_with` does with <watch>,
+/// with <system>'s programs.
+#[allow(clippy::too_many_arguments)]
 fn run_steps(
     top: &Path,
     held: &lock::Held,
@@ -720,6 +723,7 @@ fn run_steps(
     shots: &ShotsCache,
     xcode_settings: &Path,
     watch: bool,
+    system: &System,
 ) -> Result<Ended> {
     run_steps_with(
         held,
@@ -731,6 +735,7 @@ fn run_steps(
             checkout: held.checkout_lock(),
             shots,
             xcode_settings,
+            system,
         },
     )
 }
@@ -758,12 +763,14 @@ trait StepRunner {
 }
 
 /// The steps that run in the checkout <top> here, with the Xcode settings file
-/// that the checkout needs (xcode_cache.rs).
+/// that the checkout needs (xcode_cache.rs), and the programs that act on
+/// this Mac (system.rs).
 struct LocalSteps<'a> {
     top: &'a Path,
     checkout: CheckoutLock<'a>,
     shots: &'a ShotsCache,
     xcode_settings: &'a Path,
+    system: &'a System,
 }
 
 impl StepRunner for LocalSteps<'_> {
@@ -798,7 +805,7 @@ impl StepRunner for LocalSteps<'_> {
         };
         // A step that opens windows holds this Mac's display on while it runs.
         if step.window.is_some() {
-            command = crate::app_remote::keeping_display_on(step.lane, &command);
+            command = crate::app_remote::keeping_display_on(self.system, step.lane, &command)?;
         }
         let outcome = run_command_keeping(
             top,
@@ -1010,7 +1017,7 @@ impl Site<'_> {
     ) -> Result<(String, String)> {
         let source = self.fetched_source(places, repo)?;
         let sha = match self {
-            Site::Local(_, _, checkout) => resolve_checkout(&source, commit, *checkout)?,
+            Site::Local(_, _, checkout, _) => resolve_checkout(&source, commit, *checkout)?,
             Site::Remote(_) => resolve(&source, commit)?,
         };
         Ok((sha, self.head()?))
@@ -1046,7 +1053,7 @@ impl Site<'_> {
     /// reads the repo's `.app-build` there.
     pub fn check_out(&mut self, places: &Places, repo: &str, commit: &str) -> Result<CheckedOut> {
         match self {
-            Site::Local(top, _, checkout) => check_out(top, commit, *checkout),
+            Site::Local(top, _, checkout, system) => check_out(top, system, commit, *checkout),
             Site::Remote(remote) => {
                 let source = fetched_local_source(places, repo)?;
                 let sha = resolve(&source, commit)?;
@@ -1067,9 +1074,9 @@ impl Site<'_> {
         log: &mut Vec<StepRecord>,
     ) -> Result<Ended> {
         match self {
-            Site::Local(top, settings, _) => {
-                run_steps(top, held, steps, log, with.shots, settings, with.watch)
-            }
+            Site::Local(top, settings, _, system) => run_steps(
+                top, held, steps, log, with.shots, settings, with.watch, system,
+            ),
             Site::Remote(remote) => run_steps_with(
                 held,
                 steps,
@@ -1138,7 +1145,7 @@ fn run_remote_step(
     let mut held = remote.with_programs(with.programs, &command)?;
     // A step that opens windows holds the host's display on while it runs.
     if step.window.is_some() {
-        held = remote.keeping_display_on(&held);
+        held = remote.keeping_display_on(&held)?;
     }
     let kept = lock::Captured::default();
     let keep = keep_for(kind, &kept, fault, read);
@@ -2011,7 +2018,7 @@ fn build_lane(
         "waiting for {repo}'s {} app lock, then building {commit}",
         lane.word()
     ));
-    let ssh = Ssh::from_env();
+    let ssh = tool.ssh();
     // Only a shots prefix that selects a scene shown in its window draws one.
     let windowed = crate::shots_declared::windowed_prefixes(&source, commit, &config, picks)?;
     let runs_checkout_as_it_is =

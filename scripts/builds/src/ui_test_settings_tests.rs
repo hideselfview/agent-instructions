@@ -105,7 +105,7 @@ fn each_setting_names_the_command_that_turns_it_on() {
 fn reads_a_hosts_settings_over_ssh() {
     let scratch = Scratch::new("ui-settings-read");
     let places = scratch.places();
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &scratch.dir.join("remote-home"));
+    let ssh = fake_ssh(&scratch, &scratch.dir.join("remote-home"));
     let found = read(&places, &ssh, &host("m1")).unwrap();
     let me = String::from_utf8(
         std::process::Command::new("id")

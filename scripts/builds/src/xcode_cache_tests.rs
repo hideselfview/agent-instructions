@@ -140,7 +140,7 @@ fn the_version_is_read_from_the_first_line_of_xcodebuilds_answer() {
 fn a_folder_in_no_checkout_has_no_settings_file() {
     let scratch = Scratch::new("xcode-cache-no-checkout");
     let places = scratch.places();
-    let Err(error) = settings_for(&places, &scratch.dir) else {
+    let Err(error) = settings_for(&places, &scratch.system(), &scratch.dir) else {
         panic!("a folder in no checkout has no settings");
     };
     assert!(error.text().contains("is in no git checkout"));

@@ -19,9 +19,7 @@ fn idle_ssh(dir: &std::path::Path) -> Ssh {
     )
     .unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Ssh {
-        program: program.display().to_string(),
-    }
+    crate::testing::ssh_at(&program)
 }
 
 /// Places whose android lane has <entries> as app checkouts, with the hosts
@@ -226,9 +224,7 @@ fn locked_ssh(dir: &std::path::Path, locked: u32) -> Ssh {
     )
     .unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Ssh {
-        program: program.display().to_string(),
-    }
+    crate::testing::ssh_at(&program)
 }
 
 #[test]
@@ -268,7 +264,7 @@ fn the_mac_lane_holds_a_window_step_while_this_macs_screen_is_locked() {
     let scratch = Scratch::new("window-locked-here");
     let places = scratch.places();
     // Locked at the lane's first reading, and unlocked from then on.
-    scratch.script(
+    scratch.stand_in(
         "ioreg",
         &format!(
             "if [ -e {read} ]; then echo '\"IOConsoleLocked\" = No'; else echo '\"IOConsoleLocked\" = Yes'; fi\necho x >> {read}",
@@ -282,7 +278,7 @@ fn the_mac_lane_holds_a_window_step_while_this_macs_screen_is_locked() {
             &[crate::lane::AppCheckout::by_person("app-1").unwrap()],
         )
         .unwrap();
-    let held = crate::lock::take(&places, "demo", Lane::MAC).unwrap();
+    let held = crate::lock::take(&places, &scratch.system().ssh(), "demo", Lane::MAC).unwrap();
     let window = held
         .take_window("shots", Access::Exclusive)
         .unwrap()

@@ -21,7 +21,7 @@ fn the_dashboard_approves_the_design_change_in_the_project_that_holds_it_and_tel
         })
         .unwrap();
     let inbox = FakeInbox::listen(&socket);
-    let approval = approve_design(&places, NOON + 60, "demo", 1).unwrap();
+    let approval = approve_design(&places, &scratch.sessions(), NOON + 60, "demo", 1).unwrap();
     assert_eq!(approval, Approval::Recorded(SessionState::Told));
     let lines = inbox.received();
     assert!(
@@ -32,7 +32,7 @@ fn the_dashboard_approves_the_design_change_in_the_project_that_holds_it_and_tel
     let approved = lists.design(Id(1)).unwrap().approved.clone().unwrap();
     assert_eq!((approved.at, approved.by.as_str()), (NOON + 60, BY));
     assert_eq!(
-        approve_design(&places, NOON + 90, "demo", 1).unwrap(),
+        approve_design(&places, &scratch.sessions(), NOON + 90, "demo", 1).unwrap(),
         Approval::Already
     );
 }
@@ -42,7 +42,9 @@ fn a_design_change_no_project_has_is_refused() {
     let scratch = Scratch::new("approve-none");
     let places = scratch.places();
     make_store(&places, &["bae"]);
-    let refused = approve_design(&places, NOON, "demo", 7).unwrap_err().text();
+    let refused = approve_design(&places, &scratch.sessions(), NOON, "demo", 7)
+        .unwrap_err()
+        .text();
     assert!(
         refused.contains("project demo has no design change"),
         "{refused}"

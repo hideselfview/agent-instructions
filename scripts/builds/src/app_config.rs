@@ -984,14 +984,19 @@ pub fn switch_to(top: &Path, commit: &str, force: bool, lock: CheckoutLock<'_>) 
 /// open: git left it when it was killed, and every git command that writes
 /// the index refuses until someone deletes it. The build holds the checkout's
 /// lock, so no other build's git runs there. It deletes nothing, since a git
-/// of the person's may have made the file a moment ago.
-fn fail_on_unheld_index_lock(top: &Path, lock: CheckoutLock<'_>) -> Result<()> {
+/// of the person's may have made the file a moment ago. <system>'s lsof says
+/// whether a process has it open.
+fn fail_on_unheld_index_lock(
+    top: &Path,
+    system: &crate::system::System,
+    lock: CheckoutLock<'_>,
+) -> Result<()> {
     let path = checkout_git(top, None, &["rev-parse", "--git-path", "index.lock"], lock)?;
     let path = top.join(path.trim());
     if !path.exists() {
         return Ok(());
     }
-    if !crate::evict::held_by_a_process(&path)? {
+    if !crate::evict::held_by_a_process(system, &path)? {
         fail!(
             "the app checkout's git lock {} exists and no process holds it: a git that was killed left it, and git refuses to write the checkout's index until it is deleted (delete it when no git of yours runs there)",
             path.display()
@@ -1008,8 +1013,14 @@ pub struct CheckedOut {
 
 /// Switches the app checkout <top>, which must be clean, to the commit that
 /// <commit> names after a fetch, and reads that commit's `.app-build`.
-pub fn check_out(top: &Path, commit: &str, lock: CheckoutLock<'_>) -> Result<CheckedOut> {
-    fail_on_unheld_index_lock(top, lock)?;
+/// <system>'s lsof finds a git lock that no process holds.
+pub fn check_out(
+    top: &Path,
+    system: &crate::system::System,
+    commit: &str,
+    lock: CheckoutLock<'_>,
+) -> Result<CheckedOut> {
+    fail_on_unheld_index_lock(top, system, lock)?;
     let changes = checkout_git(top, None, &["status", "--porcelain"], lock)?;
     if !changes.trim().is_empty() {
         fail!(

@@ -72,7 +72,7 @@ use std::fs::File;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use crate::fail;
 use crate::fail::{Context, Result, gone};
@@ -364,13 +364,16 @@ pub fn lock_guard_creating(path: &Path) -> Result<Guard> {
 /// folder. Listed once, when first asked, which is after the folder's locks
 /// are held.
 pub struct OpenFiles {
+    /// The system whose lsof lists them.
+    system: crate::system::System,
     roots: Vec<Vec<u8>>,
     inodes: Option<HashSet<u64>>,
 }
 
 impl OpenFiles {
-    pub fn new(roots: &[PathBuf]) -> OpenFiles {
+    pub fn new(system: &crate::system::System, roots: &[PathBuf]) -> OpenFiles {
         OpenFiles {
+            system: system.clone(),
             roots: roots
                 .iter()
                 .map(|root| {
@@ -386,7 +389,9 @@ impl OpenFiles {
     pub fn get(&mut self) -> Result<&HashSet<u64>> {
         if self.inodes.is_none() {
             let me = std::process::id().to_string();
-            let output = Command::new("lsof")
+            let output = self
+                .system
+                .command(crate::system::Program::Lsof)?
                 .args(["-n", "-Fpin"])
                 .stdin(Stdio::null())
                 .output()
@@ -501,9 +506,13 @@ pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
         Some("prune") if args.len() >= 4 => {
             let folders: Vec<PathBuf> = args[4..].iter().map(PathBuf::from).collect();
             let rules = prune::Ages::new(number(&args[1])?, number(&args[2])?);
-            for (folder, freed_kib) in
-                prune::prune(&rules, run(&args[3])?, &folders, &tool.changed)?
-            {
+            for (folder, freed_kib) in prune::prune(
+                &tool.system,
+                &rules,
+                run(&args[3])?,
+                &folders,
+                &tool.changed,
+            )? {
                 crate::output::answer_line(format!("{freed_kib}\t{}", folder.display()));
             }
             Ok(())

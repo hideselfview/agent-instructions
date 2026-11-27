@@ -12,7 +12,7 @@ use std::process::Stdio;
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::host::{self, Host, LOCAL, Ssh, sh_quote};
+use crate::host::{self, Host, LOCAL, Ssh};
 use crate::host_platform::Os;
 use crate::places::Places;
 use crate::tool::Tool;
@@ -175,16 +175,12 @@ pub fn send(ssh: &Ssh, host: &Host, name: &str, bytes: &[u8], script: &str) -> R
         fail!("{LOCAL} is this Mac and already has builds");
     };
     let mut child = ssh
-        .command(
-            target,
-            &format!("sh -c {}", sh_quote(script)),
-            host::Terminal::None,
-        )
+        .command(target, script, host::Terminal::None)?
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context(|| format!("running {} to {}", ssh.program, host.name))?;
+        .context(|| format!("running ssh to {}", host.name))?;
     let mut stdin = child
         .stdin
         .take()
