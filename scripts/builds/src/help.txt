@@ -2022,7 +2022,14 @@ built again.
                               app's test source set compiles, as `harness
                               mac` writes the mac one. Every run of those
                               tests compiles the shots, so an app runs it
-                              before any of them builds. The app gives the
+                              before any of them builds. A Gradle task runs
+                              it as `/usr/bin/env builds`, which finds builds
+                              on that build's PATH, where an app build puts
+                              its own builds first (APP BUILDS). For a
+                              program named alone, Java searches the PATH
+                              that the Gradle daemon started with, so a
+                              daemon that an earlier build started would run
+                              that build's builds. The app gives the
                               harness its shots: test functions of a
                               subclass of its own of `BoardShot`, which
                               names the app's Robolectric test runner with
