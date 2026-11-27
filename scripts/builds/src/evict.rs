@@ -130,29 +130,55 @@ impl EvictionSlot {
     }
 }
 
-fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<Evicted> {
-    match displace_present(places, dir, change) {
-        // A program may delete its folder at any moment after a caller listed
-        // it, so any step may fail on it: then there is nothing to delete.
-        Err(_) if crate::whole_file::lstat(dir)?.is_none() => Ok(Evicted::Gone),
-        done => done,
-    }
+/// A folder builds may move now, with what keeps builds out of it until it
+/// has.
+struct Claimed {
+    folder: PathBuf,
+    _guard: crate::units::Guard,
+    locks: Vec<File>,
+    slot: EvictionSlot,
 }
 
-fn displace_present(places: &Places, dir: &Path, change: Change<'_>) -> Result<Evicted> {
+/// Claims <dir> for <change>: None while a build or a process uses it.
+fn claim(places: &Places, dir: &Path, change: &Change<'_>) -> Result<Option<Claimed>> {
     let folder = std::fs::canonicalize(dir).context(|| format!("resolving {}", dir.display()))?;
     let parent = folder.parent().expect("a folder to delete has a parent");
-    let _guard = match crate::units::lock_guard_creating(&folder)? {
-        crate::units::Guard::Busy => return Ok(Evicted::InUse),
+    let guard = match crate::units::lock_guard_creating(&folder)? {
+        crate::units::Guard::Busy => return Ok(None),
         guard => guard,
     };
     let Some(locks) = cargo_locks(&folder)? else {
-        return Ok(Evicted::InUse);
+        return Ok(None);
     };
     if matches!(change, Change::Move(..)) && held_by_a_process(&folder)? {
-        return Ok(Evicted::InUse);
+        return Ok(None);
     }
     let slot = EvictionSlot::make(places, parent)?;
+    Ok(Some(Claimed {
+        folder,
+        _guard: guard,
+        locks,
+        slot,
+    }))
+}
+
+fn displace(places: &Places, dir: &Path, change: Change<'_>) -> Result<Evicted> {
+    let claimed = match claim(places, dir, &change) {
+        Ok(Some(claimed)) => claimed,
+        Ok(None) => return Ok(Evicted::InUse),
+        // A program may delete its folder at any moment after a caller listed
+        // it, so each step of the claim may fail on it. builds has moved
+        // nothing yet, so a folder that is missing now is one something else
+        // deleted.
+        Err(_) if crate::whole_file::lstat(dir)?.is_none() => return Ok(Evicted::Gone),
+        Err(error) => return Err(error),
+    };
+    let Claimed {
+        folder,
+        _guard,
+        locks,
+        slot,
+    } = claimed;
     let name = folder.file_name().expect("a folder to delete has a name");
     match change {
         Change::Move(recreate, removal) => {
