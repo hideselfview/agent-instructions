@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::command::{Command, Parsed};
 use crate::fail;
 use crate::fail::Result;
 use crate::land::{WORKTREE_TURN_FILE, read_holder, record_branch, record_pid};
@@ -11,8 +12,13 @@ use crate::land::{WORKTREE_TURN_FILE, read_holder, record_branch, record_pid};
 /// Returns the worktree that the command line <argv> of a running `builds
 /// land <worktree> ...` lands in. Returns None for any other command.
 pub fn requested(argv: &[String]) -> Option<&str> {
-    match crate::ack::agent::without_flag(argv)[..] {
-        [_, "land", worktree, ..] if !worktree.starts_with('-') => Some(worktree),
+    let words = crate::ack::agent::without_flag(argv);
+    match Command::of(words.get(1..)?)? {
+        Parsed {
+            command: Command::Land,
+            rest: [worktree, ..],
+            ..
+        } if !worktree.starts_with('-') => Some(worktree),
         _ => None,
     }
 }

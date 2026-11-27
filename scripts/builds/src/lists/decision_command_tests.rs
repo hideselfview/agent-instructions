@@ -15,7 +15,7 @@ fn refusal(result: Result<()>) -> String {
 
 fn run(tool: &Tool, command: &str) -> Result<()> {
     let words: Vec<String> = command.split_whitespace().map(str::to_string).collect();
-    cmd_decision(tool, &words)
+    decision_words(tool, &words)
 }
 
 /// A tool whose clock is `NOON` and whose store `demo` holds what <build>
@@ -352,7 +352,7 @@ fn edit_changes_title_or_body_and_refuses_the_rest() {
     ]
     .map(str::to_string)
     .to_vec();
-    assert!(refusal(cmd_decision(&tool, &empty_title)).contains("title is empty"));
+    assert!(refusal(decision_words(&tool, &empty_title)).contains("title is empty"));
     assert_eq!(bytes(&tool), before);
 }
 
@@ -483,8 +483,10 @@ fn list_refuses_a_date_that_is_not_one_and_show_reads_one_decision() {
 fn an_unknown_command_or_flag_is_refused() {
     let scratch = Scratch::new("decision-unknown");
     let tool = tool_with(&scratch, |_| ());
-    assert!(refusal(run(&tool, "frobnicate")).contains("unknown decision command frobnicate"));
-    assert!(refusal(cmd_decision(&tool, &[])).contains("usage"));
+    assert!(
+        refusal(run(&tool, "frobnicate")).contains("builds decision has no command frobnicate")
+    );
+    assert!(refusal(decision_words(&tool, &[])).contains("builds decision needs a command"));
     assert!(refusal(run(&tool, "list --nope 1 --project demo")).contains("--nope"));
     assert!(refusal(run(&tool, "add --project demo --by me")).contains("--request is required"));
 }

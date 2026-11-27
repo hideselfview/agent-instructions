@@ -6,9 +6,8 @@
 //! checker starts, Gradle and xcodebuild. Left alone, TMPDIR is the system's
 //! temporary folder, on a volume whose file changes fseventsd logs and spends
 //! CPU on. The build volume has no such log (`builds help`, HOSTS), so each
-//! run of a command
-//! that starts build work (`starts_work`) makes `<build volume>/.tmp/<run>`,
-//! points its own TMPDIR at it before any thread starts, and every process it
+//! run of a command that starts build work (`Command::makes_run_folder`)
+//! makes `<build volume>/.tmp/<run>`, points its own TMPDIR at it before any thread starts, and every process it
 //! starts inherits that. The run deletes the folder when it ends. Health
 //! deletes the folders of runs whose process is gone (`sweep_host`).
 //!
@@ -26,6 +25,7 @@ use std::collections::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::command::Command;
 use crate::fail;
 use crate::fail::{Context, Result, gone};
 use crate::host::{Host, Ssh};
@@ -101,18 +101,6 @@ fn under_runs(parent: &Path, folder: &Path) -> bool {
     folder != parent && folder.starts_with(parent)
 }
 
-/// The commands that start build work, whose runs get a folder: the runs of
-/// cargo and Lean, the app builds and the lock they run under, the jobs on
-/// other hosts, and the shots checker (every `builds shots` subcommand but the
-/// two that read the cached runs).
-pub fn starts_work(command: &str, args: &[String]) -> bool {
-    match command {
-        "cargo" | "lake" | "app-build" | "build-app" | "lock" | "remote" => true,
-        "shots" => crate::shots_program::runs_checker(args),
-        _ => false,
-    }
-}
-
 /// A run's folder, deleted when the value is dropped.
 #[derive(Debug)]
 pub struct RunTmp {
@@ -132,15 +120,16 @@ impl Drop for RunTmp {
     }
 }
 
-/// Makes the folder of the run that `builds <command> <args>` starts and sets
-/// this process's TMPDIR to it, when the command starts build work and TMPDIR
+/// Makes the folder of the run that <command> starts and sets this process's
+/// TMPDIR to it, when the command starts build work
+/// (`Command::makes_run_folder`) and TMPDIR
 /// does not already name an existing run's folder. Fails when the build
 /// volume is not mounted: a run that wrote to the system's temporary folder
 /// instead would write where fseventsd logs it.
 ///
 /// Call it before the process starts a thread: it changes the environment.
-pub fn enter(places: &Places, command: &str, args: &[String]) -> Result<Option<RunTmp>> {
-    if !starts_work(command, args) {
+pub fn enter(places: &Places, command: Command) -> Result<Option<RunTmp>> {
+    if !command.makes_run_folder() {
         return Ok(None);
     }
     places.require_volume()?;

@@ -1,7 +1,7 @@
 //! The Python that a repo's steps run. Repos' `.checks` and `.app-build` lines
 //! run `python3` scripts that import `tomllib`, which Python has from 3.11 on,
 //! while macOS's own /usr/bin/python3 is 3.9. A command that runs steps
-//! (`STEP_COMMANDS`) therefore puts a folder first on its own PATH, which
+//! (`Command::runs_steps`) therefore puts a folder first on its own PATH, which
 //! every step it starts inherits, and that folder's `python3` is:
 //!
 //!   - a link to the first Python of 3.11 or later that builds finds, when
@@ -22,17 +22,6 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::Places;
 use crate::worktree::is_executable;
-
-/// The commands that run a repo's steps, directly or through the builds they
-/// start.
-pub const STEP_COMMANDS: [&str; 6] = [
-    "checks",
-    "land",
-    "app-build",
-    "build-app",
-    "programs",
-    "new",
-];
 
 /// The oldest Python with `tomllib`.
 const MINIMUM: (u32, u32) = (3, 11);

@@ -347,8 +347,14 @@ fn a_codex_workers_record_keeps_its_own_thread_and_not_its_coordinators() {
     ]
     .map(String::from)
     .to_vec();
+    let (crate::command::Command::Design(command), args) =
+        crate::command::parse_line("design", &args).unwrap()
+    else {
+        panic!("a design command")
+    };
     crate::lists::design_command::run_with(
         &tool,
+        command,
         &args,
         || {
             Ok(Some(Destinations::Codex {

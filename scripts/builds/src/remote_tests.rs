@@ -79,7 +79,6 @@ fn refs(repo: &Path) -> String {
 #[test]
 fn parses_a_request() {
     let parsed = parse(&args(&[
-        "run",
         "bae",
         "origin/main",
         "--host",
@@ -99,16 +98,13 @@ fn parses_a_request() {
             prepare: crate::setup::Prepare::Yes,
         }
     );
-    let staged = parse(&args(&["run", "bae", "--staged", "--", "true"])).unwrap();
+    let staged = parse(&args(&["bae", "--staged", "--", "true"])).unwrap();
     assert_eq!(staged.what, What::Staged);
-    let working = parse(&args(&["run", "bae", "--working", "--", "true"])).unwrap();
+    let working = parse(&args(&["bae", "--working", "--", "true"])).unwrap();
     assert_eq!(working.what, What::Working);
-    assert!(
-        parse(&args(&["run", "bae", "--", "true"])).is_err(),
-        "no ref"
-    );
-    assert!(parse(&args(&["run", "bae", "main"])).is_err(), "no command");
-    assert!(parse(&args(&["run", "bae", "main", "--",])).is_err());
+    assert!(parse(&args(&["bae", "--", "true"])).is_err(), "no ref");
+    assert!(parse(&args(&["bae", "main"])).is_err(), "no command");
+    assert!(parse(&args(&["bae", "main", "--",])).is_err());
 }
 
 #[test]

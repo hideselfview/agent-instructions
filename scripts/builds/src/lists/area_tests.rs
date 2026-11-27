@@ -1,10 +1,10 @@
 use super::*;
-use crate::lists::item_command::cmd_item;
+use crate::lists::item_command::item_words;
 use crate::lists::item_fixtures::{Demo, demo, refusal, words};
 use crate::lists::{Id, Record};
 
 fn area(demo: &Demo, args: &[&str]) -> Result<()> {
-    cmd_area(&demo.tool, &words(args))
+    area_words(&demo.tool, &words(args))
 }
 
 fn names(demo: &Demo) -> Vec<String> {
@@ -28,7 +28,7 @@ fn add_places_an_area_at_the_end_or_after_another() {
 fn rename_follows_the_open_items_and_move_reorders() {
     let demo = demo("area-rename");
     let details = demo.brief("d");
-    cmd_item(
+    item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
         &words(&[
@@ -55,7 +55,7 @@ fn rename_follows_the_open_items_and_move_reorders() {
 fn remove_is_refused_while_an_item_is_in_the_area() {
     let demo = demo("area-remove");
     let details = demo.brief("d");
-    cmd_item(
+    item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
         &words(&[
@@ -82,7 +82,7 @@ fn remove_is_refused_while_an_item_is_in_the_area() {
 fn demo_with_a_closed_item(name: &str) -> Demo {
     let demo = demo(name);
     let details = demo.brief("d");
-    cmd_item(
+    item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
         &words(&[
@@ -96,7 +96,7 @@ fn demo_with_a_closed_item(name: &str) -> Demo {
         ]),
     )
     .unwrap();
-    cmd_item(
+    item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
         &words(&["drop", "1", "--why", "not needed"]),

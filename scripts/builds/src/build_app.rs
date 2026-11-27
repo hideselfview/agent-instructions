@@ -36,7 +36,6 @@ use crate::places::Places;
 use crate::system::{Program, System};
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds build-app <repo> <app> [<ref>]";
 const QUIT_CHECKS: u32 = 60;
 const QUIT_CHECK_EVERY: Duration = Duration::from_millis(500);
 
@@ -222,7 +221,7 @@ fn parse_args(args: &[String]) -> Result<(&String, &str, &str)> {
     match args {
         [repo, app] => Ok((repo, app, DEFAULT_REF)),
         [repo, app, commit] if !commit.starts_with('-') => Ok((repo, app, commit.as_str())),
-        _ => fail!("{USAGE}"),
+        _ => fail!("{}", crate::command::Command::BuildApp.usage_text()),
     }
 }
 

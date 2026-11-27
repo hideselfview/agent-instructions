@@ -28,7 +28,7 @@ pub fn cmd_brief(root: &Path, args: &[String]) -> Result<()> {
 
 fn paths(args: &Args) -> Result<Vec<String>> {
     if args.positional().is_empty() {
-        fail!("usage: builds brief [--project P] PATH...");
+        fail!("{}", crate::command::Command::Brief.usage_text());
     }
     args.positional()
         .iter()

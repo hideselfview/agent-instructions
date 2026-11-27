@@ -28,7 +28,7 @@ exec builds checks run
 
 pub fn cmd_install_hook(args: &[String]) -> Result<()> {
     let [repo] = args else {
-        fail!("usage: builds install-hook <repo>")
+        fail!("{}", crate::command::Command::InstallHook.usage_text())
     };
     let path = install(Path::new(repo))?;
     note(format!("pre-commit hook written to {}", path.display()));

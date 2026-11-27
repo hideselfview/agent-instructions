@@ -19,7 +19,7 @@ use crate::claude_sessions::Running;
 use crate::db::{self, Sql};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::lists::args::{Args, current_dir};
+use crate::lists::args::Args;
 use crate::lists::draft::find_brief;
 use crate::lists::item::open_item;
 use crate::lists::item_show::render_item;
@@ -31,29 +31,6 @@ use crate::model_tier::Tier;
 use crate::output::note;
 use crate::review::provider::Provider;
 use crate::tool::Tool;
-
-const USAGE: &str = "builds agent run --role implementing|planner N [M...] [--brief P] [--message-file F] [--project P] [--by WHO]\n       builds agent resume SESSION [--item N]... [--message-file F] [--project P]\n       builds agent list [--running] [--project P]\n       builds agent show SESSION [--project P]";
-
-/// `builds agent <command>`; `agent start`, the hook, is `ack::agent`'s.
-pub fn cmd_agent(tool: &Tool, args: &[String]) -> Result<()> {
-    let cwd = current_dir()?;
-    match args.split_first() {
-        Some((command, rest)) if command == "run" => {
-            run(tool, rest, &cwd, &mut crate::output::answer_handle())
-        }
-        Some((command, rest)) if command == "resume" => {
-            resume(tool, rest, &cwd, &mut crate::output::answer_handle())
-        }
-        Some((command, rest)) if command == "list" => {
-            crate::agent_list::list(tool, rest, &cwd, &mut crate::output::answer_handle())
-        }
-        Some((command, rest)) if command == "show" => {
-            crate::agent_list::show(tool, rest, &cwd, &mut crate::output::answer_handle())
-        }
-        Some((command, _)) => fail!("builds agent has no command {command}\nusage: {USAGE}"),
-        None => fail!("usage: {USAGE}"),
-    }
-}
 
 /// What `run` starts an agent on, from the items' records.
 #[derive(Debug, PartialEq, Eq)]
@@ -86,7 +63,10 @@ fn run_places(item: &crate::lists::Item) -> Vec<Place> {
 /// no agent runs, with `--brief`.
 pub fn plan(lists: &Lists, role: AgentRole, ids: &[Id], brief: Option<&str>) -> Result<Plan> {
     if ids.is_empty() {
-        fail!("usage: {USAGE}");
+        fail!(
+            "{}",
+            crate::command::Command::Agent(crate::command::agent::Run).usage_text()
+        );
     }
     let items = ids
         .iter()
@@ -273,7 +253,8 @@ fn record_process<T>(
 }
 
 /// `builds agent run`, printing to <out>.
-fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<()> {
+/// `builds agent run`.
+pub fn run(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<()> {
     let args = Args::parse(args, &["role", "brief", "message-file"], &[])?;
     let word = args.require("role")?;
     let Some(role) = AgentRole::from_word(word) else {
@@ -417,9 +398,6 @@ fn drive(
     Ok(())
 }
 
-const RESUME_USAGE: &str =
-    "builds agent resume SESSION [--item N]... [--message-file F] [--project P]";
-
 /// An agent as a resume with new items leaves it.
 struct Joined {
     work: Work,
@@ -523,9 +501,14 @@ fn join(
 }
 
 /// `builds agent resume`, printing to <out>.
-fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<()> {
+/// `builds agent resume`.
+pub fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<()> {
     let args = Args::parse(args, &["item", "message-file"], &[])?;
-    let [session] = args.exactly(1, RESUME_USAGE)? else {
+    let [session] = args.exactly(
+        1,
+        &crate::command::Command::Agent(crate::command::agent::Resume).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let ids = args
@@ -536,7 +519,8 @@ fn resume(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Resu
     let message_file = args.value("message-file")?;
     if ids.is_empty() && message_file.is_none() {
         fail!(
-            "give the agent something to read: --item N or --message-file F\nusage: {RESUME_USAGE}"
+            "give the agent something to read: --item N or --message-file F\n{usage}",
+            usage = crate::command::Command::Agent(crate::command::agent::Resume).usage_text(),
         );
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;

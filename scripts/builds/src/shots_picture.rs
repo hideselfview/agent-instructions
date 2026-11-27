@@ -14,8 +14,6 @@ use crate::lane::Lane;
 use crate::output::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds shots picture <repo> <ref> <scene> board|shot [--project P]";
-
 /// The lane of <repo> that takes the shots of <scene>, named by the app its
 /// name starts with: a mac, android or web app.
 fn lane_of(places: &crate::places::Places, repo: &str, scene: &str) -> Result<Lane> {
@@ -42,12 +40,21 @@ fn app_build_words(repo: &str, git_ref: &str, scene: &str, project: Option<&str>
 
 /// `builds shots picture`, given the arguments after `picture`.
 pub fn cmd(tool: &Tool, args: &[String]) -> Result<()> {
-    let (project, words) = crate::project_flag::take(args, USAGE)?;
+    let (project, words) = crate::project_flag::take(
+        args,
+        &crate::command::Command::Shots(crate::command::shots::Picture).usage_text(),
+    )?;
     let [repo, git_ref, scene, side] = &words[..] else {
-        fail!("{USAGE}");
+        fail!(
+            "{}",
+            crate::command::Command::Shots(crate::command::shots::Picture).usage_text()
+        );
     };
     let Some(side) = Side::parse(side) else {
-        fail!("{side:?} is not a side of a scene (board | shot); {USAGE}");
+        fail!(
+            "{side:?} is not a side of a scene (board | shot); {usage}",
+            usage = crate::command::Command::Shots(crate::command::shots::Picture).usage_text()
+        );
     };
     let lane = lane_of(&tool.places, repo, scene)?;
     let commit = crate::shot_findings::commit_of(&tool.places, repo, git_ref)?;

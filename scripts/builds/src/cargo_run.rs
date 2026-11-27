@@ -321,7 +321,7 @@ pub fn cmd_cargo(system: &crate::system::System, args: &[String], changed: &Chan
             ),
         },
         Some("mutants") => (&args[..1], "", cargo_place::CargoTool::Mutants),
-        None => fail!("usage: builds cargo <subcommand> [<args>...]"),
+        None => fail!("{}", crate::command::Command::Cargo.usage_text()),
         Some(other) => fail!(
             "cargo: builds cargo runs builds, updates, mutants runs and the subcommands that only read the workspace, and cargo {other} is none of them; run it without builds"
         ),

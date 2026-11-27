@@ -13,3 +13,12 @@ fn a_state_without_a_note_is_refused_by_the_file_and_the_json() {
     let json = r#"{"who":"a","since":"2026-11-18 10:00","note":null,"note_state":"held"}"#;
     assert!(serde_json::from_str::<Claim>(json).is_err());
 }
+
+#[test]
+fn the_note_usage_names_each_note_state() {
+    let usage = crate::command::Command::Note.usage_text();
+    assert!(
+        usage.contains(&format!("--state {}]", NOTE_STATES.join("|"))),
+        "{usage}"
+    );
+}

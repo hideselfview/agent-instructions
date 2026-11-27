@@ -27,13 +27,14 @@ use crate::host::Runs;
 use crate::places::{Places, Rules};
 use crate::roots::Changed;
 
-const USAGE: &str = "usage: builds lake build [<args>...]: builds runs lake build only; run other lake commands with lake itself";
-
 /// `builds lake build [<args>...]`, which adds its checkout's build root to
 /// <changed>.
 pub fn cmd_lake(system: &crate::system::System, args: &[String], changed: &Changed) -> Result<()> {
     if args.first().map(String::as_str) != Some("build") {
-        fail!("{USAGE}");
+        fail!(
+            "{}: builds runs lake build only; run other lake commands with lake itself",
+            crate::command::Command::Lake.usage_text()
+        );
     }
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     let places = Places::from_env()?;

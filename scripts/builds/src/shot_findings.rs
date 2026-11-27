@@ -314,8 +314,6 @@ fn age(seconds: i64) -> String {
     }
 }
 
-const USAGE: &str = "usage: builds shots findings <repo> <ref> <app> <prefix> [--by-cause]";
-
 /// The command a missing run of <prefix> on <lane> is made with: the
 /// lane's full set of shots for the prefix every shot of the lane starts
 /// with.
@@ -410,7 +408,10 @@ pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
     let grouped = args.iter().any(|arg| arg == "--by-cause");
     let args: Vec<&String> = args.iter().filter(|arg| *arg != "--by-cause").collect();
     let [repo, git_ref, lane, prefix] = args[..] else {
-        fail!("{USAGE}");
+        fail!(
+            "{}",
+            crate::command::Command::Shots(crate::command::shots::Findings).usage_text()
+        );
     };
     let lane = crate::repo_lanes::parse(places, repo, lane)?;
     let program = crate::this_program()?;

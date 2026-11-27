@@ -1629,15 +1629,10 @@ fn app_build_returns_a_cached_failure_and_takes_no_lane_without_a_project() {
         r#"{"findings": [], "scenes": ["mac.a"], "boards": {"mac.a": "h"}}"#,
     )
     .unwrap();
-    crate::shots_program::cmd_shots(
-        &places,
-        &args(&["findings", "demo", "HEAD", "mac", "mac.a."]),
-    )
-    .unwrap();
-    let Err(Fail::Message(message)) = crate::shots_program::cmd_shots(
-        &places,
-        &args(&["findings", "demo", "HEAD", "mac", "mac.other."]),
-    ) else {
+    crate::shot_findings::cmd_findings(&places, &args(&["demo", "HEAD", "mac", "mac.a."])).unwrap();
+    let Err(Fail::Message(message)) =
+        crate::shot_findings::cmd_findings(&places, &args(&["demo", "HEAD", "mac", "mac.other."]))
+    else {
         panic!("no run of that prefix is cached")
     };
     assert!(

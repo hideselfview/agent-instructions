@@ -7,6 +7,7 @@
 //! command does. A command that has no other use for a project does not
 //! read the flag: `split` takes it out of the arguments here.
 
+use crate::command::{Command, Parsed};
 use crate::fail;
 use crate::fail::Result;
 
@@ -42,13 +43,14 @@ impl Flag {
     }
 }
 
-/// <args> of `builds <command>`: without `--project` for a command that does
-/// not read it, and as they are for one that does. Only builds' own words
-/// hold the flag: the words of a command that builds runs stay as they are
-/// (`own_words`).
-pub fn split(command: &str, args: &[String]) -> Result<Split> {
-    let (own, passed) = args.split_at(own_words(command, args));
-    if reads_project(command, args) {
+/// The words after the command of <parsed>: without `--project` for a
+/// command that does not read it (`Parsed::reads_project`), and as they are
+/// for one that does. Only builds' own words hold the flag: the words of a
+/// command that builds runs stay as they are (`own_words`).
+pub fn split(parsed: &Parsed<'_, String>) -> Result<Split> {
+    let args = parsed.rest;
+    let (own, passed) = args.split_at(own_words(parsed.command, args));
+    if parsed.reads_project() {
         let flag = own
             .iter()
             .position(|arg| arg == PROJECT)
@@ -59,7 +61,7 @@ pub fn split(command: &str, args: &[String]) -> Result<Split> {
             args: args.to_vec(),
         });
     }
-    let usage = format!("usage: builds {command} ... [{PROJECT} P]");
+    let usage = format!("usage: builds {} ... [{PROJECT} P]", parsed.named.join(" "));
     let (project, mut kept) = take(own, &usage)?;
     kept.extend_from_slice(passed);
     let flag = project.map_or(Flag::Absent, |project| Flag::Unread(project.to_string()));
@@ -87,8 +89,8 @@ pub fn take<'a>(args: &'a [String], usage: &str) -> Result<(Option<&'a str>, Vec
 /// How many of <args> are builds' own words: those before the command that
 /// `builds lock` runs, which follows the repo and the lock's flags, and those
 /// before `--` for every other command.
-fn own_words(command: &str, args: &[String]) -> usize {
-    if command == "lock" {
+fn own_words(command: Command, args: &[String]) -> usize {
+    if command == Command::Lock {
         let mut at = 1;
         while args.get(at).is_some_and(|arg| arg.starts_with("--")) {
             at += 2;
@@ -98,25 +100,6 @@ fn own_words(command: &str, args: &[String]) -> usize {
     args.iter()
         .position(|arg| arg == "--")
         .unwrap_or(args.len())
-}
-
-/// Does `builds <command> <args>` read `--project` itself? Every word of
-/// `cargo` and `lake` is the tool's, so builds takes none out.
-fn reads_project(command: &str, args: &[String]) -> bool {
-    let word = |at: usize| args.get(at).map(String::as_str);
-    match command {
-        "ack" | "agent" | "area" | "brief" | "cargo" | "claim" | "decision" | "design" | "item"
-        | "judge" | "lake" | "land" | "lists" | "new" | "next" | "question" | "review"
-        | "rules-on-edit" | "waits" => true,
-        "app-build" => {
-            word(0) != Some(crate::app_landing::FLAG)
-                && word(0) != Some(crate::handed_runs::FLAG)
-                && word(1) != Some("--list")
-        }
-        "checks" => word(0) == Some("stats"),
-        "shots" => word(0) == Some("picture"),
-        _ => false,
-    }
 }
 
 #[cfg(test)]

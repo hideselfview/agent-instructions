@@ -61,8 +61,6 @@ use crate::review::render;
 use crate::review::run::{self, Material, Scope};
 use crate::tool::Tool;
 
-const USAGE: &str = "builds review check-landing|landed DIR --project P SHA... [--landing KEY] [--rules-root DIR] [--more-to-land] [--squashed]";
-
 /// What every refusal and every refused run says first.
 pub const ONE_REVIEW: &str = "builds review sends a reviewer no diff twice. Each change gets one review: a review shows the changes since the last review, and nothing else, except that a group that holds an open confirmed finding reads the net change again when nothing is unread.";
 
@@ -702,12 +700,13 @@ impl Asked {
     }
 }
 
-fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
+/// The landing <args> ask about, for the command whose refusals say <usage>.
+fn ask(tool: &Tool, args: &Args, usage: &str) -> Result<Asked> {
     let Some((dir, shas)) = args.positional().split_first() else {
-        fail!("usage: {USAGE}")
+        fail!("{usage}")
     };
     if shas.is_empty() {
-        fail!("name the commits: {USAGE}");
+        fail!("name the commits: {usage}");
     }
     let project = args.require("project")?;
     let store = Store::named(&tool.places, project)?;
@@ -745,7 +744,11 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
 /// can't land, exit 1, or that the review takes them.
 pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["landing", "rules-root"], &["squashed"])?;
-    let asked = ask(tool, &args)?;
+    let asked = ask(
+        tool,
+        &args,
+        &crate::command::Command::Review(crate::command::review::CheckLanding).usage_text(),
+    )?;
     let verdict = judge(
         &asked.conn,
         asked.change(),
@@ -832,7 +835,11 @@ fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>
 /// command runs.
 /// Returns what it asked and the landing when this recorded it.
 fn record_landing(tool: &Tool, args: &Args) -> Result<Option<(Asked, i64)>> {
-    let asked = ask(tool, args)?;
+    let asked = ask(
+        tool,
+        args,
+        &crate::command::Command::Review(crate::command::review::Landed).usage_text(),
+    )?;
     let stamp = Stamp {
         at: tool.now,
         by: resolve_by(args, &asked.dir)?,

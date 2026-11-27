@@ -252,8 +252,6 @@ pub fn remove_others(home: &Path, also: &[String]) -> Result<()> {
     Ok(())
 }
 
-const USAGE: &str = "usage: builds programs hold -- <command> [<args>...]";
-
 /// `builds programs hold -- <command>...`: holds this program's version's
 /// folder, puts it first on PATH, and runs the command in this process's
 /// place, which keeps the hold until it and every process it starts that
@@ -266,10 +264,10 @@ pub fn cmd_programs(
 ) -> Result<()> {
     let home = &places.home;
     let [hold, dashes, command @ ..] = args else {
-        fail!("{USAGE}");
+        fail!("{}", crate::command::Command::Programs.usage_text());
     };
     if hold != "hold" || dashes != "--" || command.is_empty() {
-        fail!("{USAGE}");
+        fail!("{}", crate::command::Command::Programs.usage_text());
     }
     let pinned = match pin_this(home)? {
         Pin::Pinned(pinned) => pinned,

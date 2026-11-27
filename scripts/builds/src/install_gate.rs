@@ -12,8 +12,8 @@
 //! its own in its kind's folder that says which process runs what and since
 //! when.
 //! - A command that writes a store after long work, with what it measured
-//!   since it started (main.rs's `holds_for_life` names them: a hook run and
-//!   a review that asks reviewers), holds a command use for its life.
+//!   since it started (`Stores::ForLife` in command.rs names them: a hook
+//!   run and a review that asks reviewers), holds a command use for its life.
 //! - A landing (`builds land`) holds a command use (`hold`) from its start
 //!   until it has written the record of its run, then ends it before it
 //!   fast-forwards the main checkout, whose
@@ -77,35 +77,6 @@ pub const VARIABLE: &str = "BUILDS_USE";
 
 /// The install generation an app build passes to each lane it starts.
 const LANE_GENERATION: &str = "BUILDS_APP_BUILD_GENERATION";
-
-/// The commands that take no use of the stores: install, which closes the
-/// gates and moves the stores, the dashboard, which install restarts, the
-/// help, `brief`, `version`, which prints only what the program was built
-/// from, `programs`, which runs a lane's step on a host (programs.rs), and
-/// `sccache-tmpdir`, which checks a host's sccache server. `agent start`
-/// takes none either (`storeless`).
-const STORELESS: [&str; 9] = [
-    "install",
-    "dashboard",
-    "help",
-    "brief",
-    "-h",
-    "--help",
-    "version",
-    "programs",
-    "sccache-tmpdir",
-];
-
-/// Whether `builds <command> <rest>` takes no use of the stores: a command
-/// of `STORELESS`, or `agent start`, which registers an agent outside the
-/// stores (ack/agent.rs). The other `agent` commands read and write the
-/// store of a project.
-pub fn storeless(command: &str, rest: &[String]) -> bool {
-    if command == "agent" {
-        return rest.first().is_some_and(|sub| sub == "start");
-    }
-    STORELESS.contains(&command)
-}
 
 /// Runs the program at this program's path with this process's arguments in
 /// its place; returns only when it cannot, with the error that says why.

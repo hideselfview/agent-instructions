@@ -51,8 +51,6 @@ use crate::review::Reviewer;
 use crate::tool::Tool;
 use crate::worktree::{Handed, Start, hand_out};
 
-const USAGE: &str = "builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2] | --repo R --branch B [--repo R2 --branch B2]] --brief P [--as design-session] [--tier implementation|strongest] [--held WHY] [--rules-root DIR] [--reviewer PROGRAM]";
-
 /// One worktree an item runs in: checked, with its branch and the
 /// claim that holds it, if any.
 #[derive(Clone)]
@@ -412,21 +410,23 @@ fn check_brief(
     check_spec(recording, lists, checkouts, brief, reviewer)
 }
 
-const CHECK_USAGE: &str = "builds item check-brief --worktree W [--worktree W2] --brief P [--rules-root DIR] [--reviewer PROGRAM]";
-
 /// `builds item check-brief`: runs the checks `item take` runs on a brief
 /// (pasted text, spec) in the worktrees <args> names, and takes and
 /// records nothing.
 pub fn check(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["worktree", "brief", "rules-root", "reviewer"], &[])?;
     if !args.positional().is_empty() {
-        fail!("check-brief names no items, because it takes none: {CHECK_USAGE}");
+        fail!(
+            "check-brief names no items, because it takes none: {usage}",
+            usage = crate::command::Command::Item(crate::command::item::CheckBrief).usage_text()
+        );
     }
     let brief = args.require("brief")?.to_string();
     let worktrees = args.values("worktree");
     if worktrees.is_empty() {
         fail!(
-            "check-brief needs --worktree: the spec check reads each worktree's repo: {CHECK_USAGE}"
+            "check-brief needs --worktree: the spec check reads each worktree's repo: {usage}",
+            usage = crate::command::Command::Item(crate::command::item::CheckBrief).usage_text(),
         );
     }
     let mut checkouts: Vec<Checkout> = Vec::new();
@@ -466,7 +466,8 @@ pub fn take(tool: &Tool, ssh: &Ssh, args: &[String], cwd: &Path) -> Result<()> {
         ],
         &[],
     )?;
-    let ids = args.positional_ids(USAGE)?;
+    let ids = args
+        .positional_ids(&crate::command::Command::Item(crate::command::item::Take).usage_text())?;
     let design_session = match args.value("as")? {
         None => false,
         Some("design-session") => true,
@@ -509,7 +510,10 @@ pub fn take(tool: &Tool, ssh: &Ssh, args: &[String], cwd: &Path) -> Result<()> {
         return request.run(&places);
     }
     if !args.values("worktree").is_empty() {
-        fail!("--repo hands out a worktree and --worktree names one; give one of them: {USAGE}");
+        fail!(
+            "--repo hands out a worktree and --worktree names one; give one of them: {usage}",
+            usage = crate::command::Command::Item(crate::command::item::Take).usage_text()
+        );
     }
     let handed = hand_out_places(tool, ssh, &store.load()?, &stamp, &args)?;
     let places: Vec<Place> = handed.iter().map(|(place, _)| place.clone()).collect();
@@ -762,7 +766,10 @@ fn kept_places(lists: &Lists, ids: &[Id]) -> Result<Vec<Place>> {
     for id in ids {
         let item = open_item(lists, *id)?;
         if item.kept.is_empty() {
-            fail!("{id} keeps no worktree, so --worktree and --branch are required: {USAGE}");
+            fail!(
+                "{id} keeps no worktree, so --worktree and --branch are required: {usage}",
+                usage = crate::command::Command::Item(crate::command::item::Take).usage_text()
+            );
         }
         let places: Vec<(String, String)> = item
             .kept

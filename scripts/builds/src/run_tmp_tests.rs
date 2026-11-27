@@ -26,7 +26,7 @@ fn local_host() -> Host {
 fn a_run_that_starts_build_work_gets_a_folder_on_the_volume_that_its_end_deletes() {
     let scratch = Scratch::new("run-tmp-enter");
     let places = scratch.places();
-    let held = enter(&places, "cargo", &["test".to_string()])
+    let held = enter(&places, Command::Cargo)
         .unwrap()
         .expect("cargo starts build work");
     let tmpdir = std::path::PathBuf::from(std::env::var_os("TMPDIR").unwrap());
@@ -43,27 +43,15 @@ fn a_run_that_starts_build_work_gets_a_folder_on_the_volume_that_its_end_deletes
 fn a_command_that_starts_no_build_work_gets_no_folder() {
     let scratch = Scratch::new("run-tmp-none");
     let places = scratch.places();
-    for (command, args) in [
-        ("health", vec![]),
-        ("item", vec!["list".to_string()]),
-        ("shots", vec!["findings".to_string()]),
-        ("shots", vec!["check-program".to_string()]),
+    for command in [
+        Command::Health,
+        Command::Item(crate::command::item::List),
+        Command::Shots(crate::command::shots::Findings),
+        Command::Shots(crate::command::shots::CheckProgram),
     ] {
-        assert!(
-            enter(&places, command, &args).unwrap().is_none(),
-            "{command}"
-        );
+        assert!(enter(&places, command).unwrap().is_none(), "{command:?}");
     }
     assert!(!places.root.join(FOLDER).exists());
-    for (command, args) in [
-        ("cargo", vec![]),
-        ("app-build", vec![]),
-        ("lock", vec![]),
-        ("remote", vec![]),
-        ("shots", vec!["run".to_string()]),
-    ] {
-        assert!(starts_work(command, &args), "{command}");
-    }
 }
 
 #[test]
@@ -117,14 +105,14 @@ fn a_run_replaces_relative_tmpdir_and_an_unreadable_tmpdir_outside_the_run_folde
     let outside = scratch.dir.join("loop");
     symlink(&outside, &outside).unwrap();
     places.tmpdir = Some(PathBuf::from(".tmp/1-2"));
-    let relative = enter(&places, "cargo", &[])
+    let relative = enter(&places, Command::Cargo)
         .unwrap()
         .expect("cargo gets its own folder");
     assert!(relative.folder.is_absolute());
     drop(relative);
 
     places.tmpdir = Some(outside);
-    let unreadable = enter(&places, "cargo", &[])
+    let unreadable = enter(&places, Command::Cargo)
         .unwrap()
         .expect("cargo gets its own folder");
     assert!(unreadable.folder.starts_with(places.root.join(FOLDER)));
@@ -137,10 +125,10 @@ fn a_run_inside_a_run_makes_no_folder_of_its_own() {
     let outer = places.root.join(FOLDER).join("12-34");
     std::fs::create_dir_all(&outer).unwrap();
     places.tmpdir = Some(outer.clone());
-    assert!(enter(&places, "cargo", &[]).unwrap().is_none());
+    assert!(enter(&places, Command::Cargo).unwrap().is_none());
     // A folder that its run already deleted names no run.
     std::fs::remove_dir_all(&outer).unwrap();
-    assert!(enter(&places, "cargo", &[]).unwrap().is_some());
+    assert!(enter(&places, Command::Cargo).unwrap().is_some());
 }
 
 #[test]
@@ -148,7 +136,7 @@ fn a_run_with_no_build_volume_fails_instead_of_writing_to_the_system_temp_folder
     let scratch = Scratch::new("run-tmp-unmounted");
     let mut places = scratch.places();
     places.root = scratch.dir.join("not-mounted");
-    let said = enter(&places, "cargo", &[]).unwrap_err().text();
+    let said = enter(&places, Command::Cargo).unwrap_err().text();
     assert!(said.contains("is not mounted"), "{said}");
 }
 

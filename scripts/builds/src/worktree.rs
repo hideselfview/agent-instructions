@@ -376,7 +376,7 @@ pub fn is_executable(path: &Path) -> bool {
 /// its build root.
 pub fn cmd_retire(tool: &Tool, args: &[String]) -> Result<()> {
     let [arg] = args else {
-        fail!("usage: builds retire <checkout>")
+        fail!("{}", crate::command::Command::Retire.usage_text())
     };
     let checkout = Checkout::find(arg)?;
     let top = checkout.top.display();
@@ -432,15 +432,19 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
 /// (or takes out) the app checkout `~/dev/<repo>-worktrees/<name>` on the host
 /// <path> names, as the entry `<host>:<name>` of the lane's set (app_remote.rs).
 /// The first build there makes the checkout.
-fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds app-checkout <app> --host <host> <path> | builds app-checkout remove <app> --host <host> <path>";
-    let (removing, lane, host, path) = match args {
-        [word, lane, flag, host, path] if word == "remove" && flag == "--host" => {
-            (true, lane, host, path)
-        }
-        [lane, flag, host, path] if flag == "--host" => (false, lane, host, path),
-        _ => fail!("{USAGE}"),
+fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String], removing: bool) -> Result<()> {
+    let [lane, flag, host, path] = args else {
+        fail!(
+            "{}",
+            crate::command::Command::group_usage_text("app-checkout")
+        );
     };
+    if flag != "--host" {
+        fail!(
+            "{}",
+            crate::command::Command::group_usage_text("app-checkout")
+        );
+    }
     if !crate::host::read_remote(&tool.places)?
         .iter()
         .any(|known| known.name == *host)
@@ -497,29 +501,43 @@ fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
 
 /// `builds app-checkout <app> <checkout>`: sets up the worktree <checkout>,
 /// one in <repo>-worktrees that is no side worktree, as `builds new` sets one
-/// up, and adds it to its repo's app checkouts for the lane; `builds
-/// app-checkout remove <app> <checkout>` takes it out again, while no build
-/// holds its lock; `builds app-checkout reset <repo> <checkout>` puts one on origin's main (app_reset.rs).
+/// up, and adds it to its repo's app checkouts for the lane.
 pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds app-checkout <app> <checkout> | builds app-checkout <app> --host <host> <path> | builds app-checkout remove <app> [--host <host>] <checkout or path> | builds app-checkout reset <repo> <checkout> [--matching <rev>]";
-    if args.iter().any(|arg| arg == "--host") {
-        return app_checkout_on_host(tool, ssh, args);
-    }
-    let reset = match args {
-        [word, repo, name] if word == "reset" => Some((repo, name, None)),
-        [word, repo, name, flag, rev] if word == "reset" && flag == "--matching" => {
-            Some((repo, name, Some(rev.as_str())))
-        }
-        _ => None,
+    add_or_remove(tool, ssh, args, false)
+}
+
+/// `builds app-checkout remove <app> <checkout>`: takes the checkout out of
+/// its lane again, while no build holds its lock.
+pub fn cmd_app_checkout_remove(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
+    add_or_remove(tool, ssh, args, true)
+}
+
+/// `builds app-checkout reset <repo> <checkout>`: puts an app checkout on
+/// origin's main (app_reset.rs).
+pub fn cmd_app_checkout_reset(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
+    let (repo, name, matching) = match args {
+        [repo, name] => (repo, name, None),
+        [repo, name, flag, rev] if flag == "--matching" => (repo, name, Some(rev.as_str())),
+        _ => fail!(
+            "{}",
+            crate::command::Command::AppCheckout(crate::command::app_checkout::Reset).usage_text()
+        ),
     };
-    if let Some((repo, name, matching)) = reset {
-        tool.places.require_volume()?;
-        return crate::app_reset::cmd_reset(&tool.places, ssh, repo, name, matching, &tool.changed);
+    tool.places.require_volume()?;
+    crate::app_reset::cmd_reset(&tool.places, ssh, repo, name, matching, &tool.changed)
+}
+
+/// Adds the app checkout <args> name to its lane, or removes it when
+/// <removing>.
+fn add_or_remove(tool: &Tool, ssh: &Ssh, args: &[String], removing: bool) -> Result<()> {
+    if args.iter().any(|arg| arg == "--host") {
+        return app_checkout_on_host(tool, ssh, args, removing);
     }
-    let (removing, lane, arg) = match args {
-        [word, lane, arg] if word == "remove" => (true, lane, arg),
-        [lane, arg] => (false, lane, arg),
-        _ => fail!("{USAGE}"),
+    let [lane, arg] = args else {
+        fail!(
+            "{}",
+            crate::command::Command::group_usage_text("app-checkout")
+        )
     };
     let checkout = Checkout::find(arg)?;
     if checkout.is_main() {

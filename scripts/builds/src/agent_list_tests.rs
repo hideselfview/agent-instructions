@@ -44,7 +44,7 @@ fn record(demo: &Demo, session: &str, tokens: u64, window: Option<u64>, end: Opt
 fn demo_with_item(name: &str) -> Demo {
     let demo = demo(name);
     let details = demo.brief("details.txt");
-    crate::lists::cmd_item(
+    crate::lists::item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
         &words(&[

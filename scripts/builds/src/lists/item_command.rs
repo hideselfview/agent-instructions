@@ -9,6 +9,7 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
+use crate::command::item::Item as Subcommand;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::args::{Args, current_dir, parse_named, read_input};
@@ -32,36 +33,45 @@ use crate::lists::{item_change, item_event, project};
 use crate::output::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--backlog WHY] [--for design-session] [--wait REF [--until ENDER]]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item changes N\n       builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] [--worktree W --branch B | --repo R --branch B] --brief P [--as design-session] [--tier implementation|strongest]\n       builds item check-brief --worktree W [--worktree W2] --brief P\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item backlog N [M...] --why WHY\n       builds item start N [M...] --said WORDS\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--backlog] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, item:PROJECT/N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)";
-
 /// `builds item`, with <ssh> for the commands that set a worktree up.
-pub fn cmd_item(tool: &Tool, ssh: &crate::host::Ssh, args: &[String]) -> Result<()> {
+pub fn cmd_item(
+    tool: &Tool,
+    ssh: &crate::host::Ssh,
+    command: Subcommand,
+    args: &[String],
+) -> Result<()> {
     let cwd = current_dir()?;
-    let Some((command, rest)) = args.split_first() else {
-        fail!("{USAGE}")
-    };
-    match command.as_str() {
-        "add" => add(tool, rest, &cwd),
-        "edit" => edit(tool, rest, &cwd),
-        "note" => note_item(tool, rest, &cwd),
-        "changes" => changes(tool, rest, &cwd),
-        "wait" => wait(tool, rest, &cwd),
-        "take" => take::take(tool, ssh, rest, &cwd),
-        "check-brief" => take::check(tool, rest, &cwd),
-        "handoff" => handoff(tool, rest, &cwd),
-        "stop" => stop(tool, rest, &cwd),
-        "finished" => finished(tool, rest, &cwd),
-        "drop" => drop_item(tool, rest, &cwd),
-        "backlog" => backlog(tool, rest, &cwd),
-        "start" => start(tool, rest, &cwd),
-        "place" => place(tool, rest, &cwd),
-        "check-landing" => landing::check_landing(tool, rest),
-        "landed" => landing::landed(tool, rest),
-        "show" => item_show::show(tool, rest, &cwd),
-        "list" => item_show::list(tool, rest, &cwd),
-        "times" => item_show::times(tool, rest, &cwd),
-        other => fail!("unknown item command {other}\n{USAGE}"),
+    match command {
+        Subcommand::Add => add(tool, args, &cwd),
+        Subcommand::Edit => edit(tool, args, &cwd),
+        Subcommand::Note => note_item(tool, args, &cwd),
+        Subcommand::Changes => changes(tool, args, &cwd),
+        Subcommand::Wait => wait(tool, args, &cwd),
+        Subcommand::Take => take::take(tool, ssh, args, &cwd),
+        Subcommand::CheckBrief => take::check(tool, args, &cwd),
+        Subcommand::Handoff => handoff(tool, args, &cwd),
+        Subcommand::Stop => stop(tool, args, &cwd),
+        Subcommand::Finished => finished(tool, args, &cwd),
+        Subcommand::Drop => drop_item(tool, args, &cwd),
+        Subcommand::Backlog => backlog(tool, args, &cwd),
+        Subcommand::Start => start(tool, args, &cwd),
+        Subcommand::Place => place(tool, args, &cwd),
+        Subcommand::CheckLanding => landing::check_landing(tool, args),
+        Subcommand::Landed => landing::landed(tool, args),
+        Subcommand::Show => item_show::show(tool, args, &cwd),
+        Subcommand::List => item_show::list(tool, args, &cwd),
+        Subcommand::Times => item_show::times(tool, args, &cwd),
     }
+}
+
+/// `builds item <words>`, as a test runs it.
+#[cfg(test)]
+pub fn item_words(tool: &Tool, ssh: &crate::host::Ssh, words: &[String]) -> Result<()> {
+    let (crate::command::Command::Item(command), args) = crate::command::parse_line("item", words)?
+    else {
+        fail!("{words:?} is no item command");
+    };
+    cmd_item(tool, ssh, command, &args)
 }
 
 /// `builds next`.
@@ -168,7 +178,10 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         ],
         &[],
     )?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Item(crate::command::item::Add).usage_text(),
+    )?;
     let origin = args.id("origin")?;
     let priority = match (args.choice::<Level>("priority")?, args.value("why")?) {
         (Some(level), Some(why)) => Some(Priority {
@@ -216,7 +229,6 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// closed, the origin `--origin` names and the tags `--tag` names, and removes
 /// the tags `--untag` names.
 fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    const EDIT_USAGE: &str = "builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...";
     let args = Args::parse(
         args,
         &[
@@ -231,7 +243,10 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         ],
         &[],
     )?;
-    let id = one_id(&args, EDIT_USAGE)?;
+    let id = one_id(
+        &args,
+        &crate::command::Command::Item(crate::command::item::Edit).usage_text(),
+    )?;
     let origin = args.id("origin")?;
     let edit = ItemEdit {
         title: args.value("title")?.map(str::to_string),
@@ -245,7 +260,8 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let fields = !edit.is_empty();
     if !fields && origin.is_none() && tags.is_empty() && untags.is_empty() {
         fail!(
-            "the edit of {id} changes nothing: it names no field, no origin and no tag\n{EDIT_USAGE}"
+            "the edit of {id} changes nothing: it names no field, no origin and no tag\n{usage}",
+            usage = crate::command::Command::Item(crate::command::item::Edit).usage_text(),
         );
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
@@ -287,7 +303,10 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// take that nobody read, whole, and records that the caller read them.
 fn changes(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
-    let id = one_id(&args, "builds item changes N")?;
+    let id = one_id(
+        &args,
+        &crate::command::Command::Item(crate::command::item::Changes).usage_text(),
+    )?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let text = store.write(&stamp, &format!("item changes {id}"), |db| {
@@ -318,7 +337,10 @@ fn changes(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 fn note_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
     let Some((id, words)) = args.positional().split_first() else {
-        fail!("usage: builds item note N TEXT")
+        fail!(
+            "{}",
+            crate::command::Command::Item(crate::command::item::Note).usage_text()
+        )
     };
     let id = Id::parse(id)?;
     let text = words.join(" ");
@@ -358,7 +380,7 @@ fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["on", "off", "until", "blocks-nothing"], &[])?;
     let id = one_id(
         &args,
-        "builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY])",
+        &crate::command::Command::Item(crate::command::item::Wait).usage_text(),
     )?;
     let (verb, reference, on) = match (args.value("on")?, args.value("off")?) {
         (Some(reference), None) => ("wait on", reference, true),
@@ -446,7 +468,10 @@ fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 
 fn handoff(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["brief"], &[])?;
-    let id = one_id(&args, "builds item handoff N --brief P")?;
+    let id = one_id(
+        &args,
+        &crate::command::Command::Item(crate::command::item::Handoff).usage_text(),
+    )?;
     let brief = args.require("brief")?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     find_brief(&tool.places, &store.repos()?, &brief)?;
@@ -471,7 +496,10 @@ fn handoff(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// nothing else. The next `item take` of the item runs it there again.
 fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["why"], &[])?;
-    let id = one_id(&args, "builds item stop N --why WHY")?;
+    let id = one_id(
+        &args,
+        &crate::command::Command::Item(crate::command::item::Stop).usage_text(),
+    )?;
     let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
@@ -621,7 +649,10 @@ fn require_can_leave(lists: &Lists, id: Id, how: &str, work_goes: bool) -> Resul
 /// on it, as a landing does.
 fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["made"], &[])?;
-    let id = one_id(&args, "builds item finished N --made WHAT")?;
+    let id = one_id(
+        &args,
+        &crate::command::Command::Item(crate::command::item::Finished).usage_text(),
+    )?;
     let made = args.require("made")?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
@@ -651,7 +682,10 @@ fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// work already thrown away.
 fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["why"], &[])?;
-    let id = one_id(&args, "builds item drop N --why WHY")?;
+    let id = one_id(
+        &args,
+        &crate::command::Command::Item(crate::command::item::Drop).usage_text(),
+    )?;
     let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
@@ -685,9 +719,10 @@ fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 }
 
 fn backlog(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    const BACKLOG_USAGE: &str = "builds item backlog N [M...] --why WHY";
     let args = Args::parse(args, &["why"], &[])?;
-    let ids = args.positional_ids(BACKLOG_USAGE)?;
+    let ids = args.positional_ids(
+        &crate::command::Command::Item(crate::command::item::Backlog).usage_text(),
+    )?;
     let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
@@ -703,9 +738,9 @@ fn backlog(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 }
 
 fn start(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    const START_USAGE: &str = "builds item start N [M...] --said WORDS";
     let args = Args::parse(args, &["said"], &[])?;
-    let ids = args.positional_ids(START_USAGE)?;
+    let ids = args
+        .positional_ids(&crate::command::Command::Item(crate::command::item::Start).usage_text())?;
     let said = args.require("said")?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
@@ -736,7 +771,11 @@ pub fn start_items(
 
 fn place(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["why"], &[])?;
-    let [id, at] = args.exactly(2, "builds item place N first|last|none --why WHY")? else {
+    let [id, at] = args.exactly(
+        2,
+        &crate::command::Command::Item(crate::command::item::Place).usage_text(),
+    )?
+    else {
         unreachable!("exactly two")
     };
     let id = Id::parse(id)?;

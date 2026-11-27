@@ -23,9 +23,6 @@ use crate::tool::Tool;
 /// The flag of `builds app-build` that names this command.
 pub const FLAG: &str = "--drop-shots";
 
-const USAGE: &str =
-    "builds app-build --drop-shots <repo> <branch> <lane> <prefix> --why TEXT [--by WHO]";
-
 /// A shots prefix dropped from a branch's landing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Drop {
@@ -121,7 +118,9 @@ pub fn allow_named_lanes(db: &Connection) -> Result<()> {
 pub fn cmd_drop_shots(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = &tool.dir;
     let args = Args::parse(args, &["why"], &[])?;
-    let [repo, branch, lane, prefix] = args.exactly(4, USAGE)? else {
+    let [repo, branch, lane, prefix] =
+        args.exactly(4, &crate::command::Command::AppBuild.usage_text())?
+    else {
         unreachable!("exactly four")
     };
     let lane = crate::repo_lanes::parse(&tool.places, repo, lane)?;

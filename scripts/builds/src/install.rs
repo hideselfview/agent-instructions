@@ -443,7 +443,7 @@ fn replace_program(
 /// `builds install`.
 pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     if !args.is_empty() {
-        fail!("usage: builds install");
+        fail!("{}", crate::command::Command::Install.usage_text());
     }
     let home = &tool.places.home;
     replace_program(

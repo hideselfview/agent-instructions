@@ -48,64 +48,83 @@ use crate::places::Places;
 use crate::step_failure::RunResult;
 use boards::{git, git_text};
 
-const USAGE: &str = "usage: builds checks run [<worktree>] | builds checks run --since <rev> [<worktree>] | builds checks whole [<worktree>] | builds checks list [<worktree>] | builds checks tests --since <rev> [--run] | builds checks stats [--project <project>] [--repo <repo>] [--since <YYYY-MM-DD>] [--change <rev>]";
-
-/// The worktree `builds checks <args>` runs the pre-commit hook's checks in
-/// when <args> is `run [<worktree>]`: <worktree>, else the current
-/// directory. None for any other arguments.
+/// The worktree `builds checks run <args>` runs the pre-commit hook's checks
+/// in when <args> is `[<worktree>]`: <worktree>, else the current directory.
+/// None for a range run (`--since`).
 pub fn run_worktree(args: &[String]) -> Option<&Path> {
     match args {
-        [sub] if sub == "run" => Some(Path::new(".")),
-        [sub, worktree] if sub == "run" && !worktree.starts_with("--") => {
-            Some(Path::new(worktree.as_str()))
-        }
+        [] => Some(Path::new(".")),
+        [worktree] if !worktree.starts_with("--") => Some(Path::new(worktree.as_str())),
         _ => None,
     }
 }
 
-pub fn cmd_checks(args: &[String]) -> Result<()> {
+/// `builds checks run`: the hook's checks, or with `--since` the checks of
+/// every file changed since a commit.
+pub fn cmd_run(args: &[String]) -> Result<()> {
     if let Some(worktree) = run_worktree(args) {
         return hook(&top_of(worktree)?);
     }
+    let args = Args::parse(args, &["since"], &[])?;
+    let Some(since) = args.value("since")? else {
+        fail!(
+            "{}",
+            crate::command::Command::Checks(crate::command::checks::Run).usage_text()
+        )
+    };
+    let worktree = match args.positional() {
+        [] => Path::new("."),
+        [worktree] => Path::new(worktree.as_str()),
+        _ => fail!(
+            "{}",
+            crate::command::Command::Checks(crate::command::checks::Run).usage_text()
+        ),
+    };
+    run_range(&top_of(worktree)?, since)
+}
+
+/// `builds checks whole`.
+pub fn cmd_whole(args: &[String]) -> Result<()> {
+    whole(&top_of(worktree_of(args)?)?)
+}
+
+/// `builds checks list`.
+pub fn cmd_list(args: &[String]) -> Result<()> {
+    crate::output::answer(list_staged(&top_of(worktree_of(args)?)?)?);
+    Ok(())
+}
+
+/// The worktree that <args>, `[<worktree>]`, name: the current directory
+/// when they name none.
+fn worktree_of(args: &[String]) -> Result<&Path> {
     match args {
-        [sub, rest @ ..] if sub == "run" => {
-            let args = Args::parse(rest, &["since"], &[])?;
-            let Some(since) = args.value("since")? else {
-                fail!("{USAGE}")
-            };
-            let worktree = match args.positional() {
-                [] => Path::new("."),
-                [worktree] => Path::new(worktree.as_str()),
-                _ => fail!("{USAGE}"),
-            };
-            run_range(&top_of(worktree)?, since)
-        }
-        [sub] if sub == "whole" => whole(&top_of(Path::new("."))?),
-        [sub, worktree] if sub == "whole" => whole(&top_of(Path::new(worktree))?),
-        [sub, rest @ ..] if sub == "stats" => stats(rest),
-        [sub] if sub == "list" => {
-            crate::output::answer(list_staged(&top_of(Path::new("."))?)?);
-            Ok(())
-        }
-        [sub, worktree] if sub == "list" => {
-            crate::output::answer(list_staged(&top_of(Path::new(worktree))?)?);
-            Ok(())
-        }
-        [sub, rest @ ..] if sub == "tests" => {
-            let (mut since, mut run) = (None, false);
-            let mut rest = rest.iter();
-            while let Some(arg) = rest.next() {
-                match arg.as_str() {
-                    "--since" => since = rest.next(),
-                    "--run" => run = true,
-                    _ => fail!("{USAGE}"),
-                }
-            }
-            let Some(since) = since else { fail!("{USAGE}") };
-            tests(&top_of(Path::new("."))?, since, run)
-        }
-        _ => fail!("{USAGE}"),
+        [] => Ok(Path::new(".")),
+        [worktree] => Ok(Path::new(worktree.as_str())),
+        _ => fail!("{}", crate::command::Command::group_usage_text("checks")),
     }
+}
+
+/// `builds checks tests`.
+pub fn cmd_tests(args: &[String]) -> Result<()> {
+    let (mut since, mut run) = (None, false);
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        match arg.as_str() {
+            "--since" => since = rest.next(),
+            "--run" => run = true,
+            _ => fail!(
+                "{}",
+                crate::command::Command::Checks(crate::command::checks::Tests).usage_text()
+            ),
+        }
+    }
+    let Some(since) = since else {
+        fail!(
+            "{}",
+            crate::command::Command::Checks(crate::command::checks::Tests).usage_text()
+        )
+    };
+    tests(&top_of(Path::new("."))?, since, run)
 }
 
 /// `whole`: the checks `builds land` runs on a landing's result, run on the
@@ -153,10 +172,14 @@ fn hook_database(top: &Path) -> Result<Option<PathBuf>> {
 }
 
 /// `builds checks stats [--project P] [--repo R] [--since DATE] [--change REV]`.
-fn stats(args: &[String]) -> Result<()> {
+/// `builds checks stats`.
+pub fn stats(args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["since", "change", "repo"], &[])?;
     if !args.positional().is_empty() {
-        fail!("{USAGE}");
+        fail!(
+            "{}",
+            crate::command::Command::Checks(crate::command::checks::Stats).usage_text()
+        );
     }
     let since = args.value("since")?;
     let start = crate::text::since_start(since)?;

@@ -1,7 +1,7 @@
 use super::*;
 use crate::lists::derive::{ItemState, item_state, unmet_waits, wait_met};
 use crate::lists::fixtures::{NOON, make_store_named, stamp};
-use crate::lists::item_command::cmd_item;
+use crate::lists::item_command::item_words;
 use crate::lists::item_fixtures::{Demo, demo, refusal, words};
 use crate::lists::record::close;
 use crate::lists::store::{Store, reload};
@@ -9,7 +9,7 @@ use crate::lists::store::{Store, reload};
 const FIVE: &str = "Do the first thing now";
 
 fn item(demo: &Demo, args: &[&str]) -> Result<()> {
-    cmd_item(&demo.tool, &crate::testing::no_ssh(), &words(args))
+    item_words(&demo.tool, &crate::testing::no_ssh(), &words(args))
 }
 
 /// Project `other`, holding open item 1, beside the demo project, whose item

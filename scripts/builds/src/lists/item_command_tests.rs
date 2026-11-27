@@ -6,7 +6,7 @@ use crate::lists::item_fixtures::{Demo, demo, demo_over, refusal, words};
 use crate::lists::{Closed, Record};
 
 fn item(demo: &Demo, args: &[&str]) -> Result<()> {
-    cmd_item(&demo.tool, &crate::testing::no_ssh(), &words(args))
+    item_words(&demo.tool, &crate::testing::no_ssh(), &words(args))
 }
 
 fn add(demo: &Demo, title: &str, extra: &[&str]) -> Result<()> {
@@ -1323,7 +1323,7 @@ fn an_answer_that_drops_an_item_keeping_a_worktree_throws_its_work_away() {
         "--blocks",
         "1",
     ]);
-    crate::lists::question_command::run(&demo.tool, &ask, &demo.scratch.dir).unwrap();
+    crate::lists::question_command::run_words(&demo.tool, &ask, &demo.scratch.dir).unwrap();
     let request = demo.scratch.dir.join("answer.json");
     std::fs::write(
         &request,
@@ -1331,7 +1331,8 @@ fn an_answer_that_drops_an_item_keeping_a_worktree_throws_its_work_away() {
     )
     .unwrap();
     let answer = words(&["answer", "2", "--request", &request.display().to_string()]);
-    let out = crate::lists::question_command::run(&demo.tool, &answer, &demo.scratch.dir).unwrap();
+    let out =
+        crate::lists::question_command::run_words(&demo.tool, &answer, &demo.scratch.dir).unwrap();
     assert!(out.contains("threw away the work in"), "{out}");
     let lists = open(&demo);
     let Closed {
@@ -1395,7 +1396,7 @@ fn an_answer_whose_drops_both_fail_in_git_names_each_item() {
         "--blocks",
         "1,2",
     ]);
-    crate::lists::question_command::run(&demo.tool, &ask, &demo.scratch.dir).unwrap();
+    crate::lists::question_command::run_words(&demo.tool, &ask, &demo.scratch.dir).unwrap();
     let request = demo.scratch.dir.join("answer.json");
     std::fs::write(
         &request,
@@ -1403,7 +1404,7 @@ fn an_answer_whose_drops_both_fail_in_git_names_each_item() {
     )
     .unwrap();
     let answer = words(&["answer", "3", "--request", &request.display().to_string()]);
-    let said = refusal(crate::lists::question_command::run(
+    let said = refusal(crate::lists::question_command::run_words(
         &demo.tool,
         &answer,
         &demo.scratch.dir,
@@ -2012,7 +2013,7 @@ fn the_backlog_refuses_a_running_item_and_waits_that_would_break_it() {
         "--blocks",
         "2",
     ]);
-    let refused = refusal(crate::lists::question_command::run(
+    let refused = refusal(crate::lists::question_command::run_words(
         &demo.tool,
         &ask,
         &demo.scratch.dir,
@@ -2037,7 +2038,7 @@ fn an_answer_may_send_a_blocked_item_to_the_backlog() {
         "--blocks",
         "1",
     ]);
-    crate::lists::question_command::run(&demo.tool, &ask, &demo.scratch.dir).unwrap();
+    crate::lists::question_command::run_words(&demo.tool, &ask, &demo.scratch.dir).unwrap();
     let request = demo.scratch.dir.join("answer.json");
     std::fs::write(
         &request,
@@ -2045,7 +2046,8 @@ fn an_answer_may_send_a_blocked_item_to_the_backlog() {
     )
     .unwrap();
     let answer = words(&["answer", "2", "--request", &request.display().to_string()]);
-    let out = crate::lists::question_command::run(&demo.tool, &answer, &demo.scratch.dir).unwrap();
+    let out =
+        crate::lists::question_command::run_words(&demo.tool, &answer, &demo.scratch.dir).unwrap();
     assert!(out.contains("moved item #1 to the backlog"), "{out}");
     let lists = open(&demo);
     let moved = lists.item(Id(1)).unwrap();

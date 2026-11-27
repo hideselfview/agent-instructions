@@ -549,7 +549,7 @@ pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     {
         [] => {}
         ["--json"] => return print_json(tool, true),
-        _ => fail!("usage: builds status [--json [--no-folders]]"),
+        _ => fail!("{}", crate::command::Command::Status.usage_text()),
     }
     tool.places.require_volume()?;
     let repos = repos(&tool.places)?;

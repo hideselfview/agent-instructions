@@ -194,16 +194,15 @@ pub fn takeover_stopped() -> bool {
 }
 
 pub fn cmd_lock(places: &Places, system: &crate::system::System, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds lock <repo> --lane <app> <command> [<args>...]";
     let (lane, args) = match args {
         [repo, flag, word, rest @ ..] if flag == "--lane" => (
             crate::repo_lanes::parse(places, repo, word)?,
             [std::slice::from_ref(repo), rest].concat(),
         ),
-        _ => fail!("{USAGE}"),
+        _ => fail!("{}", crate::command::Command::Lock.usage_text()),
     };
     let [repo, command, rest @ ..] = &args[..] else {
-        fail!("{USAGE}");
+        fail!("{}", crate::command::Command::Lock.usage_text());
     };
     end_on_stop_signals();
     let mut held = take(places, &system.ssh(), repo, lane)?;

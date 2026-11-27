@@ -5,6 +5,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, params};
 
+use crate::command::area::Area as Subcommand;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
@@ -15,20 +16,24 @@ use crate::lists::{Id, Stamp, item};
 use crate::output::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds area add NAME [--after AREA]\n       builds area rename OLD NEW\n       builds area move NAME --after AREA\n       builds area remove NAME";
-
-pub fn cmd_area(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn cmd_area(tool: &Tool, command: Subcommand, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
-    let Some((command, rest)) = args.split_first() else {
-        fail!("{USAGE}")
-    };
-    match command.as_str() {
-        "add" => add(tool, rest, &cwd),
-        "rename" => rename(tool, rest, &cwd),
-        "move" => move_after(tool, rest, &cwd),
-        "remove" => remove(tool, rest, &cwd),
-        other => fail!("unknown area command {other}\n{USAGE}"),
+    match command {
+        Subcommand::Add => add(tool, args, &cwd),
+        Subcommand::Rename => rename(tool, args, &cwd),
+        Subcommand::Move => move_after(tool, args, &cwd),
+        Subcommand::Remove => remove(tool, args, &cwd),
     }
+}
+
+/// `builds area <words>`, as a test runs it.
+#[cfg(test)]
+pub fn area_words(tool: &Tool, words: &[String]) -> Result<()> {
+    let (crate::command::Command::Area(command), args) = crate::command::parse_line("area", words)?
+    else {
+        fail!("{words:?} is no area command");
+    };
+    cmd_area(tool, command, &args)
 }
 
 /// The areas in the order the sidebar shows them.
@@ -151,7 +156,11 @@ pub fn plant(
 
 fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["after"], &[])?;
-    let [name] = args.exactly(1, USAGE)? else {
+    let [name] = args.exactly(
+        1,
+        &crate::command::Command::Area(crate::command::area::Add).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
@@ -165,7 +174,11 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 
 fn rename(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
-    let [old, new] = args.exactly(2, USAGE)? else {
+    let [old, new] = args.exactly(
+        2,
+        &crate::command::Command::Area(crate::command::area::Rename).usage_text(),
+    )?
+    else {
         unreachable!("exactly two")
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
@@ -179,7 +192,11 @@ fn rename(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 
 fn move_after(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["after"], &[])?;
-    let [name] = args.exactly(1, USAGE)? else {
+    let [name] = args.exactly(
+        1,
+        &crate::command::Command::Area(crate::command::area::Move).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let after = args.require("after")?;
@@ -197,7 +214,11 @@ fn move_after(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 
 fn remove(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
-    let [name] = args.exactly(1, USAGE)? else {
+    let [name] = args.exactly(
+        1,
+        &crate::command::Command::Area(crate::command::area::Remove).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;

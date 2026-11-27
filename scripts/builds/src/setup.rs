@@ -153,7 +153,7 @@ pub fn cmd_setup(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     let arg = match rest {
         [] => ".",
         [arg] => arg.as_str(),
-        _ => fail!("usage: builds setup [--no-prepare] [<checkout>]"),
+        _ => fail!("{}", crate::command::Command::Setup.usage_text()),
     };
     setup_with(tool, ssh, &Checkout::find(arg)?, prepare)
 }

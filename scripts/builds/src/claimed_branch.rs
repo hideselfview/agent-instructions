@@ -14,14 +14,11 @@ use std::path::Path;
 use crate::ack::agent::{Caller, Session};
 use crate::checkout::Checkout;
 use crate::claim::Claim;
+use crate::command::Command;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::running::running_in_any;
 use crate::places::Places;
-
-/// The commands the check guards: the ones an agent runs before it builds,
-/// reviews or lands.
-const GUARDED: [&str; 6] = ["app-build", "review", "land", "cargo", "checks", "item"];
 
 /// Fails when an agent runs `builds <command>` in a claimed side worktree that
 /// is off its claim's branch.
@@ -30,17 +27,17 @@ const GUARDED: [&str; 6] = ["app-build", "review", "land", "cargo", "checks", "i
 /// marks the environment (`PASSED`) of the commands it lets run, so a command
 /// that `builds land` runs inside the landing, after it detached HEAD itself,
 /// inherits the mark and passes. The caller reads it before `ack::gate` sets it.
-pub fn gate(command: &str, nested: bool, session: &Session) -> Result<()> {
+pub fn gate(command: Command, nested: bool, session: &Session) -> Result<()> {
     if !applies(command, nested) {
         return Ok(());
     }
     require_claimed_branch(&crate::lists::args::current_dir()?, || session.caller())
 }
 
-/// Does the check cover `builds <command>`, which <nested> says another builds
-/// command started?
-fn applies(command: &str, nested: bool) -> bool {
-    !nested && GUARDED.contains(&command)
+/// Does the check cover <command>, which <nested> says another builds command
+/// started?
+fn applies(command: Command, nested: bool) -> bool {
+    !nested && command.guards_claimed_branch()
 }
 
 /// Fails when <dir> is in a claimed side worktree whose running items'

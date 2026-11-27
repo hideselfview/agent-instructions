@@ -481,57 +481,67 @@ pub fn remove(path: &Path) -> Result<()> {
     }
 }
 
-/// `builds units prune|git-checkouts|after-build ...`: the steps setup
-/// and prune run, on the folders named; the shell tests drive them this way.
+/// <text> as a number of a `builds units` command: the steps setup and prune
+/// run, on the folders named, which the shell tests drive this way.
 /// `after-build` is what `builds cargo` starts as it exits.
-pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
-    let usage = "usage: builds units prune <days> <incremental hours, 0 for all> <dry 0|1> <folder>... | \
-                 git-checkouts <cargo home> <dry 0|1> <Cargo.lock>... | \
-                 after-build <checkout>";
-    let number = |text: &String| -> Result<u64> {
-        match text.parse() {
-            Ok(n) => Ok(n),
-            Err(_) => fail!("{usage}"),
-        }
-    };
-    // Anything but 0 or 1 is a mistake, never a real deletion.
-    let run = |text: &String| -> Result<crate::prune::Run> {
-        match text.as_str() {
-            "0" => Ok(crate::prune::Run::Real),
-            "1" => Ok(crate::prune::Run::Dry),
-            _ => fail!("{usage}"),
-        }
-    };
-    match args.first().map(String::as_str) {
-        Some("prune") if args.len() >= 4 => {
-            let folders: Vec<PathBuf> = args[4..].iter().map(PathBuf::from).collect();
-            let rules = prune::Ages::new(number(&args[1])?, number(&args[2])?);
-            for (folder, freed_kib) in prune::prune(
-                &tool.system,
-                &rules,
-                run(&args[3])?,
-                &folders,
-                &tool.changed,
-            )? {
-                crate::output::answer_line(format!("{freed_kib}\t{}", folder.display()));
-            }
-            Ok(())
-        }
-        Some("git-checkouts") if args.len() >= 3 => {
-            let lockfiles: Vec<PathBuf> = args[3..].iter().map(PathBuf::from).collect();
-            let freed = git_checkouts::prune_git_checkouts(
-                Path::new(&args[1]),
-                run(&args[2])?,
-                &lockfiles,
-            )?;
-            crate::output::answer_line(freed);
-            Ok(())
-        }
-        Some("after-build") if args.len() == 2 => {
-            crate::prune::prune_after_build(tool, &crate::checkout::Checkout::find(&args[1])?)
-        }
-        _ => fail!("{usage}"),
+fn number(text: &str) -> Result<u64> {
+    match text.parse() {
+        Ok(n) => Ok(n),
+        Err(_) => fail!("{}", crate::command::Command::group_usage_text("units")),
     }
+}
+
+/// Whether a dry argument asks for a dry run. Anything but 0 or 1 is a
+/// mistake, never a real deletion.
+fn run(text: &str) -> Result<crate::prune::Run> {
+    match text {
+        "0" => Ok(crate::prune::Run::Real),
+        "1" => Ok(crate::prune::Run::Dry),
+        _ => fail!("{}", crate::command::Command::group_usage_text("units")),
+    }
+}
+
+/// `builds units prune`.
+pub fn cmd_prune(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
+    let [days, hours, dry, folders @ ..] = args else {
+        fail!(
+            "{}",
+            crate::command::Command::Units(crate::command::units::Prune).usage_text()
+        );
+    };
+    let folders: Vec<PathBuf> = folders.iter().map(PathBuf::from).collect();
+    let rules = prune::Ages::new(number(days)?, number(hours)?);
+    for (folder, freed_kib) in
+        prune::prune(&tool.system, &rules, run(dry)?, &folders, &tool.changed)?
+    {
+        crate::output::answer_line(format!("{freed_kib}\t{}", folder.display()));
+    }
+    Ok(())
+}
+
+/// `builds units git-checkouts`.
+pub fn cmd_git_checkouts(args: &[String]) -> Result<()> {
+    let [cargo_home, dry, lockfiles @ ..] = args else {
+        fail!(
+            "{}",
+            crate::command::Command::Units(crate::command::units::GitCheckouts).usage_text()
+        );
+    };
+    let lockfiles: Vec<PathBuf> = lockfiles.iter().map(PathBuf::from).collect();
+    let freed = git_checkouts::prune_git_checkouts(Path::new(cargo_home), run(dry)?, &lockfiles)?;
+    crate::output::answer_line(freed);
+    Ok(())
+}
+
+/// `builds units after-build`.
+pub fn cmd_after_build(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
+    let [checkout] = args else {
+        fail!(
+            "{}",
+            crate::command::Command::Units(crate::command::units::AfterBuild).usage_text()
+        );
+    };
+    crate::prune::prune_after_build(tool, &crate::checkout::Checkout::find(checkout)?)
 }
 
 #[cfg(test)]
@@ -551,11 +561,17 @@ mod tests {
         for dry in ["yes", "true", "2", ""] {
             let folder = folder.display().to_string();
             let cargo_home = scratch.dir.join("cargo").display().to_string();
-            for args in [
-                words(&["prune", "0", "0", dry, &folder]),
-                words(&["git-checkouts", &cargo_home, dry]),
+            for (args, result) in [
+                (
+                    words(&["0", "0", dry, &folder]),
+                    cmd_prune(&tool, &words(&["0", "0", dry, &folder])),
+                ),
+                (
+                    words(&[&cargo_home, dry]),
+                    cmd_git_checkouts(&words(&[&cargo_home, dry])),
+                ),
             ] {
-                match cmd_units(&tool, &args) {
+                match result {
                     Err(crate::fail::Fail::Message(message)) => assert!(
                         message.starts_with("usage: builds units"),
                         "{args:?}: {message}"

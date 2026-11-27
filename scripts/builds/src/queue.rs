@@ -814,7 +814,6 @@ fn split_lane(args: &[String]) -> Result<(Vec<String>, Option<String>)> {
 
 /// `builds queue <repo> [--lane <lane>] [top <pid>]`.
 pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds queue <repo> [--lane <app>] | builds queue <repo> top <pid>";
     let (args, lane) = split_lane(args)?;
     match &args[..] {
         [repo] => {
@@ -888,15 +887,14 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
         }
         [repo, word, pid] if word == "top" && lane.is_none() => match pid.parse() {
             Ok(pid) => top(places, repo, pid),
-            Err(_) => fail!("{USAGE}"),
+            Err(_) => fail!("{}", crate::command::Command::Queue.usage_text()),
         },
-        _ => fail!("{USAGE}"),
+        _ => fail!("{}", crate::command::Command::Queue.usage_text()),
     }
 }
 
 /// `builds takeover <repo> [--lane <lane>] [<pid>]`.
 pub fn cmd_takeover(places: &Places, args: &[String]) -> Result<()> {
-    const USAGE: &str = "usage: builds takeover <repo> [--lane <app>] [<pid>]";
     let (args, lane) = split_lane(args)?;
     let lane_of = |repo: &str| {
         lane.as_deref()
@@ -907,9 +905,9 @@ pub fn cmd_takeover(places: &Places, args: &[String]) -> Result<()> {
         [repo] => takeover(places, repo, None, lane_of(repo)?),
         [repo, pid] => match pid.parse() {
             Ok(pid) => takeover(places, repo, Some(pid), lane_of(repo)?),
-            Err(_) => fail!("{USAGE}"),
+            Err(_) => fail!("{}", crate::command::Command::Takeover.usage_text()),
         },
-        _ => fail!("{USAGE}"),
+        _ => fail!("{}", crate::command::Command::Takeover.usage_text()),
     }
 }
 

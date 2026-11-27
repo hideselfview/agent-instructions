@@ -134,7 +134,7 @@ pub fn cmd_tool(places: &Places, ssh: &Ssh, args: &[String]) -> Result<()> {
     let (name, at) = match args {
         [name] => (name, "."),
         [name, at] => (name, at.as_str()),
-        _ => fail!("usage: builds tool <name> [<checkout>]"),
+        _ => fail!("{}", crate::command::Command::Tool.usage_text()),
     };
     let checkout = crate::checkout::Checkout::find(at)?;
     let tools = built_tools(&checkout.top)?;

@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use crate::checkout::Checkout;
+use crate::command::lists::Lists as Subcommand;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::Args;
@@ -14,21 +15,26 @@ use crate::lists::{Stamp, show};
 use crate::output::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds lists init PROJECT --repos R,R [--canvas yes|no] [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists add-repo PROJECT REPO [--by WHO]\n       builds lists design-globs PROJECT [--canvas yes|no] [--design-places R:GLOB,...] [--design-sources R:GLOB,...] [--spec-files R:GLOB,...] [--by WHO]\n       builds lists show [--json | --tag T] [--project P]\n       builds lists project-of DIR";
-
-pub fn cmd_lists(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn cmd_lists(tool: &Tool, command: Subcommand, args: &[String]) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
-    let Some((command, rest)) = args.split_first() else {
-        fail!("{USAGE}")
-    };
-    match command.as_str() {
-        "init" => init(tool, rest, &cwd),
-        "add-repo" => add_repo(tool, rest, &cwd),
-        "design-globs" => design_globs(tool, rest, &cwd),
-        "show" => show(tool, rest, &cwd),
-        "project-of" => project_of_command(tool, rest),
-        other => fail!("unknown lists command {other}\n{USAGE}"),
+    match command {
+        Subcommand::Init => init(tool, args, &cwd),
+        Subcommand::AddRepo => add_repo(tool, args, &cwd),
+        Subcommand::DesignGlobs => design_globs(tool, args, &cwd),
+        Subcommand::Show => show(tool, args, &cwd),
+        Subcommand::ProjectOf => project_of_command(tool, args),
     }
+}
+
+/// `builds lists <words>`, as a test runs it.
+#[cfg(test)]
+pub fn lists_words(tool: &Tool, words: &[String]) -> Result<()> {
+    let (crate::command::Command::Lists(command), args) =
+        crate::command::parse_line("lists", words)?
+    else {
+        fail!("{words:?} is no lists command");
+    };
+    cmd_lists(tool, command, &args)
 }
 
 fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
@@ -43,7 +49,11 @@ fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         ],
         &[],
     )?;
-    let [project] = args.exactly(1, USAGE)? else {
+    let [project] = args.exactly(
+        1,
+        &crate::command::Command::Lists(crate::command::lists::Init).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let Some(repos) = args
@@ -80,7 +90,11 @@ fn init(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// (`builds claim --project`).
 fn add_repo(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
-    let [project, repo] = args.exactly(2, USAGE)? else {
+    let [project, repo] = args.exactly(
+        2,
+        &crate::command::Command::Lists(crate::command::lists::AddRepo).usage_text(),
+    )?
+    else {
         unreachable!("exactly two")
     };
     if let Some(fault) = repo_name_fault(repo) {
@@ -115,7 +129,11 @@ fn design_globs(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         &["canvas", "design-places", "design-sources", "spec-files"],
         &[],
     )?;
-    let [project] = args.exactly(1, USAGE)? else {
+    let [project] = args.exactly(
+        1,
+        &crate::command::Command::Lists(crate::command::lists::DesignGlobs).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let mut given = Vec::new();
@@ -131,7 +149,8 @@ fn design_globs(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let canvas = canvas(&args)?;
     if given.is_empty() && canvas.is_none() {
         fail!(
-            "design-globs needs --canvas, --design-places, --design-sources or --spec-files\n{USAGE}"
+            "design-globs needs --canvas, --design-places, --design-sources or --spec-files\n{usage}",
+            usage = crate::command::Command::Lists(crate::command::lists::DesignGlobs).usage_text(),
         );
     }
     let store = Store::named(&tool.places, project)?;
@@ -150,7 +169,10 @@ fn design_globs(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 
 fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["tag"], &["json"])?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Lists(crate::command::lists::Show).usage_text(),
+    )?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let lists = store.load()?;
     let wanted = args.value("tag")?;
@@ -172,7 +194,11 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 
 fn project_of_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
-    let [dir] = args.exactly(1, USAGE)? else {
+    let [dir] = args.exactly(
+        1,
+        &crate::command::Command::Lists(crate::command::lists::ProjectOf).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let checkout = Checkout::find(dir)?;

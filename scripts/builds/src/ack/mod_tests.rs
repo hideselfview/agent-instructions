@@ -1,4 +1,5 @@
 use super::*;
+use crate::command::Command;
 use crate::lists::fixtures::{NOON, make_store_named};
 use crate::testing::{Scratch, repo};
 use std::path::{Path, PathBuf};
@@ -774,6 +775,15 @@ fn codex_compaction_clears_only_the_thread_named_in_the_event() {
     assert!(record::last(&db, session, other).unwrap().is_some());
 }
 
+/// <command> with no words after it.
+fn parsed(command: Command) -> Parsed<'static, String> {
+    Parsed {
+        command,
+        named: &[],
+        rest: &[],
+    }
+}
+
 #[test]
 fn the_gate_passes_the_rules_hook_of_an_agent_that_has_not_acknowledged() {
     let world = world("ack-gate-rules-hook");
@@ -781,8 +791,8 @@ fn the_gate_passes_the_rules_hook_of_an_agent_that_has_not_acknowledged() {
     // one starts no thread that reads the environment.
     unsafe { std::env::remove_var(PASSED) };
     let session = agent::Session::of(Some(SESSION_ID.into()), None, None, Some(AGENT.into()));
-    gate(&world.places, &session, "rules-on-edit", &[], None).unwrap();
-    assert!(gate(&world.places, &session, "du", &[], None).is_err());
+    gate(&world.places, &session, &parsed(Command::RulesOnEdit), None).unwrap();
+    assert!(gate(&world.places, &session, &parsed(Command::Du), None).is_err());
 }
 
 #[test]
@@ -792,7 +802,7 @@ fn the_gate_refuses_a_claude_agent_that_names_no_id() {
     // one starts no thread that reads the environment.
     unsafe { std::env::remove_var(PASSED) };
     let session = agent::Session::of(Some(SESSION_ID.into()), None, None, None);
-    let refusal = message(gate(&world.places, &session, "du", &[], None));
+    let refusal = message(gate(&world.places, &session, &parsed(Command::Du), None));
     assert!(refusal.contains("pass --agent ID"), "{refusal}");
     assert!(refusal.contains("BUILDS_AGENT=ID"), "{refusal}");
 }

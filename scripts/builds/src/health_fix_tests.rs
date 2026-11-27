@@ -326,7 +326,7 @@ mod stalled_claims {
     }
 
     fn item(demo: &Demo, args: &[&str]) {
-        crate::lists::cmd_item(&demo.tool, &crate::testing::no_ssh(), &words(args)).unwrap();
+        crate::lists::item_words(&demo.tool, &crate::testing::no_ssh(), &words(args)).unwrap();
     }
 
     fn take_in(demo: &Demo, side: &std::path::Path) {

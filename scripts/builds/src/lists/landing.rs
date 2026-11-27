@@ -42,8 +42,6 @@ use crate::output::note;
 use crate::tool::Tool;
 use boards::git;
 
-const USAGE: &str = "builds item check-landing|landed DIR [--done N]... [--part N]... SHA...";
-
 /// Part of an item already on main.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -127,13 +125,14 @@ struct Landing {
     args: Args,
 }
 
-fn parse(args: &[String]) -> Result<Landing> {
+/// <args> of the command whose refusals say <usage>.
+fn parse(args: &[String], usage: &str) -> Result<Landing> {
     let args = Args::parse(args, &["done", "part"], &[])?;
     let Some((dir, shas)) = args.positional().split_first() else {
-        fail!("usage: {USAGE}")
+        fail!("{usage}")
     };
     if shas.is_empty() {
-        fail!("name the commits: {USAGE}");
+        fail!("name the commits: {usage}");
     }
     let mut items = Vec::new();
     for (flag, finishes) in [("done", true), ("part", false)] {
@@ -273,7 +272,10 @@ fn require_changes_read(lists: &Lists, item: &Item) -> Result<()> {
 }
 
 pub fn check_landing(tool: &Tool, args: &[String]) -> Result<()> {
-    let landing = parse(args)?;
+    let landing = parse(
+        args,
+        &crate::command::Command::Item(crate::command::item::CheckLanding).usage_text(),
+    )?;
     let store = Store::resolve(&tool.places, &landing.args, &landing.checkout.top)?;
     let lists = store.load()?;
     let mut branches = Vec::new();
@@ -418,7 +420,10 @@ fn record(
 }
 
 pub fn landed(tool: &Tool, args: &[String]) -> Result<()> {
-    let landing = parse(args)?;
+    let landing = parse(
+        args,
+        &crate::command::Command::Item(crate::command::item::Landed).usage_text(),
+    )?;
     let top = &landing.checkout.top;
     let mut commits = Vec::new();
     for sha in &landing.shas {

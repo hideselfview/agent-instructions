@@ -53,9 +53,6 @@ use crate::shots_declared::{ShotDeclarations, ShotNames};
 /// The flag of `builds app-build` that names this command.
 pub const FLAG: &str = "--landing-coverage";
 
-const USAGE: &str =
-    "usage: builds app-build --landing-coverage <worktree> <branch> <ref> [<own commit>...]";
-
 /// What starts each line that tells of a dropped shots prefix.
 pub const DROPPED: &str = "shots dropped:";
 
@@ -554,7 +551,7 @@ impl<'a> BranchBuilds<'a> {
 /// `.app-build` builds no apps, so neither needs a build.
 pub fn cmd_landing_coverage(places: &Places, args: &[String]) -> Result<()> {
     let [worktree, branch, named, own @ ..] = args else {
-        fail!("{USAGE}");
+        fail!("{}", crate::command::Command::AppBuild.usage_text());
     };
     let own = if own.is_empty() {
         std::slice::from_ref(branch)

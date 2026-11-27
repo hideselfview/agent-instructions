@@ -65,7 +65,10 @@ pub fn cmd_band(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
     let (name, band) = match args {
         [name, word] if word == "clear" => (name, None),
         [name, low, high] => (name, Some(Band::parse(low, high)?)),
-        _ => fail!("usage: builds host band <name> <low> <high> | builds host band <name> clear"),
+        _ => fail!(
+            "{}",
+            crate::command::Command::Host(crate::command::host::Band).usage_text()
+        ),
     };
     crate::host::set_band(&tool.places, name, band)?;
     match band {

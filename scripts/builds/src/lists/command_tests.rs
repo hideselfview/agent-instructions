@@ -14,7 +14,7 @@ fn refusal(result: Result<()>) -> String {
 }
 
 fn run(tool: &Tool, command: &str) -> Result<()> {
-    cmd_lists(tool, &words(command))
+    lists_words(tool, &words(command))
 }
 
 #[test]
@@ -161,8 +161,8 @@ fn project_of_answers_from_the_repo_of_the_directory() {
 fn an_unknown_command_is_refused() {
     let scratch = Scratch::new("lists-cmd-unknown");
     let tool = scratch.tool(0);
-    assert!(refusal(run(&tool, "frobnicate")).contains("unknown lists command frobnicate"));
-    assert!(refusal(cmd_lists(&tool, &[])).contains("usage"));
+    assert!(refusal(run(&tool, "frobnicate")).contains("builds lists has no command frobnicate"));
+    assert!(refusal(lists_words(&tool, &[])).contains("builds lists needs a command"));
 }
 
 #[test]

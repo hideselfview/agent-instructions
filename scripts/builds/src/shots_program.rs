@@ -29,15 +29,6 @@ pub static VERSIONS: LazyLock<Versions> = LazyLock::new(|| Versions {
     comparison: env!("COMPARISON_SOURCE").to_string(),
 });
 
-const USAGE: &str = "usage: builds shots findings <repo> <ref> <app> <prefix> [--by-cause] | builds shots picture <repo> <ref> <scene> board|shot [--project P] | builds shots check-program <repo> <ref> <app> <prefix> [--checkout <folder>] | builds shots run|capture|check|lint|runtime|components|states|version|harness [<argument>...] (builds shots <command> --help)";
-
-/// Whether `builds shots <args>` runs the checker, which uses no store:
-/// every subcommand but the three that read the cached runs.
-pub fn runs_checker(args: &[String]) -> bool {
-    args.first()
-        .is_some_and(|sub| !matches!(sub.as_str(), "findings" | "check-program" | "picture"))
-}
-
 /// The cache folder builds gives the checker.
 fn cache(places: &Places) -> PathBuf {
     places.caches().join("builds-shots")
@@ -92,28 +83,29 @@ fn with_board_store(args: &[String], store: Option<PathBuf>) -> Vec<String> {
     args
 }
 
-pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
-    match args.first().map(String::as_str) {
-        None => fail!("{USAGE}"),
-        Some("findings") => crate::shot_findings::cmd_findings(places, &args[1..]),
-        Some("check-program") => crate::shots_check_program::cmd(places, &args[1..]),
-        Some(_) => {
-            places.require_volume()?;
-            let checker = shots::Checker {
-                versions: &VERSIONS,
-                folders: &boards::Folders {
-                    cache: cache(places),
-                    fonts: places.fonts.clone(),
-                    volume: places.root.clone(),
-                },
-            };
-            let args = with_board_store(args, board_store(places)?);
-            if shots::main(&checker, &args) {
-                Ok(())
-            } else {
-                Err(crate::fail::Fail::Exit(1))
-            }
-        }
+/// `builds shots <args>` for the checker's own commands, which builds runs
+/// in this process.
+pub fn cmd_checker(places: &Places, args: &[String]) -> Result<()> {
+    if args.is_empty() {
+        fail!(
+            "{}",
+            crate::command::Command::Shots(crate::command::shots::Checker).usage_text()
+        );
+    }
+    places.require_volume()?;
+    let checker = shots::Checker {
+        versions: &VERSIONS,
+        folders: &boards::Folders {
+            cache: cache(places),
+            fonts: places.fonts.clone(),
+            volume: places.root.clone(),
+        },
+    };
+    let args = with_board_store(args, board_store(places)?);
+    if shots::main(&checker, &args) {
+        Ok(())
+    } else {
+        Err(crate::fail::Fail::Exit(1))
     }
 }
 

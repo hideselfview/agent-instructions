@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::command::{Command, Parsed, design, shots};
+
 /// Which design command runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DesignCommand {
@@ -23,9 +25,16 @@ impl DesignCommand {
 
     /// `of` for the words after the program.
     pub fn of_words(words: &[&str]) -> Option<Self> {
-        match words {
-            ["design", "record" | "amend", ..] => Some(Self::Record),
-            ["shots", "draws", ..] => Some(Self::Comparison),
+        match Command::of(words)? {
+            Parsed {
+                command: Command::Design(design::Record | design::Amend),
+                ..
+            } => Some(Self::Record),
+            Parsed {
+                command: Command::Shots(shots::Checker),
+                rest: ["draws", ..],
+                ..
+            } => Some(Self::Comparison),
             _ => None,
         }
     }

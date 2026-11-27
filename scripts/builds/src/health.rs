@@ -673,11 +673,14 @@ pub fn sample(
             .filter(|p| p.name == "builds")
             .find(|process| {
                 let locking = |argv: Vec<String>| {
+                    use crate::command::Command;
                     let words = crate::ack::agent::without_flag(&argv);
-                    words
-                        .get(1)
-                        .is_some_and(|a| matches!(*a, "lock" | "build-app" | "app-build"))
-                        && words.get(2).is_some_and(|r| *r == repo.as_str())
+                    words.get(1..).and_then(Command::of).is_some_and(|parsed| {
+                        matches!(
+                            parsed.command,
+                            Command::Lock | Command::BuildApp | Command::AppBuild
+                        ) && parsed.rest.first() == Some(&repo.as_str())
+                    })
                 };
                 args(process.pid).is_some_and(locking) && opened(process.pid)
             });
@@ -2008,7 +2011,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         [] => (false, false),
         [flag] if flag == "--json" => (true, false),
         [flag] if flag == "--stop-junk" => (false, true),
-        _ => crate::fail!("usage: builds health [--json | --stop-junk]"),
+        _ => crate::fail!("{}", crate::command::Command::Health.usage_text()),
     };
     tool.places.require_volume()?;
     let mut release_failures = Vec::new();

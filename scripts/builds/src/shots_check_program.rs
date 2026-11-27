@@ -23,9 +23,6 @@ use crate::shot_findings;
 use crate::shots_cache::Cached;
 use crate::text::plural;
 
-const USAGE: &str =
-    "usage: builds shots check-program <repo> <ref> <app> <prefix> [--checkout <folder>]";
-
 /// The program a built checkout holds, relative to the checkout's top.
 const PROGRAM: &str = "scripts/builds/target/release/builds";
 
@@ -182,7 +179,11 @@ pub fn cmd(places: &Places, args: &[String]) -> Result<()> {
     while let Some(arg) = rest.next() {
         if arg == "--checkout" {
             let Some(folder) = rest.next() else {
-                fail!("{USAGE}");
+                fail!(
+                    "{}",
+                    crate::command::Command::Shots(crate::command::shots::CheckProgram)
+                        .usage_text()
+                );
             };
             checkout = Some(PathBuf::from(folder));
         } else {
@@ -190,7 +191,10 @@ pub fn cmd(places: &Places, args: &[String]) -> Result<()> {
         }
     }
     let [repo, git_ref, lane, prefix] = named[..] else {
-        fail!("{USAGE}");
+        fail!(
+            "{}",
+            crate::command::Command::Shots(crate::command::shots::CheckProgram).usage_text()
+        );
     };
     let lane = crate::repo_lanes::parse(places, repo, lane)?;
     let me = crate::this_program()?;

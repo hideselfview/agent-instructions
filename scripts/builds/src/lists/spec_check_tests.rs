@@ -1,7 +1,7 @@
 use super::*;
-use crate::lists::cmd_item;
 use crate::lists::fixtures::{NOON, Refusals, row, stamp, v};
 use crate::lists::item_fixtures::{Demo, demo, refusal, words};
+use crate::lists::item_words;
 use crate::lists::project::{GlobKind, parse_globs, set_design_globs};
 use crate::review::fakes::{Fake, fake};
 use crate::testing::git as run_git;
@@ -58,7 +58,7 @@ fn bench(name: &str, spec_globs: bool) -> Bench {
     }
     let side = demo.add_side(1, "agent A", "work").display().to_string();
     let details = demo.brief("details.txt");
-    cmd_item(
+    item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
         &words(&[
@@ -115,7 +115,7 @@ impl Bench {
             "--reviewer",
             &program,
         ];
-        cmd_item(&self.demo.tool, &crate::testing::no_ssh(), &words(&args))
+        item_words(&self.demo.tool, &crate::testing::no_ssh(), &words(&args))
     }
 
     /// `builds item check-brief` with the brief, in side worktree 1.
@@ -134,7 +134,7 @@ impl Bench {
             &program,
         ];
         args.extend_from_slice(extra);
-        cmd_item(&self.demo.tool, &crate::testing::no_ssh(), &words(&args))
+        item_words(&self.demo.tool, &crate::testing::no_ssh(), &words(&args))
     }
 
     fn lists(&self) -> Lists {
@@ -586,7 +586,7 @@ fn check_brief_passes_a_brief_with_an_unstated_behavior_and_takes_nothing() {
 #[test]
 fn check_brief_needs_a_worktree_and_names_no_items() {
     let b = bench("spec-check-brief-args", true);
-    let none = refusal(cmd_item(
+    let none = refusal(item_words(
         &b.demo.tool,
         &crate::testing::no_ssh(),
         &words(&["check-brief", "--brief", &b.brief]),

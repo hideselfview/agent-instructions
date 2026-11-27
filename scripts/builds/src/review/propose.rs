@@ -480,7 +480,10 @@ pub(super) fn propose_command(tool: &crate::tool::Tool, args: &[String]) -> Resu
         &["repo-dir", "rules-root", "per-group", "model", "reviewer"],
         &[],
     )?;
-    args.exactly(0, super::USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Review(crate::command::review::CasePropose).usage_text(),
+    )?;
     let Some(root) = args.value("rules-root")? else {
         fail!("name the agent-instructions worktree to write the cases in with --rules-root");
     };

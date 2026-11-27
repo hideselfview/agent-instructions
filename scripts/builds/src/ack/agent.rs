@@ -576,10 +576,11 @@ pub fn hook_output(event: &str, context: &str) -> String {
 /// starts, resumes, clears or forks) and the SubagentStart hook run. Reads the
 /// hook's input from standard input, registers the agent and prints the
 /// hook's output, which tells the agent its id.
-pub fn cmd_agent(places: &Places, args: &[String]) -> Result<()> {
-    if args != ["start"] {
+pub fn cmd_start(places: &Places, args: &[String]) -> Result<()> {
+    if !args.is_empty() {
         fail!(
-            "usage: builds agent start   (a Claude Code hook runs it, with the hook's input on standard input)"
+            "{}   (a Claude Code hook runs it, with the hook's input on standard input)",
+            crate::command::Command::Agent(crate::command::agent::Start).usage_text()
         );
     }
     crate::output::answer_line(start(places, HookInput::from_stdin()?)?);

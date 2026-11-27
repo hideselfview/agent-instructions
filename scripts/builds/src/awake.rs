@@ -3,7 +3,8 @@
 //! every assertion builds holds.
 //!
 //! A Mac that idle-sleeps does no work: agents, builds and reviews stop until
-//! someone wakes it. So each builds process that runs work (`does_work`)
+//! someone wakes it. So each builds process that runs work
+//! (`Command::keeps_awake`)
 //! holds PreventUserIdleSystemSleep from its start to its end, which keeps
 //! the Mac from sleeping because nobody uses it, on battery as on power. A
 //! command that runs on a host for another Mac has no builds process of its
@@ -46,25 +47,6 @@ pub enum Power {
     /// <pid> <name>` for each assertion taken and `release <kind> <pid>
     /// <name>` for each released.
     Record(PathBuf),
-}
-
-/// Whether `builds <command> <args>` runs work that this Mac must stay awake
-/// for: an agent, a build or a job, a review, a landing, a health run, and
-/// the commands that set up checkouts and hosts for them. A command that only
-/// reads, or only waits for a person or another process (`review wait`,
-/// `judge listen`), runs none, and neither does the dashboard, which runs
-/// until it is stopped and starts each of its own runs as a builds process.
-pub fn does_work(command: &str, args: &[String]) -> bool {
-    let first = args.first().map(String::as_str);
-    match command {
-        "agent" => matches!(first, Some("run" | "resume")),
-        "review" => crate::review::runs_reviewers(args),
-        "checks" => first == Some("run"),
-        "item" => first == Some("take"),
-        "land" | "health" | "setup" | "new" | "app-checkout" | "app-clone" | "prune"
-        | "install" | "host" | "tool" => true,
-        _ => crate::run_tmp::starts_work(command, args),
-    }
 }
 
 /// Holds this Mac awake until dropped.

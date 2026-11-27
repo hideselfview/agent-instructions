@@ -26,7 +26,7 @@ fn go(scratch: &Scratch, tool: &Tool, command: &str) -> Result<String> {
         .split_whitespace()
         .map(str::to_string)
         .collect();
-    run(tool, &words, &scratch.dir)
+    run_words(tool, &words, &scratch.dir)
 }
 
 fn file(scratch: &Scratch, name: &str, text: &str) -> String {
@@ -1160,18 +1160,19 @@ fn show_and_list_print_the_stack_and_a_closed_question() {
 fn an_unknown_command_and_no_command_are_refused() {
     let (scratch, tool, _store, _) = setup("q-unknown", |_| ());
     assert!(
-        refused(go(&scratch, &tool, "frobnicate")).contains("unknown question command frobnicate")
+        refused(go(&scratch, &tool, "frobnicate"))
+            .contains("builds question has no command frobnicate")
     );
     let words: Vec<String> = Vec::new();
     assert!(
-        matches!(run(&tool, &words, &scratch.dir), Err(Fail::Message(m)) if m.contains("usage"))
+        matches!(run_words(&tool, &words, &scratch.dir), Err(Fail::Message(m)) if m.contains("builds question needs a command"))
     );
     assert!(refused(go(&scratch, &tool, "show 1.5")).contains("not an id"));
     let hash: Vec<String> = ["show", "#3", "--project", "demo", "--by", "t"]
         .map(String::from)
         .to_vec();
     assert!(
-        matches!(run(&tool, &hash, &scratch.dir), Err(Fail::Message(m)) if m.contains("bare numbers"))
+        matches!(run_words(&tool, &hash, &scratch.dir), Err(Fail::Message(m)) if m.contains("bare numbers"))
     );
 }
 
@@ -1242,7 +1243,7 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
             tag,
         ];
         line.extend_from_slice(blocks);
-        run(&tool, &words(&line), &scratch.dir)
+        run_words(&tool, &words(&line), &scratch.dir)
     };
     let one = one.0.to_string();
     ask(
@@ -1262,7 +1263,7 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
     let second = lists.questions[1].id;
     assert_eq!(lists.questions[0].tags, ["screen-reads audit"]);
 
-    let listed = run(
+    let listed = run_words(
         &tool,
         &words(&["list", "--tag", "coven-trust audit"]),
         &scratch.dir,
@@ -1275,12 +1276,12 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
         "{listed}"
     );
     assert!(
-        run(&tool, &words(&["list", "--tag", "nothing"]), &scratch.dir,)
+        run_words(&tool, &words(&["list", "--tag", "nothing"]), &scratch.dir,)
             .unwrap()
             .contains("no question on the stack has the tag nothing on its trail")
     );
 
-    run(
+    run_words(
         &tool,
         &words(&[
             "edit",
@@ -1297,7 +1298,7 @@ fn ask_and_edit_tag_a_question_open_or_closed_and_list_chooses_by_tag() {
 
     // A closed question still takes tags, and shows them.
     go(&scratch, &tool, &format!("drop {second} --why not-asked")).unwrap();
-    run(
+    run_words(
         &tool,
         &words(&["edit", &second.0.to_string(), "--tag", "later"]),
         &scratch.dir,

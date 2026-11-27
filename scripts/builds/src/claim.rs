@@ -320,7 +320,7 @@ pub fn require_project_named(places: &Places, repo: &str, named: Option<&str>) -
 /// projects hold, and a worktree of such a repo must have one; without it the
 /// worktree keeps the project it had.
 pub fn cmd_claim(places: &Places, args: &[String], now: i64) -> Result<()> {
-    let usage = "usage: builds claim <checkout> <who> [--project P]";
+    let usage = crate::command::Command::Claim.usage_text();
     let (positional, project) = match args {
         [checkout, who] => ([checkout, who], None),
         [checkout, who, flag, project] if flag == "--project" => ([checkout, who], Some(project)),
@@ -372,10 +372,7 @@ pub fn cmd_claim(places: &Places, args: &[String], now: i64) -> Result<()> {
 /// the worktree held, or ends its hold, starts or ends at <now> the `held`
 /// span of each item that runs there (lists/held.rs).
 pub fn cmd_note(places: &Places, args: &[String], now: i64) -> Result<()> {
-    let usage = format!(
-        "usage: builds note <checkout> [--state {}] [<text>]",
-        NOTE_STATES.join("|")
-    );
+    let usage = crate::command::Command::Note.usage_text();
     let Some((checkout, mut rest)) = args.split_first() else {
         fail!("{usage}")
     };
@@ -447,7 +444,7 @@ pub fn cmd_note(places: &Places, args: &[String], now: i64) -> Result<()> {
 /// reads the same facts (kept.rs).
 pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
     let [checkout] = args else {
-        fail!("usage: builds release <checkout>")
+        fail!("{}", crate::command::Command::Release.usage_text())
     };
     let checkout = Checkout::find(checkout)?;
     let every = crate::lists::store::every_lists(places)?;

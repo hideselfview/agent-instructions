@@ -65,7 +65,10 @@ pub fn landing_key(db: &Connection, repo: &str, worktree: &Path) -> Result<Strin
 pub fn key_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["project"], &[])?;
     let [dir] = args.positional() else {
-        crate::fail!("usage: builds review key DIR --project P")
+        crate::fail!(
+            "{}",
+            crate::command::Command::Review(crate::command::review::Key).usage_text()
+        )
     };
     let store = Store::named(&tool.places, args.require("project")?)?;
     let checkout = Checkout::find(dir)?;

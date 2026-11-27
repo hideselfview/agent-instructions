@@ -43,9 +43,12 @@ fn a_detached_head_is_refused() {
 /// inherit the acknowledgement mark; those pass, an agent's own command does not.
 #[test]
 fn a_command_that_another_builds_command_started_is_not_checked() {
-    assert!(applies("land", false) && applies("cargo", false));
-    assert!(!applies("cargo", true) && !applies("checks", true));
-    assert!(!applies("status", false));
+    assert!(applies(Command::Land, false) && applies(Command::Cargo, false));
+    assert!(
+        !applies(Command::Cargo, true)
+            && !applies(Command::Checks(crate::command::checks::Run), true)
+    );
+    assert!(!applies(Command::Status, false));
 }
 
 /// A commit hook in a main checkout runs with a session and no agent id, so

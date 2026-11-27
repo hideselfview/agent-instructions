@@ -1975,7 +1975,7 @@ fn every_review_command_fails_for_a_project_with_no_store() {
     for command in commands {
         let mut args: Vec<String> = command.iter().map(|word| word.to_string()).collect();
         args.extend(["--project".to_string(), "ghost".to_string()]);
-        let failed = cmd_review(&tool, &args).unwrap_err().text();
+        let failed = review_words(&tool, &args).unwrap_err().text();
         assert_eq!(
             failed,
             "there is no store for project ghost",
@@ -2027,7 +2027,6 @@ fn a_confirmed_finding_becomes_a_case_and_an_unconfirmed_one_does_not() {
     let finding = findings_of(&demo, landing)[0].id;
     let out = demo.scratch.dir.join("cases-root");
     let words: Vec<String> = [
-        "add",
         &landing.to_string(),
         &finding.to_string(),
         "--repo-dir",
@@ -2042,10 +2041,10 @@ fn a_confirmed_finding_becomes_a_case_and_an_unconfirmed_one_does_not() {
     .iter()
     .map(|s| s.to_string())
     .collect();
-    let refused = case_command(&demo.tool, &words).unwrap_err().text();
+    let refused = case_add(&demo.tool, &words).unwrap_err().text();
     assert!(refused.contains("not settled as confirmed"), "{refused}");
     settle_as(&demo, finding, "confirmed", "a real break");
-    case_command(&demo.tool, &words).unwrap();
+    case_add(&demo.tool, &words).unwrap();
     let cases = cases::load(&out).unwrap();
     assert_eq!(cases.len(), 1);
     assert_eq!(cases[0].project, "demo");
@@ -2485,7 +2484,7 @@ fn a_review_needs_its_kind_unless_builds_knows_the_answer() {
     let run = |extra: &[&str]| {
         let mut args = vec!["run".to_string(), wt.clone(), "main".to_string()];
         args.extend(extra.iter().map(|word| word.to_string()));
-        cmd_review(&demo.tool, &args).map_err(|error| error.text())
+        review_words(&demo.tool, &args).map_err(|error| error.text())
     };
     assert!(run(&[]).unwrap_err().contains("--kind"));
     assert!(
@@ -2525,7 +2524,7 @@ fn a_review_of_a_worktree_with_uncommitted_changes_starts_no_reviewer_and_names_
     .iter()
     .map(|word| word.to_string())
     .collect();
-    let refused = cmd_review(&demo.tool, &args).unwrap_err().text();
+    let refused = review_words(&demo.tool, &args).unwrap_err().text();
     assert!(refused.contains("uncommitted changes"), "{refused}");
     assert!(refused.contains("fix.rs"), "{refused}");
     assert!(refused.contains("committed.rs"), "{refused}");

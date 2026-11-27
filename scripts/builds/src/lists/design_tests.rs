@@ -1424,8 +1424,8 @@ fn show_and_list_refuse_what_is_not_a_design_change() {
     let w = world("design-show");
     assert_eq!(w.run("list").unwrap(), "");
     assert!(message(w.run("show 5")).contains("not a record"));
-    assert!(message(w.run("nonsense")).contains("unknown design command"));
-    assert!(message(w.run("")).contains("usage"));
+    assert!(message(w.run("nonsense")).contains("builds design has no command nonsense"));
+    assert!(message(w.run("")).contains("builds design needs a command"));
 }
 
 #[test]

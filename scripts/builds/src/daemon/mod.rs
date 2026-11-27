@@ -45,6 +45,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::command::{Command, Parsed, dashboard};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::health::Health;
@@ -59,12 +60,13 @@ use runs::Runs;
 /// with it (stage.rs).
 pub fn dashboard_args<'a>(words: impl IntoIterator<Item = &'a str>) -> Option<Vec<&'a str>> {
     let words = crate::ack::agent::without_flag_of(words);
-    match words.as_slice() {
-        [program, "dashboard", args @ ..]
-            if crate::shells::basename(program) == "builds" && args.first() != Some(&"stage") =>
-        {
-            Some(args.to_vec())
-        }
+    let (program, words) = words.split_first()?;
+    match Command::of(words)? {
+        Parsed {
+            command: Command::Dashboard(dashboard::Serve),
+            rest,
+            ..
+        } if crate::shells::basename(program) == "builds" => Some(rest.to_vec()),
         _ => None,
     }
 }
@@ -182,9 +184,6 @@ fn answer(model: &Model, stream: UnixStream) -> std::io::Result<()> {
 /// `builds dashboard [--port <port>] [--listen <address>]`, or `builds
 /// dashboard stage` (stage.rs).
 pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
-    if let Some((_, stage_args)) = args.split_first().filter(|(first, _)| *first == "stage") {
-        return stage::cmd_stage(stage_args);
-    }
     if !cfg!(target_os = "macos") {
         fail!(
             "the dashboard follows the checkouts through macOS's FSEvents, so it runs only on a Mac"
@@ -209,7 +208,10 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
                     _ => fail!("dashboard: --listen takes an IP address, such as 192.168.1.20"),
                 }
             }
-            _ => fail!("usage: builds dashboard [--port <port>] [--listen <address>]"),
+            _ => fail!(
+                "{}",
+                crate::command::Command::Dashboard(crate::command::dashboard::Serve).usage_text()
+            ),
         }
     }
     crate::output::keep_every_line();

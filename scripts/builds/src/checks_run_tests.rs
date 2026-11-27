@@ -608,12 +608,12 @@ fn a_range_check_of_an_unknown_rev_is_refused() {
 
 #[test]
 fn the_hook_worktree_is_none_for_a_range_run() {
-    let args: Vec<String> = ["run", "--since", "origin/main"]
+    let args: Vec<String> = ["--since", "origin/main"]
         .iter()
         .map(|arg| arg.to_string())
         .collect();
     assert_eq!(run_worktree(&args), None);
-    let args: Vec<String> = ["run", "--since"].iter().map(|a| a.to_string()).collect();
+    let args: Vec<String> = ["--since"].iter().map(|a| a.to_string()).collect();
     assert_eq!(run_worktree(&args), None);
 }
 

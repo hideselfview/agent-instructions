@@ -7,6 +7,7 @@ use std::fmt::Write;
 
 use serde::Deserialize;
 
+use crate::command::decision::Decision as Subcommand;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::{Args, read_input, read_request};
@@ -20,8 +21,6 @@ use crate::lists::{Decision, Id, Lists, PlanRef, Stamp, Standing, day};
 use crate::output::note;
 use crate::text::local_minute;
 use crate::tool::Tool;
-
-const USAGE: &str = "usage: builds decision add --request FILE [--by WHO]\n       builds decision edit N [--title T] [--body-file FILE] [--by WHO]\n       builds decision find WORD... \n       builds decision show N\n       builds decision list [--plan PATH] [--since YYYY-MM-DD]\n(every command takes --project P)";
 
 /// A decision as `add --request` writes it. It carries no `question`: a
 /// question's answer is recorded by `question answer`, which closes the
@@ -40,24 +39,34 @@ pub struct DecisionRequest {
     pub no_work: Option<String>,
 }
 
-pub fn cmd_decision(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn cmd_decision(tool: &Tool, command: Subcommand, args: &[String]) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
-    let Some((command, rest)) = args.split_first() else {
-        fail!("{USAGE}")
-    };
-    match command.as_str() {
-        "add" => add(tool, rest, &cwd),
-        "edit" => edit(tool, rest, &cwd),
-        "find" => find(tool, rest, &cwd),
-        "show" => show(tool, rest, &cwd),
-        "list" => list(tool, rest, &cwd),
-        other => fail!("unknown decision command {other}\n{USAGE}"),
+    match command {
+        Subcommand::Add => add(tool, args, &cwd),
+        Subcommand::Edit => edit(tool, args, &cwd),
+        Subcommand::Find => find(tool, args, &cwd),
+        Subcommand::Show => show(tool, args, &cwd),
+        Subcommand::List => list(tool, args, &cwd),
     }
+}
+
+/// `builds decision <words>`, as a test runs it.
+#[cfg(test)]
+pub fn decision_words(tool: &Tool, words: &[String]) -> Result<()> {
+    let (crate::command::Command::Decision(command), args) =
+        crate::command::parse_line("decision", words)?
+    else {
+        fail!("{words:?} is no decision command");
+    };
+    cmd_decision(tool, command, &args)
 }
 
 fn add(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     let args = Args::parse(args, &["request"], &[])?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Decision(crate::command::decision::Add).usage_text(),
+    )?;
     let request: DecisionRequest = read_request(args.require("request")?)?;
     let work = work_or_why(request.work, request.no_work)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
@@ -97,7 +106,11 @@ fn add(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
 
 fn edit(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     let args = Args::parse(args, &["title", "body-file"], &[])?;
-    let [id] = args.exactly(1, USAGE)? else {
+    let [id] = args.exactly(
+        1,
+        &crate::command::Command::Decision(crate::command::decision::Edit).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
@@ -148,7 +161,10 @@ fn find(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
     let words = args.positional();
     if words.is_empty() {
-        fail!("usage: builds decision find WORD...: say what to look for");
+        fail!(
+            "{}: say what to look for",
+            crate::command::Command::Decision(crate::command::decision::Find).usage_text()
+        );
     }
     let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
     for decision in matching(&lists, words) {
@@ -168,7 +184,10 @@ pub fn listed<'a>(lists: &'a Lists, plan: Option<&str>, since: Option<&str>) -> 
 
 fn list(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     let args = Args::parse(args, &["plan", "since"], &[])?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Decision(crate::command::decision::List).usage_text(),
+    )?;
     let since = args.value("since")?;
     if let Some(since) = since
         && day::parse(since).is_none()
@@ -230,7 +249,11 @@ pub fn render(lists: &Lists, decision: &Decision) -> String {
 
 fn show(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(1, USAGE)? else {
+    let [id] = args.exactly(
+        1,
+        &crate::command::Command::Decision(crate::command::decision::Show).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;

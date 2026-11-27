@@ -319,7 +319,11 @@ pub fn render_item(lists: &Lists, id: Id, now: i64) -> Result<String> {
 
 pub fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(1, "builds item show N")? else {
+    let [id] = args.exactly(
+        1,
+        &crate::command::Command::Item(crate::command::item::Show).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
@@ -370,7 +374,7 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     )?;
     args.exactly(
         0,
-        "builds item list [--running] [--ready] [--backlog] [--area A] [--for F] [--tag T]",
+        &crate::command::Command::Item(crate::command::item::List).usage_text(),
     )?;
     let audience: Option<Audience> = args.choice("for")?;
     let area = args.value("area")?;
@@ -420,10 +424,7 @@ pub fn next(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// since item numbers belong to one project.
 pub fn next_report(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &["for"], &[])?;
-    args.exactly(
-        0,
-        "builds next [--for coordinator|design-session] [--project P]",
-    )?;
+    args.exactly(0, &crate::command::Command::Next.usage_text())?;
     let audience: Audience = args.choice("for")?.unwrap_or(Audience::Coordinator);
     if args.value("project")?.is_some() {
         let store = Store::resolve(&tool.places, &args, cwd)?;

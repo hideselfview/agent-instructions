@@ -12,6 +12,7 @@ use std::path::Path;
 
 use crate::ack::agent::Caller;
 use crate::checkout::Checkout;
+use crate::command::design::Design as Subcommand;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::inbox::{Destinations, Messaging, Recipient};
@@ -25,34 +26,28 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design title N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design publish-find DIR --artifacts FILE [--at REV]\n       builds design publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at REV]\n       builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE]]\n       builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish done N --link TITLE=URL... [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
-
-pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
-    crate::output::answer(run_to_text(tool, args)?);
-    Ok(())
-}
-
-/// A design command's output, which `cmd_design` prints.
-pub fn run_to_text(tool: &Tool, args: &[String]) -> Result<String> {
-    run_with(
+pub fn cmd_design(tool: &Tool, command: Subcommand, args: &[String]) -> Result<()> {
+    crate::output::answer(run_with(
         tool,
+        command,
         args,
         || Destinations::for_session(&tool.session),
         || tool.session.caller(),
-    )
+    )?);
+    Ok(())
 }
 
-/// A design command run by the session whose inbox <session> reads, if any:
-/// only `record`, `amend` and `listen` call it, and keep the inbox as the
-/// session to tell, so no other command depends on the environment. The
-/// agent that runs it is the one the environment names.
+/// `builds design <words>`, as a test runs it, by the session whose inbox
+/// <session> reads, if any: only `record`, `amend` and `listen` call it, and
+/// keep the inbox as the session to tell, so no other command depends on the
+/// environment. The agent that runs it is the one the environment names.
 #[cfg(test)]
 pub fn run_in_session(
     tool: &Tool,
-    args: &[String],
+    words: &[String],
     session: impl FnOnce() -> Result<Option<Messaging>>,
 ) -> Result<String> {
-    run_as(tool, args, session, || tool.session.caller())
+    run_as(tool, words, session, || tool.session.caller())
 }
 
 /// `run_in_session`, run by the agent that <runner> gives: only `record` and
@@ -61,13 +56,19 @@ pub fn run_in_session(
 #[cfg(test)]
 pub fn run_as(
     tool: &Tool,
-    args: &[String],
+    words: &[String],
     session: impl FnOnce() -> Result<Option<Messaging>>,
     runner: impl FnOnce() -> Result<Option<Caller>>,
 ) -> Result<String> {
+    let (crate::command::Command::Design(command), args) =
+        crate::command::parse_line("design", words)?
+    else {
+        fail!("{words:?} is no design command");
+    };
     run_with(
         tool,
-        args,
+        command,
+        &args,
         || Ok(session()?.map(Destinations::Shared)),
         runner,
     )
@@ -75,60 +76,64 @@ pub fn run_as(
 
 pub(super) fn run_with(
     tool: &Tool,
+    command: Subcommand,
     args: &[String],
     destinations: impl FnOnce() -> Result<Option<Destinations>>,
     runner: impl FnOnce() -> Result<Option<Caller>>,
 ) -> Result<String> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
-    let Some((command, rest)) = args.split_first() else {
-        fail!("{USAGE}")
-    };
-    match command.as_str() {
-        "places" => places(tool, rest),
-        "only" => only(tool, rest),
-        "record" | "amend" => {
-            let destinations = destinations()?;
-            let recorder = destinations.as_ref().map(|to| to.at(Recipient::ThisThread));
-            let coordinator = destinations
+    let messaging = |destinations: Option<Destinations>| {
+        (
+            destinations.as_ref().map(|to| to.at(Recipient::ThisThread)),
+            destinations
                 .as_ref()
-                .map(|to| to.at(Recipient::Coordinator));
-            match command.as_str() {
-                "record" => record(
-                    tool,
-                    rest,
-                    &cwd,
-                    recorder.as_ref(),
-                    coordinator.as_ref(),
-                    runner,
-                ),
-                _ => amend(
-                    tool,
-                    rest,
-                    &cwd,
-                    recorder.as_ref(),
-                    coordinator.as_ref(),
-                    runner,
-                ),
-            }
+                .map(|to| to.at(Recipient::Coordinator)),
+        )
+    };
+    match command {
+        Subcommand::Places => places(tool, args),
+        Subcommand::Only => only(tool, args),
+        Subcommand::Record => {
+            let (recorder, coordinator) = messaging(destinations()?);
+            record(
+                tool,
+                args,
+                &cwd,
+                recorder.as_ref(),
+                coordinator.as_ref(),
+                runner,
+            )
         }
-        "approve" => approve(tool, rest, &cwd),
-        "check" => check(tool, rest),
-        "landed" => landed(tool, rest),
-        "drop" => drop(tool, rest, &cwd),
-        "show" => show(tool, rest, &cwd),
-        "title" => title(tool, rest, &cwd),
-        "list" => list(tool, rest, &cwd),
-        "render" => render(tool, rest),
-        "tokens-css" => tokens_css(rest),
-        "publish-find" => publish_find(rest),
-        "publish-files" => publish_files(tool, rest),
-        "publish-last" => publish_last(tool, rest),
-        "listen" => {
+        Subcommand::Amend => {
+            let (recorder, coordinator) = messaging(destinations()?);
+            amend(
+                tool,
+                args,
+                &cwd,
+                recorder.as_ref(),
+                coordinator.as_ref(),
+                runner,
+            )
+        }
+        Subcommand::Approve => approve(tool, args, &cwd),
+        Subcommand::Check => check(tool, args),
+        Subcommand::Landed => landed(tool, args),
+        Subcommand::Drop => drop(tool, args, &cwd),
+        Subcommand::Show => show(tool, args, &cwd),
+        Subcommand::Title => title(tool, args, &cwd),
+        Subcommand::List => list(tool, args, &cwd),
+        Subcommand::Render => render(tool, args),
+        Subcommand::TokensCss => tokens_css(args),
+        Subcommand::PublishFind => publish_find(args),
+        Subcommand::PublishFiles => publish_files(tool, args),
+        Subcommand::PublishLast => publish_last(tool, args),
+        Subcommand::Listen => {
             let inbox = destinations()?.map(|to| to.at(Recipient::ThisThread));
-            super::publish_command::listen(tool, rest, &cwd, inbox.as_ref())
+            super::publish_command::listen(tool, args, &cwd, inbox.as_ref())
         }
-        "publish" => super::publish_command::publish(tool, rest, &cwd),
-        other => fail!("unknown design command {other}\n{USAGE}"),
+        Subcommand::PublishTake => super::publish_command::take(tool, args, &cwd),
+        Subcommand::PublishDone => super::publish_command::done(tool, args, &cwd),
+        Subcommand::PublishFailed => super::publish_command::failed(tool, args, &cwd),
     }
 }
 
@@ -173,7 +178,7 @@ fn open_store(tool: &Tool, args: &Args, checkout: &Checkout) -> Result<(Store, L
 /// The scope of <shas>, at least one commit, oldest first.
 fn scope(tool: &Tool, args: &Args, checkout: Checkout, shas: Vec<String>) -> Result<Scope> {
     let (Some(first), Some(tip)) = (shas.first(), shas.last()) else {
-        fail!("{USAGE}")
+        fail!("{}", crate::command::Command::group_usage_text("design"))
     };
     let base = format!("{first}^");
     let tip = tip.clone();
@@ -220,10 +225,16 @@ fn lines(paths: impl IntoIterator<Item = String>) -> String {
 fn places(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
     let [dir, shas @ ..] = args.positional() else {
-        fail!("{USAGE}")
+        fail!(
+            "{}",
+            crate::command::Command::Design(crate::command::design::Places).usage_text()
+        )
     };
     if shas.is_empty() {
-        fail!("{USAGE}");
+        fail!(
+            "{}",
+            crate::command::Command::Design(crate::command::design::Places).usage_text()
+        );
     }
     let scope = named_scope(tool, &args, dir, shas)?;
     let c = scope.changes;
@@ -247,10 +258,16 @@ fn places(tool: &Tool, args: &[String]) -> Result<String> {
 fn only(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
     let [dir, shas @ ..] = args.positional() else {
-        fail!("{USAGE}")
+        fail!(
+            "{}",
+            crate::command::Command::Design(crate::command::design::Only).usage_text()
+        )
     };
     if shas.is_empty() {
-        fail!("{USAGE}");
+        fail!(
+            "{}",
+            crate::command::Command::Design(crate::command::design::Only).usage_text()
+        );
     }
     let scope = named_scope(tool, &args, dir, shas)?;
     if !scope.changes.is_design_change() {
@@ -470,7 +487,10 @@ fn record(
     runner: impl FnOnce() -> Result<Option<Caller>>,
 ) -> Result<String> {
     let args = Args::parse(args, &["request"], &[])?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Design(crate::command::design::Record).usage_text(),
+    )?;
     let request: DesignRequest = read_request(args.require("request")?)?;
     let scope = request_scope(tool, &args, &request)?;
     require_drafts(tool, &scope, &request)?;
@@ -556,7 +576,11 @@ fn amend(
     runner: impl FnOnce() -> Result<Option<Caller>>,
 ) -> Result<String> {
     let args = Args::parse(args, &["request"], &[])?;
-    let [id] = args.exactly(1, USAGE)? else {
+    let [id] = args.exactly(
+        1,
+        &crate::command::Command::Design(crate::command::design::Amend).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
@@ -657,7 +681,11 @@ fn drawn_the_same(scope: &Scope, id: Id, renders: &dyn Renders) -> Result<Option
 /// same approval again writes nothing.
 fn approve(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(1, USAGE)? else {
+    let [id] = args.exactly(
+        1,
+        &crate::command::Command::Design(crate::command::design::Approve).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
@@ -684,10 +712,16 @@ fn approve(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 fn check(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
     let [ids, dir, shas @ ..] = args.positional() else {
-        fail!("{USAGE}")
+        fail!(
+            "{}",
+            crate::command::Command::Design(crate::command::design::Check).usage_text()
+        )
     };
     if shas.is_empty() {
-        fail!("{USAGE}");
+        fail!(
+            "{}",
+            crate::command::Command::Design(crate::command::design::Check).usage_text()
+        );
     }
     let ids = Id::parse_list(ids)?;
     let scope = named_scope(tool, &args, dir, shas)?;
@@ -718,10 +752,16 @@ fn check(tool: &Tool, args: &[String]) -> Result<String> {
 fn landed(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
     let [id, dir, shas @ ..] = args.positional() else {
-        fail!("{USAGE}")
+        fail!(
+            "{}",
+            crate::command::Command::Design(crate::command::design::Landed).usage_text()
+        )
     };
     if shas.is_empty() {
-        fail!("{USAGE}");
+        fail!(
+            "{}",
+            crate::command::Command::Design(crate::command::design::Landed).usage_text()
+        );
     }
     let id = Id::parse(id)?;
     let checkout = Checkout::find(dir)?;
@@ -765,7 +805,11 @@ fn landed(tool: &Tool, args: &[String]) -> Result<String> {
 /// records the reason WHY.
 fn drop(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &["why"], &[])?;
-    let [id] = args.exactly(1, USAGE)? else {
+    let [id] = args.exactly(
+        1,
+        &crate::command::Command::Design(crate::command::design::Drop).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
@@ -782,7 +826,11 @@ fn drop(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 /// person's approval, where its rules review stands (`design_review`).
 fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(1, USAGE)? else {
+    let [id] = args.exactly(
+        1,
+        &crate::command::Command::Design(crate::command::design::Show).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
@@ -817,7 +865,11 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 /// the commit that squashes the change's commits.
 fn title(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
-    let [id] = args.exactly(1, USAGE)? else {
+    let [id] = args.exactly(
+        1,
+        &crate::command::Command::Design(crate::command::design::Title).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let id = Id::parse(id)?;
@@ -831,7 +883,10 @@ fn title(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 
 fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Design(crate::command::design::List).usage_text(),
+    )?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     Ok(design::list(&store.load()?))
 }
@@ -853,7 +908,11 @@ fn theme_of(args: &Args) -> Result<crate::lists::Theme> {
 /// board with nothing checked out).
 fn render(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &["theme", "at"], &["now"])?;
-    let [dir, board] = args.exactly(2, USAGE)? else {
+    let [dir, board] = args.exactly(
+        2,
+        &crate::command::Command::Design(crate::command::design::Render).usage_text(),
+    )?
+    else {
         unreachable!("exactly two")
     };
     let theme = theme_of(&args)?;
@@ -874,7 +933,11 @@ fn render(tool: &Tool, args: &[String]) -> Result<String> {
 /// tokens.json, as builds draws boards with it.
 fn tokens_css(args: &[String]) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
-    let [dir] = args.exactly(1, USAGE)? else {
+    let [dir] = args.exactly(
+        1,
+        &crate::command::Command::Design(crate::command::design::TokensCss).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let dir = Path::new(dir);
@@ -900,7 +963,11 @@ fn artifacts_listing(args: &Args) -> Result<String> {
 /// found by its title in FILE (`design_publish::locate`).
 fn publish_find(args: &[String]) -> Result<String> {
     let args = Args::parse(args, &["at", "artifacts"], &[])?;
-    let [dir] = args.exactly(1, USAGE)? else {
+    let [dir] = args.exactly(
+        1,
+        &crate::command::Command::Design(crate::command::design::PublishFind).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let listing = artifacts_listing(&args)?;
@@ -933,7 +1000,11 @@ fn live_index(args: &Args) -> Result<Option<String>> {
 /// prints each artifact's folder and calls (`design_publish::write_all`).
 fn publish_files(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &["at", "index", "artifacts"], &["no-index"])?;
-    let [dir, out] = args.exactly(2, USAGE)? else {
+    let [dir, out] = args.exactly(
+        2,
+        &crate::command::Command::Design(crate::command::design::PublishFiles).usage_text(),
+    )?
+    else {
         unreachable!("exactly two")
     };
     let listing = artifacts_listing(&args)?;
@@ -961,7 +1032,11 @@ fn publish_files(tool: &Tool, args: &[String]) -> Result<String> {
 /// the url or id the Artifact tool gave for it (`design_publish::write_last`).
 fn publish_last(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &["listing", "index", "by", "uploaded"], &["no-index"])?;
-    let [folder] = args.exactly(1, USAGE)? else {
+    let [folder] = args.exactly(
+        1,
+        &crate::command::Command::Design(crate::command::design::PublishLast).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let Some(listing) = args.value("listing")? else {

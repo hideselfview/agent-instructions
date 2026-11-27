@@ -25,7 +25,7 @@ fn words(text: &str) -> Vec<String> {
 fn health_lists_a_project_main_checkout_behind_origin_main() {
     let scratch = Scratch::new("main-checkout-behind");
     let tool = scratch.tool(0);
-    crate::lists::cmd_lists(&tool, &words("init demo --repos demo,absent --by tester")).unwrap();
+    crate::lists::lists_words(&tool, &words("init demo --repos demo,absent --by tester")).unwrap();
     let origin = scratch.dir.join("origin.git");
     git_out(
         &scratch.dir,
@@ -118,7 +118,7 @@ fn health_lists_a_project_main_checkout_behind_origin_main() {
 fn health_lists_a_failed_install_until_an_install_succeeds() {
     let scratch = Scratch::new("main-checkout-install");
     let tool = scratch.tool(0);
-    crate::lists::cmd_lists(&tool, &words("init demo --repos demo --by tester")).unwrap();
+    crate::lists::lists_words(&tool, &words("init demo --repos demo --by tester")).unwrap();
     let main = tool.places.home.join("dev/demo");
     std::fs::create_dir_all(&main).unwrap();
     git_out(&main, &["init", "-q", "-b", "main"]);

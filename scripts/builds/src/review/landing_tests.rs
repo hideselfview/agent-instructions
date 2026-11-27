@@ -99,7 +99,7 @@ fn asked_as(demo: &Demo, fake: &Fake, side: &Path, shas: &[String], key: &str) -
 }
 
 fn ask_of(tool: &Tool, args: &Args) -> Asked {
-    super::ask(tool, args).unwrap()
+    super::ask(tool, args, "usage").unwrap()
 }
 
 fn findings(demo: &Demo) -> Vec<record::Finding> {

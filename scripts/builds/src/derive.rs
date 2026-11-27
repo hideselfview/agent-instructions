@@ -45,8 +45,6 @@ use crate::places::Places;
 use crate::shots_declared::ShotDeclarations;
 use boards::git;
 
-const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--design-shots] [--all-shots <app>]... [--fresh] [--project P]";
-
 /// The flag that adds the shots of the boards and components the branch
 /// changes (`app_design_shots`).
 const DESIGN_SHOTS: &str = "--design-shots";
@@ -253,19 +251,29 @@ fn parse_picks(
             continue;
         }
         if flag == app_build::ALL_SHOTS {
-            let (pick, after) = app_build::all_shots_flag(after, USAGE, lanes)?;
+            let (pick, after) = app_build::all_shots_flag(
+                after,
+                &crate::command::Command::AppBuild.usage_text(),
+                lanes,
+            )?;
             picks.push(pick);
             rest = after;
             continue;
         }
         let Some(kind) = PickKind::ALL.into_iter().find(|kind| flag == kind.flag()) else {
             fail!(
-                "{flag:?} where --test, --shots, {} or --fresh goes\n{USAGE}",
-                app_build::ALL_SHOTS
+                "{flag:?} where --test, --shots, {} or --fresh goes\n{usage}",
+                app_build::ALL_SHOTS,
+                usage = crate::command::Command::AppBuild.usage_text(),
             );
         };
         let [arg, after @ ..] = after else {
-            fail!("{} needs a {}\n{USAGE}", kind.flag(), kind.what());
+            fail!(
+                "{} needs a {}\n{usage}",
+                kind.flag(),
+                kind.what(),
+                usage = crate::command::Command::AppBuild.usage_text()
+            );
         };
         if arg.is_empty() || arg.starts_with('-') || arg.contains(char::is_whitespace) {
             fail!(
@@ -313,10 +321,10 @@ fn adopt_main_rules(top: &Path, config: &mut Config) -> Result<()> {
 
 pub fn derive_and_run(places: &Places, args: &[String], project: Option<&str>) -> Result<()> {
     let [repo, git_ref, tail @ ..] = args else {
-        fail!("{USAGE}");
+        fail!("{}", crate::command::Command::AppBuild.usage_text());
     };
     if git_ref.starts_with('-') {
-        fail!("{USAGE}");
+        fail!("{}", crate::command::Command::AppBuild.usage_text());
     }
     let (top, commit, mut config) = app_build::commit_and_config(places, repo, git_ref)?;
     let mut declarations = ShotDeclarations::new(&top);

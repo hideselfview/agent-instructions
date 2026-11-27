@@ -1,13 +1,13 @@
 use super::*;
-use crate::lists::cmd_item;
 use crate::lists::item_fixtures::{Demo, demo, refusal, words};
+use crate::lists::item_words;
 
 const TOOLS_JSON: &str =
     r#"["Bash","Edit","LSP","Monitor","Read","TaskStop","ToolSearch","Write"]"#;
 
 fn add_item(demo: &Demo, title: &str) {
     let details = demo.brief("details.txt");
-    cmd_item(
+    item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
         &words(&[
@@ -28,7 +28,7 @@ fn take(demo: &Demo, ids: &[&str], side: &std::path::Path, branch: &str, brief: 
     let mut args = vec!["take"];
     args.extend_from_slice(ids);
     args.extend(["--worktree", &side, "--branch", branch, "--brief", brief]);
-    cmd_item(&demo.tool, &crate::testing::no_ssh(), &words(&args)).unwrap();
+    item_words(&demo.tool, &crate::testing::no_ssh(), &words(&args)).unwrap();
 }
 
 /// A demo with the project file the run reads, two items and a brief.
@@ -456,7 +456,7 @@ fn resume_takes_an_item_on_a_new_branch_of_the_agents_worktree_and_records_it() 
     for inbox in [false, true] {
         let (demo, session) = ended_agent(if inbox { "ar-new-in" } else { "ar-new" });
         for id in ["1", "2"] {
-            cmd_item(
+            item_words(
                 &demo.tool,
                 &crate::testing::no_ssh(),
                 &words(&["finished", id, "--made", "the work"]),
@@ -500,7 +500,7 @@ fn resume_takes_an_item_on_a_new_branch_of_the_agents_worktree_and_records_it() 
 /// Finishes items 1 and 2, then takes a new item 3 in a second worktree.
 fn take_third_in_another_worktree(demo: &Demo) -> std::path::PathBuf {
     for id in ["1", "2"] {
-        cmd_item(
+        item_words(
             &demo.tool,
             &crate::testing::no_ssh(),
             &words(&["finished", id, "--made", "the work"]),
@@ -638,7 +638,7 @@ fn resume_refuses_nothing_to_say_an_unknown_agent_and_an_item_that_does_not_run(
 fn resume_finds_the_folder_of_a_finished_agent_after_the_shared_prune() {
     let (demo, session) = ended_agent("ar-pruned");
     for id in ["1", "2"] {
-        cmd_item(
+        item_words(
             &demo.tool,
             &crate::testing::no_ssh(),
             &words(&["finished", id, "--made", "the work"]),

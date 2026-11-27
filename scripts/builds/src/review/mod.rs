@@ -108,6 +108,7 @@ use std::path::{Path, PathBuf};
 
 use crate::ack::agent::Caller;
 use crate::checkout::Checkout;
+use crate::command::review;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::inbox::{Messaging, Recipient};
@@ -121,10 +122,6 @@ use boards::git;
 use rusqlite::Connection;
 
 use record::Kind;
-
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] --kind code|mechanical [--checked-by TEXT] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review dispute FINDING --why TEXT\n       builds review keep FINDING --why TEXT\n       builds review keep FINDING --again --why TEXT\n       builds review show LANDING
-       builds review key DIR --project P
-       builds review check-landing DIR --project P SHA... [--landing KEY] [--squashed] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]\n       builds review replay [--case NAME]... [--source REPO] [--model MODEL] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model MODEL] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model MODEL] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model MODEL] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -233,58 +230,44 @@ impl Drop for Running {
     }
 }
 
-/// Whether `builds review <args>` runs reviewers: every form but those that
-/// only read the records, write a verdict to them or wait for one. Matches
-/// the forms `cmd_review` takes.
-pub fn runs_reviewers(args: &[String]) -> bool {
-    args.first().is_some_and(|word| {
-        !matches!(
-            word.as_str(),
-            "groups"
-                | "wait"
-                | "settle"
-                | "dispute"
-                | "keep"
-                | "show"
-                | "key"
-                | "check-landing"
-                | "landed"
-                | "misses"
-                | "rates"
-                | "scores"
-        )
-    })
-}
-
-pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
-    let Some((command, rest)) = args.split_first() else {
-        fail!("{USAGE}")
-    };
-    match command.as_str() {
-        "groups" => list_groups(tool, rest),
-        "wait" => wait_command(tool, rest),
-        "settle" => settle(tool, rest, tool.session.caller()?.as_ref()),
-        "dispute" => dispute_command(
+/// `builds review <command> <args>`.
+pub fn cmd_review(tool: &Tool, command: review::Review, args: &[String]) -> Result<()> {
+    match command {
+        review::Groups => list_groups(tool, args),
+        review::Wait => wait_command(tool, args),
+        review::Settle => settle(tool, args, tool.session.caller()?.as_ref()),
+        review::Dispute => dispute_command(
             tool,
-            rest,
+            args,
             tool.session.caller()?.as_ref(),
             Messaging::for_session(&tool.session, Recipient::Coordinator)?.as_ref(),
         ),
-        "keep" => keep_command(tool, rest, tool.session.caller()?.as_ref()),
-        "show" => show(tool, rest),
-        "run" => run_command(tool, rest),
-        "copy" => copy_command(tool, rest),
-        "key" => key::key_command(tool, rest),
-        "check-landing" => landing::check_landing_command(tool, rest),
-        "landed" => landing::landed_command(tool, rest),
-        "replay" => replay(tool, rest),
-        "audit" => audit_command(tool, rest),
-        "misses" => misses(tool, rest),
-        "rates" => rates(tool, rest),
-        "scores" => scores(tool, rest),
-        "case" => case_command(tool, rest),
-        _ => run_command(tool, args),
+        review::Keep => keep_command(tool, args, tool.session.caller()?.as_ref()),
+        review::Show => show(tool, args),
+        review::Run => run_command(tool, args),
+        review::Copy => copy_command(tool, args),
+        review::Key => key::key_command(tool, args),
+        review::CheckLanding => landing::check_landing_command(tool, args),
+        review::Landed => landing::landed_command(tool, args),
+        review::Replay => replay(tool, args),
+        review::Audit => audit_command(tool, args),
+        review::Misses => misses(tool, args),
+        review::Rates => rates(tool, args),
+        review::Scores => scores(tool, args),
+        review::CaseAdd => case_add(tool, args),
+        review::CasePropose => propose::propose_command(tool, args),
     }
+}
+
+/// `builds review <words>`, as a test runs it.
+#[cfg(test)]
+pub fn review_words(tool: &Tool, words: &[String]) -> Result<()> {
+    let (crate::command::Command::Review(command), args) =
+        crate::command::parse_line("review", words)?
+    else {
+        fail!("{words:?} is no review command");
+    };
+    cmd_review(tool, command, &args)
 }
 
 /// What one review needs.
@@ -1246,7 +1229,11 @@ pub fn wait_target(
     cwd: &Path,
 ) -> Result<(Store, i64)> {
     let args = Args::parse(args, &[], &[])?;
-    let [landing] = args.exactly(1, USAGE)? else {
+    let [landing] = args.exactly(
+        1,
+        &crate::command::Command::Review(crate::command::review::Wait).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let landing: i64 = landing
@@ -1296,7 +1283,7 @@ fn worktree_and_base(args: &Args) -> Result<(&str, &str)> {
     match args.positional() {
         [worktree] => Ok((worktree.as_str(), "origin/main")),
         [worktree, base] => Ok((worktree.as_str(), base.as_str())),
-        _ => fail!("{USAGE}"),
+        _ => fail!("{}", crate::command::Command::group_usage_text("review")),
     }
 }
 
@@ -1459,13 +1446,19 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
     let (finding, how) = match (args.positional(), again) {
         ([finding], true) => (finding, "dropped"),
         ([finding, how], false) => (finding, how.as_str()),
-        _ => fail!("{USAGE}"),
+        _ => fail!(
+            "{}",
+            crate::command::Command::Review(crate::command::review::Settle).usage_text()
+        ),
     };
     match (how == "allowed", by_person) {
         (true, false) => fail!(
             "only the person can allow a finding to land: pass --by-person once they have said to land finding {finding} as it is, with their words in --why, never on your own judgment"
         ),
-        (false, true) => fail!("--by-person goes with allowed: {USAGE}"),
+        (false, true) => fail!(
+            "--by-person goes with allowed: {}",
+            crate::command::Command::Review(crate::command::review::Settle).usage_text()
+        ),
         _ => {}
     }
     let id: i64 = finding
@@ -1534,7 +1527,7 @@ fn held_words(held: &audit_item::Held) -> String {
 
 /// The finding a command names: its one positional argument.
 fn finding_named(args: &Args) -> Result<i64> {
-    let [finding] = args.exactly(1, USAGE)? else {
+    let [finding] = args.exactly(1, &crate::command::Command::group_usage_text("review"))? else {
         unreachable!("exactly one")
     };
     finding
@@ -1611,7 +1604,11 @@ fn keep_command(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result
 /// `builds review show LANDING`.
 fn show(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
-    let [landing] = args.exactly(1, USAGE)? else {
+    let [landing] = args.exactly(
+        1,
+        &crate::command::Command::Review(crate::command::review::Show).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let id: i64 = landing
@@ -1705,15 +1702,25 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
         ],
         &["compare"],
     )?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Review(crate::command::review::Replay).usage_text(),
+    )?;
     if !args.values("landing").is_empty() {
         if args.switch("compare") {
-            fail!("--compare goes with the cases, not --landing\n{USAGE}");
+            fail!(
+                "--compare goes with the cases, not --landing\n{usage}",
+                usage =
+                    crate::command::Command::Review(crate::command::review::Replay).usage_text()
+            );
         }
         return replay_landings(tool, &args);
     }
     if args.value("repo-dir")?.is_some() || !args.values("group").is_empty() {
-        fail!("--repo-dir and --group go with --landing\n{USAGE}");
+        fail!(
+            "--repo-dir and --group go with --landing\n{usage}",
+            usage = crate::command::Command::Review(crate::command::review::Replay).usage_text()
+        );
     }
     let root = rules_root(&args)?;
     let reviewer = tool.reviewer.program_for(args.value("reviewer")?);
@@ -1846,7 +1853,11 @@ pub(super) fn group_names(root: &Path) -> Result<impl Fn(&str) -> Option<String>
 /// `builds review audit LANDING --repo-dir DIR`: audits a landing that landed.
 fn audit_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["repo-dir", "rules-root", "reviewer", "seed"], &[])?;
-    let [landing] = args.exactly(1, USAGE)? else {
+    let [landing] = args.exactly(
+        1,
+        &crate::command::Command::Review(crate::command::review::Audit).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let landing: i64 = landing
@@ -1894,7 +1905,10 @@ pub(super) fn clock_bits() -> u64 {
 /// `--check`, the model check settles each one (`audit::check_open_misses`).
 fn misses(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["rules-root", "model", "reviewer"], &["check"])?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Review(crate::command::review::Misses).usage_text(),
+    )?;
     if args.switch("check") {
         return audit::check_misses_command(tool, &args);
     }
@@ -1914,7 +1928,10 @@ fn misses(tool: &Tool, args: &[String]) -> Result<()> {
 /// `builds review rates`: each group's audited miss rate.
 fn rates(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["rules-root"], &[])?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Review(crate::command::review::Rates).usage_text(),
+    )?;
     let (_, conn) = store_of(tool, &args)?;
     let root = rules_root(&args)?;
     for rate in audit::rates(&conn, &group_names(&root)?)? {
@@ -1935,7 +1952,10 @@ fn rates(tool: &Tool, args: &[String]) -> Result<()> {
 /// setup, from the settled findings and audits in the store.
 fn scores(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Review(crate::command::review::Scores).usage_text(),
+    )?;
     let (store, conn) = store_of(tool, &args)?;
     crate::output::answer(score::store_report(
         &store.project,
@@ -1947,17 +1967,9 @@ fn scores(tool: &Tool, args: &[String]) -> Result<()> {
 /// `builds review case add`: the case a confirmed finding or a confirmed miss
 /// makes, written into the checkout named by --rules-root (never a default:
 /// the main checkout is the person's).
-fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
-    let Some((sub, rest)) = args.split_first() else {
-        fail!("{USAGE}")
-    };
-    match sub.as_str() {
-        "add" => {}
-        "propose" => return propose::propose_command(tool, rest),
-        _ => fail!("unknown review case command {sub}\n{USAGE}"),
-    }
+fn case_add(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(
-        rest,
+        args,
         &[
             "repo-dir",
             "rules-root",
@@ -2028,7 +2040,10 @@ fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
                 format!("{}-{word}", short(head)),
             )
         }
-        _ => fail!("{USAGE}"),
+        _ => fail!(
+            "{}",
+            crate::command::Command::Review(crate::command::review::CaseAdd).usage_text()
+        ),
     };
     let name = args
         .value("name")?
@@ -2053,7 +2068,10 @@ fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
 /// the project's store.
 fn list_groups(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["rules-root", "changed", "repo"], &[])?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Review(crate::command::review::Groups).usage_text(),
+    )?;
     let root = rules_root(&args)?;
     let groups = groups::Groups::load(&root)?;
     let every = rules::load(&root, None)?;

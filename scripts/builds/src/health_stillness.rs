@@ -6,6 +6,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::command::{Command, Parsed, agent, review};
 use crate::db::Sql;
 use crate::design_run::DesignCommand;
 use crate::fail::{Fail, Result};
@@ -620,29 +621,21 @@ fn worktrees(
 }
 
 fn command_kind(row: &Row) -> Option<&'static str> {
+    use Command::*;
     if program(row) != "builds" {
         return None;
     }
-    match arguments(row).as_slice() {
-        ["app-build" | "build-app" | "lock", ..] => Some("app build"),
-        ["land", ..] => Some("landing"),
-        ["install", ..] => Some("install"),
-        ["review", "wait", ..] => Some("review wait"),
-        ["review", "copy" | "audit" | "replay", ..] => Some("review"),
-        ["review", rest @ ..]
-            if crate::holds_for_life(
-                "review",
-                &rest
-                    .iter()
-                    .map(|word| (*word).to_string())
-                    .collect::<Vec<_>>(),
-            ) =>
-        {
-            Some("review")
-        }
-        ["cargo" | "lake" | "remote" | "checks", ..] => Some("process"),
-        words if crate::agent_launch::starts_agent(words) => Some("agent"),
-        words => DesignCommand::of_words(words).map(DesignCommand::word),
+    let words = arguments(row);
+    let parsed = Command::of(&words)?;
+    match parsed.command {
+        AppBuild | BuildApp | Lock => Some("app build"),
+        Land => Some("landing"),
+        Install => Some("install"),
+        Review(review::Wait) => Some("review wait"),
+        Review(review::Run | review::Copy | review::Replay | review::Audit) => Some("review"),
+        Cargo | Lake | Remote(_) | Checks(_) => Some("process"),
+        Agent(agent::Run | agent::Resume) => Some("agent"),
+        _ => DesignCommand::of_words(&words).map(DesignCommand::word),
     }
 }
 
@@ -718,10 +711,12 @@ fn process_work(
                 .filter(|row| row.uid == scan.uid && !row.zombie)
             {
                 if program(row) == "builds"
-                    && matches!(
-                        arguments(row).first(),
-                        Some(&("health" | "dashboard" | "version"))
-                    )
+                    && Command::of(&arguments(row)).is_some_and(|parsed| {
+                        matches!(
+                            parsed.command,
+                            Command::Health | Command::Dashboard(_) | Command::Version
+                        )
+                    })
                 {
                     continue;
                 }
@@ -810,7 +805,12 @@ fn review_wait(places: &Places, pid: i32) -> std::result::Result<Option<Key>, St
         return Ok(None);
     };
     let words = crate::ack::agent::without_flag(&argv);
-    let [_, "review", "wait", args @ ..] = words.as_slice() else {
+    let Some(Parsed {
+        command: Command::Review(review::Wait),
+        rest: args,
+        ..
+    }) = words.get(1..).and_then(Command::of)
+    else {
         return Ok(None);
     };
     let cwd = crate::procs::cwd(pid)

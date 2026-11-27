@@ -79,10 +79,11 @@ impl Args {
         &self.positional
     }
 
-    /// The positional arguments, exactly <count> of them, else <usage>.
+    /// The positional arguments, exactly <count> of them, else a refusal that
+    /// says <usage> (`Command::usage_text`).
     pub fn exactly(&self, count: usize, usage: &str) -> Result<&[String]> {
         if self.positional.len() != count {
-            fail!("usage: {usage}");
+            fail!("{usage}");
         }
         Ok(&self.positional)
     }
@@ -146,10 +147,10 @@ impl Args {
     }
 
     /// The positional arguments as ids: at least one, each named once, else
-    /// <usage>.
+    /// a refusal that says <usage> (`Command::usage_text`).
     pub fn positional_ids(&self, usage: &str) -> Result<Vec<Id>> {
         if self.positional.is_empty() {
-            fail!("usage: {usage}");
+            fail!("{usage}");
         }
         let ids = self
             .positional

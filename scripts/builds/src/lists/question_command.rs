@@ -7,6 +7,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::command::Command;
+use crate::command::question::Question as Subcommand;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::{Args, parse_named, read_input, read_request};
@@ -28,45 +30,45 @@ use crate::lists::{
 };
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds question ask --title T --kind question|your-step --effect E --details-file F (--blocks N[,N] | --blocks-nothing WHY) [--from-item N | --origin N] [--first WHY] [--plan PATH --plan-number Qn] [--tag T]...
-       builds question answer N --request F
-       builds question settle N --request F
-       builds question done N --request F
-       builds question drop N --why WHY
-       builds question place N (first|last|auto | --above M | --below M) --why WHY [--by-person]
-       builds question edit N [--title T] [--details-file F] [--effect E] [--blocks-nothing WHY] [--origin N] [--tag T]... [--untag T]...
-       builds question show N
-       builds question list [--tag T]
-  every command also takes --project P and --by WHO";
-
-pub fn cmd_question(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn cmd_question(tool: &Tool, command: Subcommand, args: &[String]) -> Result<()> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
-    crate::output::answer(run(tool, args, &cwd)?);
+    crate::output::answer(run(tool, command, args, &cwd)?);
     Ok(())
 }
 
 /// Runs one command and returns what it prints.
-pub fn run(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let Some((command, rest)) = args.split_first() else {
-        fail!("{USAGE}")
-    };
-    let words = format!("question {}", args.join(" "));
-    match command.as_str() {
-        "ask" => ask(tool, rest, cwd, &words),
-        "answer" => resolve(tool, rest, cwd, &words, Verb::Answer),
-        "settle" => resolve(tool, rest, cwd, &words, Verb::Settle),
-        "done" => resolve(tool, rest, cwd, &words, Verb::Done),
-        "drop" => drop_question(tool, rest, cwd, &words),
-        "place" => place(tool, rest, cwd, &words),
-        "edit" => edit(tool, rest, cwd, &words),
-        "show" => show(tool, rest, cwd),
-        "list" => list(tool, rest, cwd),
-        other => fail!("unknown question command {other}\n{USAGE}"),
+pub fn run(tool: &Tool, command: Subcommand, args: &[String], cwd: &Path) -> Result<String> {
+    // The words the store records the write with.
+    let words = Command::Question(command).words()[0]
+        .iter()
+        .copied()
+        .chain(args.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ");
+    match command {
+        Subcommand::Ask => ask(tool, args, cwd, &words),
+        Subcommand::Answer => resolve(tool, args, cwd, &words, Verb::Answer),
+        Subcommand::Settle => resolve(tool, args, cwd, &words, Verb::Settle),
+        Subcommand::Done => resolve(tool, args, cwd, &words, Verb::Done),
+        Subcommand::Drop => drop_question(tool, args, cwd, &words),
+        Subcommand::Place => place(tool, args, cwd, &words),
+        Subcommand::Edit => edit(tool, args, cwd, &words),
+        Subcommand::Show => show(tool, args, cwd),
+        Subcommand::List => list(tool, args, cwd),
     }
 }
 
+/// `builds question <words>`, as a test runs it: what it prints.
+#[cfg(test)]
+pub fn run_words(tool: &Tool, words: &[String], cwd: &Path) -> Result<String> {
+    let (Command::Question(command), args) = crate::command::parse_line("question", words)? else {
+        fail!("{words:?} is no question command");
+    };
+    run(tool, command, &args, cwd)
+}
+
 fn question_id(args: &Args) -> Result<Id> {
-    let [id] = args.exactly(1, USAGE)? else {
+    let [id] = args.exactly(1, &crate::command::Command::group_usage_text("question"))? else {
         unreachable!("exactly one")
     };
     Id::parse(id)
@@ -123,7 +125,10 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
         ],
         &[],
     )?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Question(crate::command::question::Ask).usage_text(),
+    )?;
     let tags = tag::parse_tags(args.values("tag"))?;
     let title = args.require("title")?.to_string();
     if let Some(fault) = title_fault(&title) {
@@ -540,7 +545,10 @@ fn place(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String
         ([_, _], _, _) => {
             fail!("--above and --below take the place of first, last or auto: give one of them")
         }
-        _ => fail!("{USAGE}"),
+        _ => fail!(
+            "{}",
+            crate::command::Command::Question(crate::command::question::Place).usage_text()
+        ),
     };
     let id = Id::parse(id)?;
     let why = args.why()?;
@@ -706,7 +714,10 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 /// stack.
 fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &["tag"], &[])?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Question(crate::command::question::List).usage_text(),
+    )?;
     let wanted = args.value("tag")?;
     let lists = Store::resolve(&tool.places, &args, cwd)?.load()?;
     let stack = derive::stack_order(&lists);

@@ -21,6 +21,7 @@
 //! "needs action": a `builds` command such as a landing or an install still
 //! does its work when no one reads it.
 
+use crate::command::{Command, Orphaned};
 use crate::health::Advice;
 use crate::host::{Host, place};
 use crate::host_scan::Row;
@@ -165,14 +166,11 @@ impl Orphan {
 fn judge(row: &Row, targets: &[&str]) -> Option<bool> {
     let words = arguments(row);
     match program(row) {
-        "builds" => match words[..] {
-            []
-            | ["dashboard", ..]
-            | ["units", ..]
-            | ["review", "audit", ..]
-            | ["build-app", ..] => None,
-            ["cargo", ..] | ["remote", ..] | ["checks", "run", ..] => Some(true),
-            _ => Some(false),
+        "builds" => match Command::of(&words).map(|parsed| parsed.command.orphaned()) {
+            None if words.is_empty() => None,
+            Some(Orphaned::Detached) => None,
+            Some(Orphaned::OnlyPrints) => Some(true),
+            Some(Orphaned::Works) | None => Some(false),
         },
         "git" => (!words.iter().any(|word| word.ends_with("--daemon"))).then_some(true),
         "sccache" => (!words.is_empty()).then_some(true),

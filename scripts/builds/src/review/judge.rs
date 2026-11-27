@@ -61,8 +61,6 @@ use crate::review::record::{self, Finding};
 use crate::review::render;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds judge listen --project P [--by WHO]";
-
 /// The session that judges a project's reviews.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Judge {
@@ -801,24 +799,17 @@ pub fn move_legacy_judge(db: &Connection) -> Result<()> {
 }
 
 /// `builds judge <command>`.
-pub fn cmd_judge(tool: &Tool, args: &[String]) -> Result<()> {
-    let Some((command, rest)) = args.split_first() else {
-        fail!("{USAGE}")
-    };
-    match command.as_str() {
-        "listen" => {
-            let said = listen_command(
-                tool,
-                rest,
-                &current_dir()?,
-                tool.session.caller()?.as_ref(),
-                Messaging::for_session(&tool.session, Recipient::ThisThread)?.as_ref(),
-            )?;
-            crate::output::answer(said);
-            Ok(())
-        }
-        other => fail!("unknown judge command {other}\n{USAGE}"),
-    }
+/// `builds judge listen`.
+pub fn cmd_listen(tool: &Tool, args: &[String]) -> Result<()> {
+    let said = listen_command(
+        tool,
+        args,
+        &current_dir()?,
+        tool.session.caller()?.as_ref(),
+        Messaging::for_session(&tool.session, Recipient::ThisThread)?.as_ref(),
+    )?;
+    crate::output::answer(said);
+    Ok(())
 }
 
 /// `listen --project P`, run in <cwd> by <caller>, whose session's inbox is
@@ -831,7 +822,10 @@ pub fn listen_command(
     inbox: Option<&Messaging>,
 ) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Judge(crate::command::judge::Listen).usage_text(),
+    )?;
     let Some(project) = args.value("project")? else {
         fail!("say which project's reviews the session judges with --project");
     };

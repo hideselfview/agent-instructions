@@ -414,7 +414,7 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
 /// this Mac's build makes there (app_remote.rs).
 pub fn cmd_app_clone(tool: &Tool, args: &[String]) -> Result<()> {
     let [lane, source, dest] = args else {
-        fail!("usage: builds app-clone <app> <source checkout> <new checkout>")
+        fail!("{}", crate::command::Command::AppClone.usage_text())
     };
     let (source, dest) = (Checkout::find(source)?, Checkout::find(dest)?);
     let lane = crate::repo_lanes::parse(&tool.places, &source.repo(), lane)?;

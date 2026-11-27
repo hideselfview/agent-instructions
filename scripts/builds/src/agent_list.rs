@@ -17,9 +17,6 @@ use crate::lists::store::Store;
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const LIST_USAGE: &str = "builds agent list [--running] [--project P]";
-const SHOW_USAGE: &str = "builds agent show SESSION [--project P]";
-
 pub(crate) fn thousands(tokens: u64) -> String {
     format!("{}k", tokens / 1000)
 }
@@ -78,7 +75,10 @@ fn items_words(agent: &Agent) -> String {
 /// `builds agent list`, printing to <out>.
 pub fn list(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<()> {
     let args = Args::parse(args, &[], &["running"])?;
-    args.exactly(0, LIST_USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Agent(crate::command::agent::List).usage_text(),
+    )?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let conn = db::open(&store.database(), db::Make::Never)?;
     let running = running_sessions(tool)?;
@@ -125,7 +125,11 @@ fn last_result(path: &Path) -> Result<Option<String>> {
 /// `builds agent show`, printing to <out>.
 pub fn show(tool: &Tool, args: &[String], cwd: &Path, out: &mut dyn Write) -> Result<()> {
     let args = Args::parse(args, &[], &[])?;
-    let [session] = args.exactly(1, SHOW_USAGE)? else {
+    let [session] = args.exactly(
+        1,
+        &crate::command::Command::Agent(crate::command::agent::Show).usage_text(),
+    )?
+    else {
         unreachable!("exactly one")
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;

@@ -1293,8 +1293,6 @@ pub fn probe_all(
     hosts.into_iter().zip(probes).collect()
 }
 
-const USAGE: &str = "usage: builds host add <name> <ssh target> | setup <name> | setup-here [<version>...] | speed-here | band <name> <low> <high> | band <name> clear | list | cache | remove <name> | clear-xcode <name>";
-
 /// The build volume, where a host that has one keeps its builds root, as this
 /// Mac does.
 pub const VOLUME: &str = "/Volumes/Builds";
@@ -1308,49 +1306,107 @@ pub const REMOTE_ROOT: &str = "builds-root.noindex";
 /// The builds root on a Linux host, relative to the host's home.
 pub const LINUX_ROOT: &str = "builds-root";
 
-pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
-    match args {
-        [add_word, name, target] if add_word == "add" => {
-            let host = add(&tool.places, ssh, name, target)?;
-            crate::output::say(format!(
-                "added host {} ({}, {} cores)",
-                host.name, target, host.cores
-            ));
-            Ok(())
-        }
-        [word, name] if word == "setup" => crate::host_setup::cmd_setup(tool, ssh, name),
-        [word, kept @ ..] if word == "setup-here" => {
-            tool.places.mark_host()?;
-            crate::programs::remove_others(&tool.places.home, kept)?;
-            crate::cargo_program::install_all(&tool.places.home)?;
-            crate::install::run_sccache_server(&tool.places, &tool.system)
-        }
-        [word] if word == "speed-here" => crate::host_setup::cmd_speed_here(),
-        [word, rest @ ..] if word == "band" => crate::host_band::cmd_band(tool, rest),
-        [word, name] if word == "clear-xcode" => {
-            if !all(&tool.places)?.iter().any(|host| host.name == *name) {
-                fail!("no host named {name} (`builds host list`)");
-            }
-            clear_refusal(&tool.places, Refused::Xcode, name)?;
-            crate::output::say(format!(
-                "mac app builds use the app checkouts on host {name} again"
-            ));
-            Ok(())
-        }
-        [word, name] if word == "remove" => {
-            remove(&tool.places, name)?;
-            crate::output::say(format!("removed host {name}"));
-            Ok(())
-        }
-        [word] if word == "cache" => crate::sccache_history::cmd_cache(tool),
-        [word] if word == "list" => {
-            for (host, probe) in probe_all(&tool.places, ssh, all(&tool.places)?) {
-                crate::output::answer_line(list_line(&host, &probe));
-            }
-            Ok(())
-        }
-        _ => fail!("{USAGE}"),
+/// `builds host add`.
+pub fn cmd_add(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
+    let [name, target] = args else {
+        fail!(
+            "{}",
+            crate::command::Command::Host(crate::command::host::Add).usage_text()
+        );
+    };
+    let host = add(&tool.places, ssh, name, target)?;
+    crate::output::say(format!(
+        "added host {} ({}, {} cores)",
+        host.name, target, host.cores
+    ));
+    Ok(())
+}
+
+/// `builds host setup`.
+pub fn cmd_setup(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
+    let [name] = args else {
+        fail!(
+            "{}",
+            crate::command::Command::Host(crate::command::host::Setup).usage_text()
+        );
+    };
+    crate::host_setup::cmd_setup(tool, ssh, name)
+}
+
+/// `builds host setup-here`, which `host setup` runs on the host with the
+/// versions of the programs it keeps.
+pub fn cmd_setup_here(tool: &Tool, kept: &[String]) -> Result<()> {
+    tool.places.mark_host()?;
+    crate::programs::remove_others(&tool.places.home, kept)?;
+    crate::cargo_program::install_all(&tool.places.home)?;
+    crate::install::run_sccache_server(&tool.places, &tool.system)
+}
+
+/// `builds host speed-here`.
+pub fn cmd_speed_here(args: &[String]) -> Result<()> {
+    if !args.is_empty() {
+        fail!(
+            "{}",
+            crate::command::Command::Host(crate::command::host::SpeedHere).usage_text()
+        );
     }
+    crate::host_setup::cmd_speed_here()
+}
+
+/// `builds host clear-xcode`.
+pub fn cmd_clear_xcode(tool: &Tool, args: &[String]) -> Result<()> {
+    let [name] = args else {
+        fail!(
+            "{}",
+            crate::command::Command::Host(crate::command::host::ClearXcode).usage_text()
+        );
+    };
+    if !all(&tool.places)?.iter().any(|host| host.name == *name) {
+        fail!("no host named {name} (`builds host list`)");
+    }
+    clear_refusal(&tool.places, Refused::Xcode, name)?;
+    crate::output::say(format!(
+        "mac app builds use the app checkouts on host {name} again"
+    ));
+    Ok(())
+}
+
+/// `builds host remove`.
+pub fn cmd_remove(tool: &Tool, args: &[String]) -> Result<()> {
+    let [name] = args else {
+        fail!(
+            "{}",
+            crate::command::Command::Host(crate::command::host::Remove).usage_text()
+        );
+    };
+    remove(&tool.places, name)?;
+    crate::output::say(format!("removed host {name}"));
+    Ok(())
+}
+
+/// `builds host cache`.
+pub fn cmd_cache(tool: &Tool, args: &[String]) -> Result<()> {
+    if !args.is_empty() {
+        fail!(
+            "{}",
+            crate::command::Command::Host(crate::command::host::Cache).usage_text()
+        );
+    }
+    crate::sccache_history::cmd_cache(tool)
+}
+
+/// `builds host list`.
+pub fn cmd_list(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
+    if !args.is_empty() {
+        fail!(
+            "{}",
+            crate::command::Command::Host(crate::command::host::List).usage_text()
+        );
+    }
+    for (host, probe) in probe_all(&tool.places, ssh, all(&tool.places)?) {
+        crate::output::answer_line(list_line(&host, &probe));
+    }
+    Ok(())
 }
 
 /// The folder of <repo>'s clone on a host, relative to the host's home.

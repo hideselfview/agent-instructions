@@ -66,7 +66,7 @@ fn demo_with_items(name: &str) -> Demo {
     let demo = demo(name);
     let details = demo.brief("details.txt");
     for title in ["Do the first thing now", "Do the second thing now"] {
-        crate::lists::cmd_item(
+        crate::lists::item_words(
             &demo.tool,
             &crate::testing::no_ssh(),
             &words(&[

@@ -137,7 +137,7 @@ pub fn cmd_record_handed(places: &Places, args: &[String]) -> Result<()> {
     let (repo, store, project) = match args {
         [repo, store] => (repo, store, None),
         [repo, store, project] => (repo, store, Some(project.as_str())),
-        _ => fail!("usage: builds app-build {FLAG} <repo> <store> [<project>]"),
+        _ => fail!("{}", crate::command::Command::AppBuild.usage_text()),
     };
     let path =
         std::path::absolute(store).context(|| format!("resolving the handed store at {store}"))?;

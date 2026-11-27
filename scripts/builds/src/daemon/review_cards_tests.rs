@@ -162,7 +162,7 @@ fn a_card_follows_the_review_from_none_to_findings_to_fixes_and_says_nothing_onc
     .iter()
     .map(|s| s.to_string())
     .collect();
-    crate::review::cmd_review(&demo.tool, &settle).unwrap();
+    crate::review::review_words(&demo.tool, &settle).unwrap();
     assert_eq!(
         standing(&reads, &demo, &side),
         Some(ItemWait::RulesReview(ReviewWait::Open(1)))

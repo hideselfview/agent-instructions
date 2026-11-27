@@ -20,8 +20,6 @@ use crate::places::Places;
 use crate::review::frequent::Frequent;
 use crate::review::rules::{self, Rule};
 
-const USAGE: &str = "usage: builds rules-on-edit   (a Claude Code PreToolUse hook runs it, with the hook's input on standard input)";
-
 /// What Claude Code's PreToolUse hook passes for an editing tool: the tool
 /// and its input, which names the file the tool edits. `Edit`, `Write` and
 /// `MultiEdit` name it `file_path`, `NotebookEdit` `notebook_path`.
@@ -64,7 +62,10 @@ struct Delivery {
 /// which stops the edit and shows the agent the failure.
 pub fn cmd_rules_on_edit(places: &Places, rules_root: &Path, args: &[String]) -> Result<()> {
     if !args.is_empty() {
-        fail!("{USAGE}");
+        fail!(
+            "{}   (a Claude Code PreToolUse hook runs it, with the hook's input on standard input)",
+            crate::command::Command::RulesOnEdit.usage_text()
+        );
     }
     let input = agent::hook_input_from_stdin()?;
     run(

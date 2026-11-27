@@ -17,8 +17,6 @@ use super::pages::{Fixture, Pages};
 use crate::fail;
 use crate::fail::{Context, Result};
 
-const USAGE: &str = "usage: builds dashboard stage --fixtures <folder> <shot>";
-
 /// Reads the fixture the arguments name, prints the page's address, and serves
 /// until stdin closes.
 pub fn cmd_stage(args: &[String]) -> Result<()> {
@@ -52,15 +50,25 @@ fn stage_args(args: &[String]) -> Result<(PathBuf, String)> {
         match arg.as_str() {
             "--fixtures" => match rest.next() {
                 Some(value) if folder.is_none() => folder = Some(PathBuf::from(value)),
-                _ => fail!("{USAGE}"),
+                _ => fail!(
+                    "{}",
+                    crate::command::Command::Dashboard(crate::command::dashboard::Stage)
+                        .usage_text()
+                ),
             },
             word if !word.starts_with('-') && shot.is_none() => shot = Some(word.to_string()),
-            _ => fail!("{USAGE}"),
+            _ => fail!(
+                "{}",
+                crate::command::Command::Dashboard(crate::command::dashboard::Stage).usage_text()
+            ),
         }
     }
     match (folder, shot) {
         (Some(folder), Some(shot)) => Ok((folder, shot)),
-        _ => fail!("{USAGE}"),
+        _ => fail!(
+            "{}",
+            crate::command::Command::Dashboard(crate::command::dashboard::Stage).usage_text()
+        ),
     }
 }
 

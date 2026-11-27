@@ -157,7 +157,13 @@ use crate::output::Report;
 use crate::text::shell_word;
 use boards::git;
 
-const USAGE: &str = "usage: builds land <worktree> [--project P] [--done N]... [--part N]... [--design N]... [<sha>...] (run it in the worktree whose branch holds the commits, with nothing uncommitted there, and in a repo of a project with a claim on it; with no sha, land takes every commit of the branch that origin/main lacks, oldest first, and says which; land requires --design exactly when the commits change a design place or shared design file, once for each design change that resolves some of them, and takes --design alone for commits that are all design files)";
+/// What a refusal of `builds land` says of its use.
+fn usage() -> String {
+    format!(
+        "{} (run it in the worktree whose branch holds the commits, with nothing uncommitted there, and in a repo of a project with a claim on it; with no sha, land takes every commit of the branch that origin/main lacks, oldest first, and says which; land requires --design exactly when the commits change a design place or shared design file, once for each design change that resolves some of them, and takes --design alone for commits that are all design files)",
+        crate::command::Command::Land.usage_text()
+    )
+}
 
 /// How many times a refused push is tried again from a fresh fetch.
 const ATTEMPTS: usize = 5;
@@ -1405,7 +1411,7 @@ fn land_profiled(program: &Path, args: &[String], out: &mut Report) -> Ended {
     let started_at = crate::app_timing::now();
     let began = Moment::now();
     let Some((worktree, rest)) = args.split_first() else {
-        return Ended::before_landing(Err(refuse(out, USAGE)));
+        return Ended::before_landing(Err(refuse(out, usage())));
     };
     let waiting = (crate::app_timing::now(), Moment::now());
     let (workdir, (mut lock, turn_file)) = match std::path::absolute(worktree)

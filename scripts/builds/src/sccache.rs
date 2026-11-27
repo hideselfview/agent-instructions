@@ -357,7 +357,7 @@ fn tmpdir_problem(root: &Path, folder: &Path) -> Result<Option<String>> {
 /// passes over SSH without using a path as a field delimiter.
 pub fn cmd_tmpdir(root: &Path, args: &[String]) -> Result<()> {
     let [pid] = args else {
-        fail!("Usage: builds sccache-tmpdir <pid>");
+        fail!("{}", crate::command::Command::SccacheTmpdir.usage_text());
     };
     let pid = pid
         .parse()

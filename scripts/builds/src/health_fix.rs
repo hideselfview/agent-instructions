@@ -263,8 +263,8 @@ pub fn release_stalled_claims(
             let said = crate::lists::cmd_item(
                 tool,
                 ssh,
+                crate::command::item::Stop,
                 &[
-                    "stop".to_string(),
                     id.clone(),
                     "--why".to_string(),
                     why,

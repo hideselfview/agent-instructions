@@ -1,6 +1,6 @@
 use super::*;
 use crate::lists::Record;
-use crate::lists::item_command::cmd_item;
+use crate::lists::item_command::item_words;
 use crate::lists::item_fixtures::{Demo, demo, refusal, words};
 use crate::testing::git as run_git;
 
@@ -24,7 +24,7 @@ fn setup_after_adding(name: &str, before_take: impl FnOnce(&Demo)) -> Landing {
     let details = demo.brief("details.txt");
     let brief = demo.brief("b.md");
     for title in ["Do the first thing now", "Do the second thing now"] {
-        cmd_item(
+        item_words(
             &demo.tool,
             &crate::testing::no_ssh(),
             &words(&[
@@ -41,7 +41,7 @@ fn setup_after_adding(name: &str, before_take: impl FnOnce(&Demo)) -> Landing {
     }
     before_take(&demo);
     demo.tool.now += 10;
-    cmd_item(
+    item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
         &words(&[
@@ -68,7 +68,7 @@ fn setup_after_adding(name: &str, before_take: impl FnOnce(&Demo)) -> Landing {
 fn check(l: &Landing, extra: &[&str]) -> Result<()> {
     let mut args = vec!["check-landing", l.agent.to_str().unwrap()];
     args.extend_from_slice(extra);
-    cmd_item(&l.demo.tool, &crate::testing::no_ssh(), &words(&args))
+    item_words(&l.demo.tool, &crate::testing::no_ssh(), &words(&args))
 }
 
 fn landed(l: &Landing, extra: &[&str]) -> Result<()> {
@@ -110,7 +110,7 @@ fn check_landing_refuses_each_thing_it_requires() {
     // A commit on main only is on no item's branch.
     let on_main = l.demo.commit(&l.demo.main, "m.txt");
     assert!(refusal(check(&l, &["--done", "1", &on_main])).contains("on the branch of none"));
-    cmd_item(
+    item_words(
         &l.demo.tool,
         &crate::testing::no_ssh(),
         &words(&["stop", "2", "--why", "x"]),
@@ -293,7 +293,7 @@ fn two_repos(name: &str) -> TwoRepos {
     let other_agent = demo.add_side_of("other", 1, "agent A", "work-other");
     let details = demo.brief("details.txt");
     let brief = demo.brief("b.md");
-    cmd_item(
+    item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
         &words(&[
@@ -307,7 +307,7 @@ fn two_repos(name: &str) -> TwoRepos {
         ]),
     )
     .unwrap();
-    cmd_item(
+    item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
         &words(&[
@@ -397,7 +397,7 @@ fn take_refuses_two_worktrees_of_one_repo_and_unpaired_branches() {
     let two = demo.add_side(2, "agent A", "work2");
     let details = demo.brief("details.txt");
     let brief = demo.brief("b.md");
-    cmd_item(
+    item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
         &words(&[
@@ -413,7 +413,7 @@ fn take_refuses_two_worktrees_of_one_repo_and_unpaired_branches() {
     .unwrap();
     let before = demo.state();
     let (one, two) = (one.to_str().unwrap(), two.to_str().unwrap());
-    let same = refusal(cmd_item(
+    let same = refusal(item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
         &words(&[
@@ -432,7 +432,7 @@ fn take_refuses_two_worktrees_of_one_repo_and_unpaired_branches() {
         ]),
     ));
     assert!(same.contains("both worktrees of demo"), "{same}");
-    let unpaired = refusal(cmd_item(
+    let unpaired = refusal(item_words(
         &demo.tool,
         &crate::testing::no_ssh(),
         &words(&[
@@ -559,7 +559,7 @@ fn take_in(
         "--brief",
         brief,
     ]);
-    cmd_item(&demo.tool, &crate::testing::no_ssh(), &words(&args))
+    item_words(&demo.tool, &crate::testing::no_ssh(), &words(&args))
 }
 
 #[test]
@@ -571,7 +571,7 @@ fn a_running_item_takes_a_worktree_of_another_repo_and_lands_from_each() {
     let brief = demo.brief("b.md");
     let another = demo.brief("c.md");
     for title in ["Do the first thing now", "Do the second thing now"] {
-        cmd_item(
+        item_words(
             &demo.tool,
             &crate::testing::no_ssh(),
             &words(&[
@@ -733,7 +733,7 @@ fn edit_details(l: &mut Landing, item: &str, text: &str) {
     l.demo.tool.now += 10;
     let file = l.demo.scratch.dir.join("edited-details.txt");
     std::fs::write(&file, text).unwrap();
-    cmd_item(
+    item_words(
         &l.demo.tool,
         &crate::testing::no_ssh(),
         &words(&["edit", item, "--details-file", file.to_str().unwrap()]),
@@ -762,7 +762,7 @@ fn check_landing_passes_once_the_agent_read_the_changes() {
     let mut l = setup("land-edited-read");
     edit_details(&mut l, "1", "Cite the new decision.");
     refusal(check(&l, &["--done", "1", &l.commit]));
-    cmd_item(
+    item_words(
         &l.demo.tool,
         &crate::testing::no_ssh(),
         &words(&["changes", "1"]),
@@ -782,7 +782,7 @@ fn an_edit_before_the_take_leaves_the_landing_alone() {
     let l = setup_after_adding("land-edited-before-take", |demo| {
         let file = demo.scratch.dir.join("early-details.txt");
         std::fs::write(&file, "Edited before the take.").unwrap();
-        cmd_item(
+        item_words(
             &demo.tool,
             &crate::testing::no_ssh(),
             &words(&["edit", "1", "--details-file", file.to_str().unwrap()]),
@@ -795,19 +795,19 @@ fn an_edit_before_the_take_leaves_the_landing_alone() {
 #[test]
 fn changes_names_an_item_that_does_not_run_and_says_when_nothing_is_unread() {
     let l = setup("land-changes-none");
-    cmd_item(
+    item_words(
         &l.demo.tool,
         &crate::testing::no_ssh(),
         &words(&["changes", "1"]),
     )
     .unwrap();
-    cmd_item(
+    item_words(
         &l.demo.tool,
         &crate::testing::no_ssh(),
         &words(&["stop", "2", "--why", "paused"]),
     )
     .unwrap();
-    let said = refusal(cmd_item(
+    let said = refusal(item_words(
         &l.demo.tool,
         &crate::testing::no_ssh(),
         &words(&["changes", "2"]),

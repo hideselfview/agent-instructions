@@ -298,7 +298,7 @@ pub fn freeable(path: &Path) -> Result<u64> {
 /// `builds du <path>...`: KiB per path, one line each, in order.
 pub fn cmd_du(args: &[String]) -> Result<()> {
     if args.is_empty() {
-        fail!("usage: builds du <path>...");
+        fail!("{}", crate::command::Command::Du.usage_text());
     }
     let paths: Vec<PathBuf> = args.iter().map(PathBuf::from).collect();
     for measured in measure_many(&paths)? {

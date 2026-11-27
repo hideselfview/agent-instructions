@@ -254,13 +254,11 @@ pub fn dashboard_figures(path: &Path, now: i64) -> Waits {
     }
 }
 
-const USAGE: &str = "usage: builds waits [--project <project>] [--since <YYYY-MM-DD>]";
-
 /// `builds waits [--project P] [--since DATE]`.
 pub fn cmd_waits(args: &[String]) -> Result<()> {
     let args = crate::lists::args::Args::parse(args, &["since"], &[])?;
     if !args.positional().is_empty() {
-        fail!("{USAGE}");
+        fail!("{}", crate::command::Command::Waits.usage_text());
     }
     let since = args.value("since")?;
     let start = crate::text::since_start(since)?.unwrap_or(0);

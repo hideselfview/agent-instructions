@@ -30,10 +30,10 @@ use std::path::Path;
 use rusqlite::TransactionBehavior;
 
 use crate::checkout::Checkout;
+use crate::command::Parsed;
 use crate::db::{self, Make, Sql};
 use crate::fail;
 use crate::fail::Result;
-use crate::install_gate;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::{Store, project_of, stores};
 use crate::places::Places;
@@ -48,32 +48,18 @@ pub const SESSION: &str = "CLAUDE_CODE_SESSION_ID";
 /// too.
 pub const PASSED: &str = "BUILDS_ACKNOWLEDGED";
 
-const USAGE: &str = "usage: builds ack [--agent ID] [--project P] [--role coordinator|design|judge]...\n       builds ack part PART TOKEN [--agent ID] [--project P] [--role ROLE]...\n       builds ack VERSION TOKEN [--agent ID] [--project P] [--role ROLE]...\n       builds ack --compacted\n       builds ack --codex-compacted";
-
-/// Refuses `builds <command> <args>` when an agent runs it with no
-/// acknowledgement, and prints the notice of a change of the text on each
-/// command until the agent has read it with `builds ack` (`check`). Passes the person's commands, `ack`, which records the
-/// acknowledgement, read-only `brief`, `rules-on-edit` (a hook that must run before an agent
-/// acknowledges), `status --json --no-folders` (`lists_checkouts`), and the commands a builds command that passed runs. The
-/// gate also passes the commands that do not use the stores
-/// (`install_gate::storeless`): the gate reads a store, and install must run
-/// while the stores still have an older schema, because install migrates them
-/// to its schema. The gate passes the pre-commit hook's checks in a main
-/// checkout too (`commits_in_main_checkout`).
+/// Refuses <parsed> when an agent runs it with no acknowledgement, and
+/// prints the notice of a change of the text on each command until the agent
+/// has read it with `builds ack` (`check`). Passes the person's commands, the
+/// commands a builds command that passed runs, and the commands that need no
+/// acknowledgement (`Parsed::needs_acknowledgement`).
 pub fn gate(
     places: &Places,
     session: &agent::Session,
-    command: &str,
-    args: &[String],
+    parsed: &Parsed<'_, String>,
     project: Option<&str>,
 ) -> Result<()> {
-    if command == "ack"
-        || command == "rules-on-edit"
-        || install_gate::storeless(command, args)
-        || std::env::var_os(PASSED).is_some()
-        || lists_checkouts(command, args)
-        || commits_in_main_checkout(command, args)?
-    {
+    if std::env::var_os(PASSED).is_some() || !parsed.needs_acknowledgement()? {
         return Ok(());
     }
     let Some(identity) = session.identity()? else {
@@ -86,30 +72,6 @@ pub fn gate(
     // set_var writes it.
     unsafe { std::env::set_var(PASSED, "1") };
     Ok(())
-}
-
-/// Whether `builds <command> <args>` is `status --json --no-folders`, which
-/// lists the checkouts, their app lanes and their locks. That list depends on
-/// no rule, and the hook that refuses an unlocked move of an app checkout
-/// (no-unlocked-app-checkout-moves) reads it on every agent's command,
-/// including an agent's first after a compaction, before it can acknowledge.
-fn lists_checkouts(command: &str, args: &[String]) -> bool {
-    command == "status" && crate::status::is_folderless_json(args)
-}
-
-/// Whether `builds <command> <args>` is the pre-commit hook's `checks run`
-/// in a repo's main checkout. No agent commits in a main checkout (`builds
-/// help workflow`, WORKTREES), so a commit there is the person's, even when
-/// the person's Claude Code session makes it, and the gate, which makes
-/// agents read the workflow instructions, does not apply to its hook.
-fn commits_in_main_checkout(command: &str, args: &[String]) -> Result<bool> {
-    if command != "checks" {
-        return Ok(false);
-    }
-    let Some(worktree) = crate::checks_run::run_worktree(args) else {
-        return Ok(false);
-    };
-    Ok(Checkout::at(worktree)?.is_some_and(|checkout| checkout.is_main()))
 }
 
 /// An agent as builds names it, and where builds keeps its acknowledgement.
@@ -360,7 +322,7 @@ fn ack(
         [] => start(places, &agent, &text, now),
         [word, part, token] if word == "part" => part_of(places, &agent, &text, part, token),
         [version, token] => acknowledge(places, &agent, &text, version, token),
-        _ => fail!("{USAGE}"),
+        _ => fail!("{}", crate::command::Command::Ack.usage_text()),
     }
 }
 
@@ -490,7 +452,10 @@ fn part_of(places: &Places, agent: &Agent, text: &Text, part: &str, token: &str)
     let count = parts.len();
     let number = match part.parse::<usize>() {
         Ok(number) if (1..=count).contains(&number) => number,
-        _ => fail!("there are parts 1 to {count}; {part} is none of them\n{USAGE}"),
+        _ => fail!(
+            "there are parts 1 to {count}; {part} is none of them\n{}",
+            crate::command::Command::Ack.usage_text()
+        ),
     };
     if reading.tokens[number - 1] != token {
         fail!(
@@ -499,7 +464,7 @@ fn part_of(places: &Places, agent: &Agent, text: &Text, part: &str, token: &str)
                 "the output of `builds ack`".to_string()
             } else {
                 format!("part {} (`builds ack part {}`)", number - 1, number - 1)
-            }
+            },
         );
     }
     let next = if number == count {

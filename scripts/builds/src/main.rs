@@ -71,6 +71,7 @@ mod claim;
 mod claimed_branch;
 mod claude_sessions;
 mod clock;
+mod command;
 #[cfg(target_os = "macos")]
 mod core_foundation;
 mod core_speed;
@@ -219,9 +220,9 @@ mod xcode_cache;
 
 use std::process::ExitCode;
 
+use command::{Command, Parsed, Stores};
 use fail::{Fail, Result};
 use places::{Places, Rules};
-use tool::Tool;
 
 fn main() -> ExitCode {
     let code = run_program();
@@ -282,27 +283,35 @@ fn run_program() -> ExitCode {
 }
 
 fn run_command(args: &[String], session: ack::agent::Session, system: &system::System) -> ExitCode {
-    let Some((command, rest)) = args.split_first() else {
+    let Some(first) = args.first() else {
         output::answer(help::HELP);
         return ExitCode::from(2);
     };
-    let split = match project_flag::split(command, rest) {
-        Ok(split) => split,
-        Err(fail) => return exit_code_after(command, fail),
+    let parsed = match Command::parse(args) {
+        Ok(parsed) => parsed,
+        Err(fail) => return exit_code_after(first, fail),
     };
-    let rest = split.args.as_slice();
+    let split = match project_flag::split(&parsed) {
+        Ok(split) => split,
+        Err(fail) => return exit_code_after(first, fail),
+    };
+    let parsed = Parsed {
+        rest: &split.args,
+        ..parsed
+    };
+    let command = parsed.command;
     let nested = std::env::var_os(ack::PASSED).is_some();
     let _use = match enter_stores(command, args) {
         Ok(held) => held,
-        Err(fail) => return exit_code_after(command, fail),
+        Err(fail) => return exit_code_after(first, fail),
     };
     if let Err(fail) = Places::from_env().and_then(|places| {
-        ack::gate(&places, &session, command, rest, split.flag.project())?;
+        ack::gate(&places, &session, &parsed, split.flag.project())?;
         match &split.flag {
             // Refuses a name that no project has, which the command itself
             // would never look at. A command that takes no use of the stores
             // opens none: `install` runs on stores of an older schema.
-            project_flag::Flag::Unread(project) if !install_gate::storeless(command, rest) => {
+            project_flag::Flag::Unread(project) if command.stores() != Stores::Storeless => {
                 lists::store::Store::named(&places, project)?
                     .repos()
                     .map(drop)
@@ -310,24 +319,24 @@ fn run_command(args: &[String], session: ack::agent::Session, system: &system::S
             _ => Ok(()),
         }
     }) {
-        return exit_code_after(command, fail);
+        return exit_code_after(first, fail);
     }
     if let Err(fail) = claimed_branch::gate(command, nested, &session) {
-        return exit_code_after(command, fail);
+        return exit_code_after(first, fail);
     }
     // Held until the command ends, the measuring of what it wrote included.
-    let _awake = match awake_for(system, command, rest) {
+    let _awake = match awake_for(system, &parsed) {
         Ok(held) => held,
-        Err(fail) => return exit_code_after(command, fail),
+        Err(fail) => return exit_code_after(first, fail),
     };
     // Held until the command ends: dropping it deletes the run's temporary
     // folder.
-    let _tmp = match Places::from_env().and_then(|places| run_tmp::enter(&places, command, rest)) {
+    let _tmp = match Places::from_env().and_then(|places| run_tmp::enter(&places, command)) {
         Ok(held) => held,
-        Err(fail) => return exit_code_after(command, fail),
+        Err(fail) => return exit_code_after(first, fail),
     };
     let changed = roots::Changed::default();
-    let result = run(command, rest, session, &changed, system);
+    let result = run(&parsed, session, &changed, system);
     // The roots the command changed are measured whether it succeeded or
     // not: a failed build left what it wrote.
     if let Ok(places) = Places::from_env() {
@@ -335,22 +344,24 @@ fn run_command(args: &[String], session: ack::agent::Session, system: &system::S
     }
     match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(fail) => exit_code_after(command, fail),
+        Err(fail) => exit_code_after(first, fail),
     }
 }
 
-/// Keeps this Mac awake while `builds <command> <args>` runs, when it runs
-/// work (`awake::does_work`).
+/// Keeps this Mac awake while <parsed> runs, when it runs work
+/// (`Command::keeps_awake`).
 fn awake_for(
     system: &system::System,
-    command: &str,
-    args: &[String],
+    parsed: &Parsed<'_, String>,
 ) -> Result<Option<awake::KeepAwake>> {
-    if !awake::does_work(command, args) {
+    if !parsed.command.keeps_awake() {
         return Ok(None);
     }
-    let what = std::iter::once(command)
-        .chain(args.iter().map(String::as_str))
+    let what = parsed
+        .named
+        .iter()
+        .chain(parsed.rest)
+        .map(String::as_str)
         .collect::<Vec<_>>()
         .join(" ");
     awake::KeepAwake::while_working(&system.power(), &what).map(Some)
@@ -398,68 +409,33 @@ fn failure_code(command: &str) -> u8 {
     if command == "rules-on-edit" { 2 } else { 1 }
 }
 
-/// Whether `builds <command> <rest>` holds a use of the stores for its life
-/// (install_gate.rs): it writes a store after long work, with what it measured
-/// since it started. Every other command writes in short transactions, or
-/// runs under a holder's use: `builds cargo` records a run only for a hook
-/// check, under the hook run's use. An app build's lane records its run
-/// after long work too, but holds no use, so that an install never waits for
-/// its steps: it hands its run to the installed builds when an install moved
-/// the stores meanwhile (handed_runs.rs). A landing records its run after
-/// long work, and
-/// holds its use from its start until it has written that record, then ends
-/// it before it fast-forwards the main checkout, whose post-merge hook may run
-/// an install (land.rs).
-fn holds_for_life(command: &str, rest: &[String]) -> bool {
-    match command {
-        // Records the hook run once its checks end (hook_stats.rs).
-        "checks" => rest.first().is_some_and(|sub| sub == "run"),
-        // A run, a copy review, a replay and an audit record what the
-        // reviewers answered once they answer (review/mod.rs). A wait reads
-        // the store each time a settle tells it to, and holds no use while
-        // it waits (review/judge.rs); the other review commands read or
-        // write in one transaction.
-        "review" => !matches!(
-            rest.first().map(String::as_str),
-            Some(
-                "groups"
-                    | "wait"
-                    | "settle"
-                    | "dispute"
-                    | "keep"
-                    | "fixed"
-                    | "show"
-                    | "check-landing"
-                    | "landed"
-                    | "misses"
-                    | "rates"
-                    | "scores"
-                    | "case"
-            )
-        ),
-        _ => false,
-    }
-}
-
-/// Takes the use of the stores that <command> needs before it runs. <args>
-/// starts with the command. Returns the use the command holds for its life,
-/// or None when the command takes a use per store connection, takes none (a
-/// command `install_gate::storeless` names, or the shots checker), or runs
-/// under a holder's use. An app build lane refuses to start if its parent
-/// picked its program before an install moved the stores. Other commands
-/// that waited at a closed gate run the program at the same path in their
-/// place, with the same arguments.
-fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::Use>> {
-    if install_gate::storeless(command, &args[1..])
-        || (command == "shots" && shots_program::runs_checker(&args[1..]))
-        || std::env::var_os(install_gate::VARIABLE).is_some()
-    {
+/// Takes the use of the stores that <command> needs before it runs
+/// (`Command::stores`). <args> is the command line after the program.
+/// Returns the use the command holds for its life, or None when the command
+/// takes a use per store connection, takes none, or runs under a holder's
+/// use. An app build lane refuses to start if its parent picked its program
+/// before an install moved the stores. Other commands that waited at a closed
+/// gate run the program at the same path in their place, with the same
+/// arguments.
+///
+/// Every command but those that hold a use for their life writes in short
+/// transactions, or runs under a holder's use: `builds cargo` records a run
+/// only for a hook check, under the hook run's use. An app build's lane
+/// records its run after long work too, but holds no use, so that an install
+/// never waits for its steps: it hands its run to the installed builds when
+/// an install moved the stores meanwhile (handed_runs.rs). A landing records
+/// its run after long work, and holds its use from its start until it has
+/// written that record, then ends it before it fast-forwards the main
+/// checkout, whose post-merge hook may run an install (land.rs).
+fn enter_stores(command: Command, args: &[String]) -> Result<Option<install_gate::Use>> {
+    let stores = command.stores();
+    if stores == Stores::Storeless || std::env::var_os(install_gate::VARIABLE).is_some() {
         return Ok(None);
     }
     let places = Places::from_env()?;
     let pid = std::process::id();
     let (what, since) = (args.join(" "), text::clock());
-    if !holds_for_life(command, &args[1..]) {
+    if stores == Stores::PerConnection {
         let parent_generation = install_gate::take_lane_generation()?;
         match install_gate::PerConnection::enter(
             places,
@@ -503,130 +479,147 @@ pub fn version() -> String {
     format!("builds {}", env!("BUILDS_SOURCE"))
 }
 
+/// Runs <parsed>. A command that reads `--project` finds it in its words;
+/// the others' words lack it (project_flag.rs).
 fn run(
-    command: &str,
-    args: &[String],
+    parsed: &Parsed<'_, String>,
     session: ack::agent::Session,
     changed: &roots::Changed,
     system: &system::System,
 ) -> Result<()> {
-    if python::STEP_COMMANDS.contains(&command) {
+    use Command::*;
+    use command::*;
+    let command = parsed.command;
+    if command.runs_steps() {
         python::use_new_python(&Places::from_env()?)?;
     }
+    let args = parsed.rest;
+    // A tool in the caller's environment as it is.
+    let as_called = |session| -> Result<tool::Tool> {
+        tool::Tool::new(
+            Places::from_env()?,
+            Rules::from_env()?,
+            this_program()?,
+            session,
+            changed.clone(),
+            system.clone(),
+        )
+    };
+    // A tool for a command that runs git in checkouts other than the one it
+    // runs in, and sorts names as the caller does.
+    let tool = |session| -> Result<tool::Tool> {
+        checkout::drop_git_local_env()?;
+        text::use_callers_collation();
+        as_called(session)
+    };
+    let ssh = || system.ssh();
+    let cwd = crate::lists::args::current_dir;
+    let out = &mut output::answer_handle();
     match command {
         // These run in the caller's environment as it is, which cargo
         // inherits; `cargo` asks git about its checkout without changing it.
-        "cargo" => return cargo_run::cmd_cargo(system, args, changed),
-        "lake" => return lake_run::cmd_lake(system, args, changed),
-        "version" => {
+        Cargo => cargo_run::cmd_cargo(system, args, changed),
+        Lake => lake_run::cmd_lake(system, args, changed),
+        Version => {
             output::answer_line(version());
-            return Ok(());
+            Ok(())
         }
-        "programs" => return programs::cmd_programs(&Places::from_env()?, system, args),
-        "sccache-tmpdir" => return sccache::cmd_tmpdir(&Places::from_env()?.root, args),
-        "checks" => return checks_run::cmd_checks(args),
-        "waits" => return waits::cmd_waits(args),
-        "install-hook" => return install_hook::cmd_install_hook(args),
-        "lock" => return lock::cmd_lock(&Places::from_env()?, system, args),
-        "app-build" => {
-            return app_build::cmd_app_build(
-                &Tool::new(
-                    Places::from_env()?,
-                    Rules::from_env()?,
-                    this_program()?,
-                    session,
-                    changed.clone(),
-                    system.clone(),
-                )?,
-                args,
-            );
-        }
-        "shots" if args.first().is_some_and(|sub| sub == "picture") => {
-            return shots_picture::cmd(
-                &Tool::new(
-                    Places::from_env()?,
-                    Rules::from_env()?,
-                    this_program()?,
-                    session,
-                    changed.clone(),
-                    system.clone(),
-                )?,
-                &args[1..],
-            );
-        }
-        "shots" => return shots_program::cmd_shots(&Places::from_env()?, args),
-        "brief" => {
-            let root = review::default_rules_root()?;
-            return brief::cmd_brief(&root, args);
-        }
-        "ack" => return ack::cmd_ack(&Places::from_env()?, &session, args),
-        "agent" if args.first().is_some_and(|sub| sub == "start") => {
-            return ack::agent::cmd_agent(&Places::from_env()?, args);
-        }
-        "rules-on-edit" => {
-            let root = review::default_rules_root()?;
-            return rules_on_edit::cmd_rules_on_edit(&Places::from_env()?, &root, args);
-        }
-        "queue" => return queue::cmd_queue(&Places::from_env()?, args),
-        "takeover" => return queue::cmd_takeover(&Places::from_env()?, args),
-        "-h" | "--help" | "help" => match help::lookup(args) {
+        Programs => programs::cmd_programs(&Places::from_env()?, system, args),
+        SccacheTmpdir => sccache::cmd_tmpdir(&Places::from_env()?.root, args),
+        Checks(checks::Run) => checks_run::cmd_run(args),
+        Checks(checks::Whole) => checks_run::cmd_whole(args),
+        Checks(checks::Stats) => checks_run::stats(args),
+        Checks(checks::List) => checks_run::cmd_list(args),
+        Checks(checks::Tests) => checks_run::cmd_tests(args),
+        Waits => waits::cmd_waits(args),
+        InstallHook => install_hook::cmd_install_hook(args),
+        Lock => lock::cmd_lock(&Places::from_env()?, system, args),
+        AppBuild => app_build::cmd_app_build(&as_called(session)?, args),
+        Shots(shots::Picture) => shots_picture::cmd(&as_called(session)?, args),
+        Shots(shots::Findings) => shot_findings::cmd_findings(&Places::from_env()?, args),
+        Shots(shots::CheckProgram) => shots_check_program::cmd(&Places::from_env()?, args),
+        Shots(shots::Checker) => shots_program::cmd_checker(&Places::from_env()?, args),
+        Brief => brief::cmd_brief(&crate::review::default_rules_root()?, args),
+        Ack => ack::cmd_ack(&Places::from_env()?, &session, args),
+        Agent(agent::Start) => ack::agent::cmd_start(&Places::from_env()?, args),
+        RulesOnEdit => rules_on_edit::cmd_rules_on_edit(
+            &Places::from_env()?,
+            &crate::review::default_rules_root()?,
+            args,
+        ),
+        Queue => queue::cmd_queue(&Places::from_env()?, args),
+        Takeover => queue::cmd_takeover(&Places::from_env()?, args),
+        Help => match help::lookup(args) {
             Ok(text) => {
                 output::answer(text);
-                return Ok(());
+                Ok(())
             }
             Err(why) => fail!("{why}"),
         },
-        _ => {}
-    }
-    if command == "dashboard" {
-        ack::agent::clear_for_daemon();
-    }
-    checkout::drop_git_local_env()?;
-    text::use_callers_collation();
-    let mut tool = Tool::new(
-        Places::from_env()?,
-        Rules::from_env()?,
-        this_program()?,
-        session,
-        changed.clone(),
-        system.clone(),
-    )?;
-    match command {
-        "setup" => setup::cmd_setup(&tool, &tool.ssh(), args),
-        "new" => worktree::cmd_new(&tool, &tool.ssh(), args),
-        "retire" => worktree::cmd_retire(&tool, args),
-        "land" => land::cmd_land(&tool, args),
-        "review" => review::cmd_review(&tool, args),
-        "judge" => review::judge::cmd_judge(&tool, args),
-        "claim" => claim::cmd_claim(&tool.places, args, tool.now),
-        "note" => claim::cmd_note(&tool.places, args, tool.now),
-        "release" => claim::cmd_release(&tool.places, args),
-        "app-checkout" => worktree::cmd_app_checkout(&tool, &tool.ssh(), args),
-        "app-clone" => warm::cmd_app_clone(&tool, args),
-        "build-app" => build_app::cmd_build_app(&tool, args),
-        "status" => {
-            let ssh = tool.ssh();
-            status::cmd_status(&mut tool, &ssh, args)
+        Setup => setup::cmd_setup(&tool(session)?, &ssh(), args),
+        New => worktree::cmd_new(&tool(session)?, &ssh(), args),
+        Retire => worktree::cmd_retire(&tool(session)?, args),
+        Land => land::cmd_land(&tool(session)?, args),
+        Review(review) => crate::review::cmd_review(&tool(session)?, review, args),
+        Judge(judge::Listen) => crate::review::judge::cmd_listen(&tool(session)?, args),
+        Claim => {
+            let tool = tool(session)?;
+            claim::cmd_claim(&tool.places, args, tool.now)
         }
-        "prune" => prune::cmd_prune(&tool, args),
-        "install" => install::cmd_install(&tool, args),
-        "units" => units::cmd_units(&tool, args),
-        "du" => usage::cmd_du(args),
-        "health" => health::cmd_health(&tool, args),
-        "lists" => lists::cmd_lists(&tool, args),
-        "decision" => lists::cmd_decision(&tool, args),
-        "design" => lists::cmd_design(&tool, args),
-        "question" => lists::question_command::cmd_question(&tool, args),
-        "agent" => agent_command::cmd_agent(&tool, args),
-        "item" => lists::cmd_item(&tool, &tool.ssh(), args),
-        "next" => lists::cmd_next(&tool, args),
-        "area" => lists::cmd_area(&tool, args),
-        "dashboard" => daemon::cmd_dashboard(&tool, args),
-        "host" => host::cmd_host(&tool, &tool.ssh(), args),
-        "remote" => remote::cmd_remote(&tool, &tool.ssh(), args),
-        "tool" => built_tools::cmd_tool(&tool.places, &tool.ssh(), args),
-        other => fail!(
-            "builds has no command {other}. Its commands are ack, agent, rules-on-edit, setup, new, land, review, judge, claim, note, release, retire, app-checkout, app-clone, status, health, lists, brief, decision, design, question, item, next, area, dashboard, host, remote, prune, tool, cargo, lake, lock, app-build, shots, queue, takeover, build-app, install, checks, install-hook and version."
-        ),
+        Note => {
+            let tool = tool(session)?;
+            claim::cmd_note(&tool.places, args, tool.now)
+        }
+        Release => claim::cmd_release(&tool(session)?.places, args),
+        AppCheckout(app_checkout::Add) => worktree::cmd_app_checkout(&tool(session)?, &ssh(), args),
+        AppCheckout(app_checkout::Remove) => {
+            worktree::cmd_app_checkout_remove(&tool(session)?, &ssh(), args)
+        }
+        AppCheckout(app_checkout::Reset) => {
+            worktree::cmd_app_checkout_reset(&tool(session)?, &ssh(), args)
+        }
+        AppClone => warm::cmd_app_clone(&tool(session)?, args),
+        BuildApp => build_app::cmd_build_app(&tool(session)?, args),
+        Status => status::cmd_status(&mut tool(session)?, &ssh(), args),
+        Prune => prune::cmd_prune(&tool(session)?, args),
+        Install => install::cmd_install(&tool(session)?, args),
+        Units(units::Prune) => crate::units::cmd_prune(&tool(session)?, args),
+        Units(units::GitCheckouts) => crate::units::cmd_git_checkouts(args),
+        Units(units::AfterBuild) => crate::units::cmd_after_build(&tool(session)?, args),
+        Du => usage::cmd_du(args),
+        Health => health::cmd_health(&tool(session)?, args),
+        Lists(command) => crate::lists::cmd_lists(&tool(session)?, command, args),
+        Decision(command) => crate::lists::cmd_decision(&tool(session)?, command, args),
+        Design(command) => crate::lists::cmd_design(&tool(session)?, command, args),
+        Question(command) => {
+            crate::lists::question_command::cmd_question(&tool(session)?, command, args)
+        }
+        Agent(agent::Run) => agent_command::run(&tool(session)?, args, &cwd()?, out),
+        Agent(agent::Resume) => agent_command::resume(&tool(session)?, args, &cwd()?, out),
+        Agent(agent::List) => agent_list::list(&tool(session)?, args, &cwd()?, out),
+        Agent(agent::Show) => agent_list::show(&tool(session)?, args, &cwd()?, out),
+        Item(command) => crate::lists::cmd_item(&tool(session)?, &ssh(), command, args),
+        Next => crate::lists::cmd_next(&tool(session)?, args),
+        Area(command) => crate::lists::cmd_area(&tool(session)?, command, args),
+        Dashboard(dashboard::Serve) => {
+            ack::agent::clear_for_daemon();
+            daemon::cmd_dashboard(&tool(session)?, args)
+        }
+        Dashboard(dashboard::Stage) => {
+            ack::agent::clear_for_daemon();
+            daemon::stage::cmd_stage(args)
+        }
+        Host(host::Add) => crate::host::cmd_add(&tool(session)?, &ssh(), args),
+        Host(host::Setup) => crate::host::cmd_setup(&tool(session)?, &ssh(), args),
+        Host(host::SetupHere) => crate::host::cmd_setup_here(&tool(session)?, args),
+        Host(host::SpeedHere) => crate::host::cmd_speed_here(args),
+        Host(host::Band) => host_band::cmd_band(&tool(session)?, args),
+        Host(host::List) => crate::host::cmd_list(&tool(session)?, &ssh(), args),
+        Host(host::Cache) => crate::host::cmd_cache(&tool(session)?, args),
+        Host(host::Remove) => crate::host::cmd_remove(&tool(session)?, args),
+        Host(host::ClearXcode) => crate::host::cmd_clear_xcode(&tool(session)?, args),
+        Remote(remote::Run) => crate::remote::cmd_run(&tool(session)?, &ssh(), args),
+        Remote(remote::Step) => crate::remote::cmd_step(&tool(session)?, &ssh(), args),
+        Command::Tool => built_tools::cmd_tool(&tool(session)?.places, &ssh(), args),
     }
 }

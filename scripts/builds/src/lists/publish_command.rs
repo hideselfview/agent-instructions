@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use crate::command::design::Design as Subcommand;
 use crate::fail;
 use crate::fail::Result;
 use crate::inbox::Messaging;
@@ -13,8 +14,6 @@ use crate::lists::publish;
 use crate::lists::store::Store;
 use crate::text::local_minute;
 use crate::tool::Tool;
-
-const USAGE: &str = "usage: builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish done N --link TITLE=URL... [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
 
 /// A publish request's id, as a command names it.
 fn request_id(text: &str) -> Result<i64> {
@@ -34,7 +33,10 @@ pub fn listen(
     session: Option<&Messaging>,
 ) -> Result<String> {
     let args = Args::parse(args, &["project", "by"], &[])?;
-    args.exactly(0, USAGE)?;
+    args.exactly(
+        0,
+        &crate::command::Command::Design(crate::command::design::Listen).usage_text(),
+    )?;
     let Some(project) = args.value("project")? else {
         fail!("say which project's publish requests the session listens for with --project");
     };
@@ -53,53 +55,64 @@ pub fn listen(
     ))
 }
 
-/// `publish take N`, `publish done N` and `publish failed N --why WHY`.
-pub fn publish(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let Some((verb, rest)) = args.split_first() else {
-        fail!("{USAGE}")
-    };
-    let args = Args::parse(rest, &["project", "by", "why", "link"], &[])?;
-    let [id] = args.exactly(1, USAGE)? else {
+/// The request <args> name, with the store and the stamp of its write: the
+/// arguments of `publish take N`, `publish done N` and `publish failed N`.
+fn request(
+    tool: &Tool,
+    command: Subcommand,
+    args: &[String],
+    cwd: &Path,
+) -> Result<(i64, Args, Store, Stamp)> {
+    let args = Args::parse(args, &["project", "by", "why", "link"], &[])?;
+    let usage = crate::command::Command::Design(command).usage_text();
+    let [id] = args.exactly(1, &usage)? else {
         unreachable!("exactly one")
     };
     let id = request_id(id)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    match verb.as_str() {
-        "take" => {
-            let taken = store.write(&stamp, &format!("design publish take {id}"), |db| {
-                publish::take(db, id, &stamp)
-            })?;
-            Ok(format!(
-                "you took publish request {id} at {}: publish commit {} with the publish-designs skill (`builds design publish-files DIR OUT --index FILE --at {}`), and end the request with `builds design publish done {id} --link TITLE=URL` for each artifact (the urls publish-find printed) once the design system's last calls and the runtime check are done\n",
-                local_minute(stamp.at),
-                taken.commit,
-                taken.commit
-            ))
-        }
-        "done" => {
-            let links = args
-                .values("link")
-                .into_iter()
-                .map(publish::Link::parse)
-                .collect::<Result<Vec<_>>>()?;
-            let ended = store.write(&stamp, &format!("design publish done {id}"), |db| {
-                publish::published(db, id, &links, stamp.at)
-            })?;
-            Ok(format!(
-                "publish request {id} ended: it published commit {}\n",
-                ended.commit
-            ))
-        }
-        "failed" => {
-            let Some(why) = args.value("why")? else {
-                fail!("say what stopped the publish with --why");
-            };
-            store.write(&stamp, &format!("design publish failed {id}"), |db| {
-                publish::failed(db, id, why, stamp.at)
-            })?;
-            Ok(format!("publish request {id} ended failed: {why}\n"))
-        }
-        other => fail!("unknown publish command {other}\n{USAGE}"),
-    }
+    Ok((id, args, store, stamp))
+}
+
+/// `publish take N`.
+pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
+    let (id, _, store, stamp) = request(tool, Subcommand::PublishTake, args, cwd)?;
+    let taken = store.write(&stamp, &format!("design publish take {id}"), |db| {
+        publish::take(db, id, &stamp)
+    })?;
+    Ok(format!(
+        "you took publish request {id} at {}: publish commit {} with the publish-designs skill (`builds design publish-files DIR OUT --index FILE --at {}`), and end the request with `builds design publish done {id} --link TITLE=URL` for each artifact (the urls publish-find printed) once the design system's last calls and the runtime check are done\n",
+        local_minute(stamp.at),
+        taken.commit,
+        taken.commit
+    ))
+}
+
+/// `publish done N`.
+pub fn done(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
+    let (id, args, store, stamp) = request(tool, Subcommand::PublishDone, args, cwd)?;
+    let links = args
+        .values("link")
+        .into_iter()
+        .map(publish::Link::parse)
+        .collect::<Result<Vec<_>>>()?;
+    let ended = store.write(&stamp, &format!("design publish done {id}"), |db| {
+        publish::published(db, id, &links, stamp.at)
+    })?;
+    Ok(format!(
+        "publish request {id} ended: it published commit {}\n",
+        ended.commit
+    ))
+}
+
+/// `publish failed N --why WHY`.
+pub fn failed(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
+    let (id, args, store, stamp) = request(tool, Subcommand::PublishFailed, args, cwd)?;
+    let Some(why) = args.value("why")? else {
+        fail!("say what stopped the publish with --why");
+    };
+    store.write(&stamp, &format!("design publish failed {id}"), |db| {
+        publish::failed(db, id, why, stamp.at)
+    })?;
+    Ok(format!("publish request {id} ended failed: {why}\n"))
 }
