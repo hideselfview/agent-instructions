@@ -11,6 +11,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod fake_launchctl;
+use fake_launchctl::FakeLaunchctl;
+
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 const PATIENCE: Duration = Duration::from_secs(30);
 
@@ -22,6 +25,8 @@ struct Demo {
     side: PathBuf,
     app: PathBuf,
     work: String,
+    /// The launchctl that the demo's builds commands find.
+    launchctl: FakeLaunchctl,
     started: Vec<Child>,
 }
 
@@ -108,7 +113,9 @@ impl Demo {
             std::fs::create_dir_all(&root).unwrap();
             std::fs::write(root.join(".checkout"), format!("{}\n", top.display())).unwrap();
         }
+        let launchctl = FakeLaunchctl::new(&dir.join("bin"));
         let demo = Demo {
+            launchctl,
             dir,
             side,
             app,
@@ -151,8 +158,8 @@ impl Demo {
     }
 
     /// Returns a `builds` command that uses the demo's volume, lists and
-    /// hosts, and the fake ssh that `host_m1` writes, so it never reaches a
-    /// real host.
+    /// hosts, the fake ssh that `host_m1` writes, so it never reaches a real
+    /// host, and the fake launchctl, which the commands that ssh runs inherit.
     fn builds(&self) -> Command {
         let mut command = Command::new(BUILDS);
         command
@@ -162,7 +169,8 @@ impl Demo {
             .env_remove("CODEX_SESSION_ID")
             .env_remove("CODEX_THREAD_ID")
             .env("BUILDS_LISTS", self.dir.join("lists"))
-            .env("BUILDS_SSH", self.dir.join("bin/ssh"));
+            .env("BUILDS_SSH", self.dir.join("bin/ssh"))
+            .env("PATH", self.launchctl.path());
         command
     }
 
@@ -201,7 +209,10 @@ cd '{home}' && HOME='{home}' sh -c "$*"
                 home = home.display()
             ),
         );
-        std::fs::write(self.dir.join("hosts"), "m1 user@m1 10\n").unwrap();
+        // With a core speed recorded: health measures a host that has none by
+        // setting it up (health_fix.rs), which replaces the stand-in builds
+        // with the real one.
+        std::fs::write(self.dir.join("hosts"), "m1 user@m1 10 1.00\n").unwrap();
     }
 
     fn run(&self, args: &[&str]) -> std::process::Output {
@@ -413,6 +424,29 @@ fn a_stopped_holder_stops_its_whole_build_before_the_waiter_starts() {
     assert!(
         begun.elapsed() < Duration::from_secs(30),
         "the build's background sleep was not stopped"
+    );
+}
+
+/// `builds health` sets up a host whose core speed it does not know, and a
+/// setup replaces the host's builds and loads a launchd job under the label
+/// of the person's sccache server. On the demo's host, health does neither:
+/// it only reads the jobs, through the fake launchctl.
+#[test]
+fn health_reads_a_tests_host_without_setting_it_up_or_changing_a_launchd_job() {
+    let demo = Demo::new("jobs");
+    let stand_in = "#!/bin/sh\nexit 1\n";
+    demo.host_m1(stand_in);
+    demo.health();
+    assert_eq!(
+        std::fs::read(demo.dir.join("m1/.local/bin/builds")).unwrap(),
+        stand_in.as_bytes(),
+        "health set up host m1, replacing its builds"
+    );
+    let ran = demo.launchctl.ran();
+    assert!(!ran.is_empty(), "health read no job through the fake");
+    assert!(
+        ran.iter().all(|command| command.starts_with("print ")),
+        "{ran:?}"
     );
 }
 
