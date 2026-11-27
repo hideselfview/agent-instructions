@@ -192,11 +192,9 @@ impl Runner {
     /// The runner `RUNNER_VARIABLE` names in <env>, None when it is unset or
     /// empty; a value of another shape fails, naming the shape.
     pub fn from_env(env: &dyn Fn(&str) -> Option<OsString>) -> Result<Option<Runner>> {
-        let Some(value) = env(RUNNER_VARIABLE).filter(|value| !value.is_empty()) else {
+        let named = crate::cargo_place::text_variable(env, RUNNER_VARIABLE)?;
+        let Some(value) = named.filter(|value| !value.is_empty()) else {
             return Ok(None);
-        };
-        let Some(value) = value.to_str() else {
-            fail!("{RUNNER_VARIABLE} is not UTF-8: {value:?}");
         };
         let parsed = value.split_once('=').and_then(|(variable, rest)| {
             let (package, executable) = rest.rsplit_once(':')?;
