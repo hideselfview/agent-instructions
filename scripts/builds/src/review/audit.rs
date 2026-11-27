@@ -270,8 +270,9 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
             inputs.landing
         );
     };
-    let diff = run::diff_between(inputs.repo_dir, &last.base, &last.head)?.diff;
     let material = Material::load(inputs.root, inputs.project)?;
+    let unread = material.unread(&row.repo);
+    let diff = run::diff_between(inputs.repo_dir, &last.base, &last.head, &unread)?.diff;
     let ran = groups_ran(&conn, inputs.landing)?;
     let reviewed = material.groups.named(&material.rules, &ran);
     let mut audited: Vec<(&Group, Vec<&Rule>)> = Vec::new();
@@ -326,6 +327,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
         let scope = run::Scope {
             material: &material,
             files: &design,
+            unread: &unread,
         };
         run::ask_groups(
             scope,

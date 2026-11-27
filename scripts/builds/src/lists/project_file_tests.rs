@@ -72,3 +72,37 @@ fn a_file_that_cannot_be_read_is_an_error_not_a_project_without_limits() {
     let error = hard_limits_if_any(&root, "demo").unwrap_err().text();
     assert!(error.contains("projects/demo.md"), "{error}");
 }
+
+#[test]
+fn the_unread_folders_are_the_list_lines_of_their_section_by_repo() {
+    let text = "# demo\n\n## Paths no review reads\n\nNo review reads these:\n\n- `demo:website/`\n- `demo:site/drafts/`\n- `tools:page/`\n\n## After\n\n- not one\n";
+    let folders = unread_folders(Path::new("demo.md"), text).unwrap();
+    assert_eq!(folders["demo"], ["website", "site/drafts"]);
+    assert_eq!(folders["tools"], ["page"]);
+    assert_eq!(folders.len(), 2);
+    assert!(
+        unread_folders(Path::new("demo.md"), FILE)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn an_unread_line_that_names_no_folder_of_a_repo_fails_naming_the_file() {
+    for body in [
+        "- website/\n",
+        "- `website/`\n",
+        "- `demo:website`\n",
+        "- `demo:/website/`\n",
+        "- `demo:../website/`\n",
+        "- `:website/`\n",
+        "- `demo:website/`: the site\n",
+        "Prose only.\n",
+    ] {
+        let text = format!("# demo\n\n## Paths no review reads\n\n{body}");
+        let error = unread_folders(Path::new("demo.md"), &text)
+            .unwrap_err()
+            .text();
+        assert!(error.contains("demo.md"), "{body}: {error}");
+    }
+}

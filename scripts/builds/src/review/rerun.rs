@@ -104,7 +104,8 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
             };
             let label = format!("landing {landing} run {}", first.id);
             let all: Vec<&RunRow> = runs.iter().collect();
-            let change = match run::diff_of_run(inputs.repo_dir, &all, first, |run| {
+            let unread = material.unread(&row.repo);
+            let change = match run::diff_of_run(inputs.repo_dir, &all, first, &unread, |run| {
                 net_change(inputs.repo_dir, run)
             }) {
                 Ok(change) => change,
@@ -118,6 +119,7 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
             let scope = run::Scope {
                 material: &material,
                 files: &design,
+                unread: &unread,
             };
             let picked: Vec<_> = scope
                 .pick(&diff.changed)

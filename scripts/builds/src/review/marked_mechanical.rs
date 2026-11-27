@@ -8,24 +8,26 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::db::Sql;
 use crate::fail::Result;
 use crate::lists::Stamp;
+use crate::review::commits::Unread;
 use crate::review::record::Change;
 
 /// Records that <by> called the net change of <worktree> past <base>
 /// mechanical work (`builds review --kind mechanical`): moved or renamed
 /// code, regenerated files or a codemod, covered by <checked_by>, such as the
-/// compiler, the hook or a shots run. `builds land` takes the change with no
-/// review. Returns what to say.
+/// compiler, the hook or a shots run. The net change leaves out the <unread>
+/// folders. `builds land` takes the change with no review. Returns what to
+/// say.
 pub fn call_mechanical(
     store: &crate::lists::store::Store,
     repo: &str,
     worktree: &std::path::Path,
-    base: &str,
+    (base, unread): (&str, &Unread),
     key: &str,
     call: (&str, &str),
     stamp: &Stamp,
 ) -> Result<String> {
     let (by, checked_by) = call;
-    let net = crate::review::run::diff_between(worktree, base, "HEAD")?;
+    let net = crate::review::run::diff_between(worktree, base, "HEAD", unread)?;
     let added = crate::review::check::added_lines(net.diff.patch.text());
     let patch_id = patch_id(net.diff.patch.text())?;
     let branch = Branch {

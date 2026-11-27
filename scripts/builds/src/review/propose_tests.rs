@@ -252,7 +252,9 @@ fn a_case_proposal_requires_a_path_the_case_loader_accepts() {
         .into_iter()
         .find(|finding| finding.file == "a.rs")
         .unwrap();
-    let diff = run::diff_of(&side, "main").unwrap().diff;
+    let diff = run::diff_of(&side, "main", &Default::default())
+        .unwrap()
+        .diff;
     let patch = concat!(
         "diff --git a/a.rs b/new.rs\n",
         "rename from a.rs\nrename to new.rs\n",
@@ -292,7 +294,7 @@ fn a_finding_whose_code_is_not_in_the_change_is_named_and_left_out() {
     drop(conn);
     let b = findings.iter_mut().find(|f| f.rule == "rule-b").unwrap();
     b.code = "not in it".to_string();
-    let change = run::diff_between(&side, "main", "HEAD").unwrap();
+    let change = run::diff_between(&side, "main", "HEAD", &Default::default()).unwrap();
     let patch = cases::patch_of(&side, &change.base, &change.head).unwrap();
     assert_eq!(
         path_in(&change.diff, &patch, b),

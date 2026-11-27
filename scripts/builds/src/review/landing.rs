@@ -29,7 +29,9 @@
 //! group last judged it change a path the closing run's diff changed
 //! (`Coverage::rechecks`), and land refuses until a review gives it back. A rebase that keeps every line the branch adds and removes leaves
 //! nothing unreviewed, and so does a cherry-pick of the reviewed commits onto a
-//! moved main. A landing whose changed paths no group covers needs no review.
+//! moved main. A landing whose changed paths no group covers needs no review,
+//! and neither does one whose changed paths are all in folders no review reads
+//! (`commits::Unread`).
 //!
 //! `landed` records the landing as landed with its last review, unless commits
 //! of the branch still wait to land (`--more-to-land`), which keeps it open.
@@ -53,7 +55,7 @@ use crate::lists::Stamp;
 use crate::lists::design_paths::Globs;
 use crate::lists::store::{Store, resolve_by};
 use crate::review::check;
-use crate::review::commits;
+use crate::review::commits::{self, Unread};
 use crate::review::files;
 use crate::review::marked_mechanical;
 use crate::review::record::{self, Change, LandingRow};
@@ -73,19 +75,15 @@ pub struct Need {
     pub groups: Vec<String>,
 }
 
-/// Each of <shas> of the repo at <dir> with the groups that <groups_for>
-/// picks for the paths it changes.
-pub fn needs(
-    dir: &Path,
-    shas: Vec<String>,
-    groups_for: impl Fn(&[String]) -> Vec<String>,
-) -> Result<Vec<Need>> {
-    let touched = commits::paths_of_each(dir, &shas)?;
+/// Each of <shas> of the repo at <dir> with the groups that <scope> picks for
+/// the paths it changes.
+pub fn needs(dir: &Path, shas: Vec<String>, scope: Scope) -> Result<Vec<Need>> {
+    let touched = commits::paths_of_each(dir, &shas, scope.unread)?;
     Ok(shas
         .into_iter()
         .zip(touched)
         .map(|(sha, paths)| Need {
-            groups: groups_for(&paths),
+            groups: scope.group_names(&paths),
             paths,
             sha,
         })
@@ -342,13 +340,20 @@ impl Coverage {
                     );
                 };
                 if let Entry::Vacant(held) = fixes.entry(closing.id) {
-                    let net = run::diff_of_run(worktree, &read, closing, |run| {
+                    let net = run::diff_of_run(worktree, &read, closing, scope.unread, |run| {
                         Ok((run.base.clone(), run.head.clone()))
                     })?;
                     held.insert(net.diff.changed);
                 }
                 if let Entry::Vacant(held) = changes.entry(check.id) {
-                    let net = run::diff_since(worktree, &check.base, &check.head, base, head)?;
+                    let net = run::diff_since(
+                        worktree,
+                        &check.base,
+                        &check.head,
+                        base,
+                        head,
+                        scope.unread,
+                    )?;
                     held.insert(changed_paths(&net));
                 }
                 let mut fix = fixes[&closing.id].clone();
@@ -418,10 +423,11 @@ fn assess(
         }
     }
     if let CodeCheck::Branch(head) | CodeCheck::Squashed(head) = check {
-        let since = run::diff_since(dir, &last.base, &last.head, BRANCH_BASE, head)?;
+        let since = run::diff_since(dir, &last.base, &last.head, BRANCH_BASE, head, scope.unread)?;
         let branch = commits::paths(
             dir,
             &crate::git::commits_in_range(dir, &since.base, &since.head)?,
+            scope.unread,
         )?;
         let messages_unread = matches!(check, CodeCheck::Branch(_))
             && !scope.commit_text_groups(&since.diff, &branch).is_empty();
@@ -489,7 +495,7 @@ pub fn judge(
     };
     if let CodeCheck::Branch(head) | CodeCheck::Squashed(head) = check
         && !findings_wait
-        && let Some(over) = called_mechanical(db, change, dir, head)?
+        && let Some(over) = called_mechanical(db, change, dir, head, scope.unread)?
     {
         return Ok(Verdict::Mechanical(over));
     }
@@ -498,8 +504,8 @@ pub fn judge(
 
 /// The lines the net change of the branch at <head> adds past origin/main,
 /// and its patch id.
-fn net_of(dir: &Path, head: &str) -> Result<(i64, String)> {
-    let net = run::diff_between(dir, BRANCH_BASE, head)?;
+fn net_of(dir: &Path, head: &str, unread: &Unread) -> Result<(i64, String)> {
+    let net = run::diff_between(dir, BRANCH_BASE, head, unread)?;
     Ok((
         check::added_lines(net.diff.patch.text()),
         marked_mechanical::patch_id(net.diff.patch.text())?,
@@ -513,8 +519,9 @@ fn called_mechanical(
     change: Change,
     dir: &Path,
     head: &str,
+    unread: &Unread,
 ) -> Result<Option<Mechanical>> {
-    let (added, patch_id) = net_of(dir, head)?;
+    let (added, patch_id) = net_of(dir, head, unread)?;
     let branch = marked_mechanical::Branch {
         change,
         patch_id: &patch_id,
@@ -680,6 +687,8 @@ struct Asked {
     needs: Vec<Need>,
     root: PathBuf,
     material: Material,
+    /// The folders of the change's repo that no review reads.
+    unread: Unread,
     /// The design files of the change's repo.
     design: Globs,
     /// The build volume, which records the audit (process.rs).
@@ -698,6 +707,7 @@ impl Asked {
         Scope {
             material: &self.material,
             files: &self.design,
+            unread: &self.unread,
         }
     }
 }
@@ -722,13 +732,13 @@ fn ask(tool: &Tool, args: &Args, usage: &str) -> Result<Asked> {
     let material = Material::load(&root, project)?;
     let repo = checkout.repo();
     let design = Globs::read(&conn, &repo)?.with_capture_folders(&checkout.top)?;
+    let unread = material.unread(&repo);
     let scope = Scope {
         material: &material,
         files: &design,
+        unread: &unread,
     };
-    let needs = needs(&checkout.top, shas.to_vec(), |paths| {
-        scope.group_names(paths)
-    })?;
+    let needs = needs(&checkout.top, shas.to_vec(), scope)?;
     Ok(Asked {
         volume: tool.places.root.clone(),
         store,
@@ -739,6 +749,7 @@ fn ask(tool: &Tool, args: &Args, usage: &str) -> Result<Asked> {
         needs,
         root,
         material,
+        unread,
         design,
     })
 }

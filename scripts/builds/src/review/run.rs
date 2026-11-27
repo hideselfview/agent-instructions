@@ -2,6 +2,7 @@
 //! parallel, checks each finding's quotes, and says what came back. It writes
 //! nothing; `mod.rs` records the calls.
 
+use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -14,7 +15,7 @@ use crate::lists::design_paths::{FileKind, Globs};
 use crate::review::call;
 use crate::review::check::reviewers_map;
 use crate::review::check::{DiffFile, clause_in, code_site, names_file, only_on_comment_lines};
-use crate::review::commits;
+use crate::review::commits::{self, Unread};
 use crate::review::files::{self, CommitMessages, FileDiff, FilePaths, Source};
 use crate::review::groups::{Group, Groups};
 use crate::review::prompt::{self, PROJECT_FACTS};
@@ -29,6 +30,8 @@ pub struct Material {
     pub rules: Vec<Rule>,
     /// The project's always-loaded instructions, empty when it has none.
     pub project_text: String,
+    /// Per repo, the folders the project's file says no review reads.
+    pub unread_folders: BTreeMap<String, Vec<String>>,
 }
 
 impl Material {
@@ -40,12 +43,24 @@ impl Material {
         crate::review::groups::require_whole(&groups, &every)?;
         let rules = rules::load(root, Some(project))?;
         let project_file = root.join("projects").join(format!("{project}.md"));
-        let project_text = std::fs::read_to_string(&project_file).unwrap_or_default();
+        let project_text = match std::fs::read_to_string(&project_file) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => fail!("reading {}: {error}", project_file.display()),
+        };
+        let unread_folders =
+            crate::lists::project_file::unread_folders(&project_file, &project_text)?;
         Ok(Material {
             groups,
             rules,
             project_text,
+            unread_folders,
         })
+    }
+
+    /// The folders of <repo> that no review of the project reads.
+    pub fn unread(&self, repo: &str) -> Unread {
+        Unread::new(self.unread_folders.get(repo).map_or(&[], Vec::as_slice))
     }
 
     /// The folders of the checkout at <root> whose files `load` reads: the
@@ -108,13 +123,15 @@ impl Material {
 }
 
 /// What decides which rules read which files of a change in one repo: the
-/// project's groups and rules, and the repo's design files (`builds lists
+/// project's groups and rules, the folders of the repo that no review reads
+/// (`Material::unread`), and the repo's design files (`builds lists
 /// design-globs`) and capture files (its `shots-declared` folders). New
 /// findings in those files require a rule that judges their kind (`Rule::judges`).
 #[derive(Clone, Copy)]
 pub struct Scope<'a> {
     pub material: &'a Material,
     pub files: &'a Globs,
+    pub unread: &'a Unread,
 }
 
 impl Scope<'_> {
@@ -246,7 +263,7 @@ impl Diff {
 
     /// The diff without the files whose paths are in <dropped>, and without
     /// the commit messages when <dropped> holds `files::COMMIT_MESSAGE`.
-    fn without(&self, dropped: &[String]) -> Self {
+    pub(super) fn without(&self, dropped: &[String]) -> Self {
         if dropped.is_empty() {
             return self.clone();
         }
@@ -273,19 +290,19 @@ impl Diff {
 
 /// The change of the worktree's HEAD past <base> (from their common
 /// ancestor).
-pub fn diff_of(worktree: &Path, base: &str) -> Result<NetChange> {
-    diff_between(worktree, base, "HEAD")
+pub fn diff_of(worktree: &Path, base: &str, unread: &Unread) -> Result<NetChange> {
+    diff_between(worktree, base, "HEAD", unread)
 }
 
 /// The change of <head> past <base> (from their common ancestor), in
-/// <worktree>'s repo, without the test cases (`commits::without_test_cases`).
-pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<NetChange> {
+/// <worktree>'s repo, without the files of the <unread> folders.
+pub fn diff_between(worktree: &Path, base: &str, head: &str, unread: &Unread) -> Result<NetChange> {
     let text_of = |args: &[&str]| crate::git::text(worktree, args);
     let merge_base = text_of(&["merge-base", base, head])?.trim().to_string();
     let range = format!("{merge_base}...{head}");
-    let without = commits::without_test_cases();
+    let rest = unread.rest();
     let [old_prefix, new_prefix] = files::git_prefix_args();
-    let text = text_of(&[
+    let mut args = vec![
         "diff",
         "--no-color",
         "--no-ext-diff",
@@ -293,10 +310,9 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<NetChange
         &new_prefix,
         "-M",
         &range,
-        "--",
-        ".",
-        &without,
-    ])?;
+    ];
+    args.extend(rest.iter().map(String::as_str));
+    let text = text_of(&args)?;
     let messages = text_of(&[
         "log",
         "--reverse",
@@ -307,8 +323,9 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<NetChange
     let changed = commits::paths(
         worktree,
         &crate::git::commits_in_range(worktree, &merge_base, &head)?,
+        unread,
     )?;
-    let commit_summary = commits::summary(worktree, &merge_base, &head)?;
+    let commit_summary = commits::summary(worktree, &merge_base, &head, unread)?;
     Ok(NetChange {
         diff: Diff {
             messages,
@@ -343,13 +360,14 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<NetChange
 /// side deleted it, for example) shows its whole net change, and so does every
 /// file when the repo no longer has the commits the run read. The diff's
 /// commit messages are those the earlier change did not hold, and the diff
-/// leaves out the test cases (`commits::without_test_cases`).
+/// leaves out the files of the <unread> folders.
 pub fn diff_since(
     worktree: &Path,
     read_base: &str,
     read_head: &str,
     base: &str,
     head: &str,
+    unread: &Unread,
 ) -> Result<NetChange> {
     let text_of = |args: &[&str]| crate::git::text(worktree, args);
     let merge_base = text_of(&["merge-base", base, head])?.trim().to_string();
@@ -361,13 +379,10 @@ pub fn diff_since(
     } else {
         (merge_base.clone(), Vec::new())
     };
-    let mut rest = vec![
-        "--".to_string(),
-        ".".to_string(),
-        commits::without_test_cases(),
-    ];
+    let mut rest = unread.rest();
     rest.extend(whole.iter().map(|path| format!(":(exclude,literal){path}")));
-    let mut only = vec!["--".to_string(), commits::without_test_cases()];
+    let mut only = vec!["--".to_string()];
+    only.extend(unread.excludes());
     only.extend(whole.iter().map(|path| format!(":(literal){path}")));
     let [old_prefix, new_prefix] = files::git_prefix_args();
     let diff = |from: &str, options: &[&str], paths: &[String]| -> Result<String> {
@@ -413,7 +428,7 @@ pub fn diff_since(
         .into_iter()
         .filter(|message| !earlier.contains(message))
         .collect();
-    let commit_summary = commits::summary(worktree, &merge_base, &head)?;
+    let commit_summary = commits::summary(worktree, &merge_base, &head, unread)?;
     Ok(NetChange {
         diff: Diff {
             messages: messages.join("\n"),
@@ -443,11 +458,12 @@ pub fn diff_of_run(
     worktree: &Path,
     runs: &[&RunRow],
     run: &RunRow,
+    unread: &Unread,
     net_change: impl Fn(&RunRow) -> Result<(String, String)>,
 ) -> Result<NetChange> {
     let (base, head) = net_change(run)?;
     let mut change = match run.since {
-        None => diff_between(worktree, &base, &head)?,
+        None => diff_between(worktree, &base, &head, unread)?,
         Some(since) => {
             let Some(earlier) = runs.iter().find(|r| r.id == since) else {
                 fail!(
@@ -456,7 +472,7 @@ pub fn diff_of_run(
                 );
             };
             let (read_base, read_head) = net_change(earlier)?;
-            diff_since(worktree, &read_base, &read_head, &base, &head)?
+            diff_since(worktree, &read_base, &read_head, &base, &head, unread)?
         }
     };
     if let Some(source) = &mut change.diff.source {

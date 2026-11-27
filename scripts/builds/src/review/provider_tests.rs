@@ -310,7 +310,10 @@ fn code_design_capture_and_replay_use_sol() {
         name: "example".into(),
         project: "demo".into(),
         repo: "demo".into(),
-        patch: run::diff_of(&code, "origin/main").unwrap().diff.patch,
+        patch: run::diff_of(&code, "origin/main", &Default::default())
+            .unwrap()
+            .diff
+            .patch,
         clean_for: vec!["rule-a".into()],
         expected: Vec::new(),
         labels: Vec::new(),
@@ -319,6 +322,7 @@ fn code_design_capture_and_replay_use_sol() {
     let scope = run::Scope {
         material: &material,
         files: &Globs::default(),
+        unread: &Default::default(),
     };
     let replayed = cases::replay_case(scope, &sol, &case, None);
     assert_eq!(replayed.calls[0].model, "gpt-6.2-sol");

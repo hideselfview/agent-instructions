@@ -98,11 +98,13 @@ pub fn read(
         return Ok(Standing::Uncovered);
     }
     let design_files = globs.with_capture_folders(top)?;
+    let unread = material.unread(&design.repo);
     let scope = Scope {
         material,
         files: &design_files,
+        unread: &unread,
     };
-    let needs = landing::needs(top, ahead, |paths| scope.group_names(paths))?;
+    let needs = landing::needs(top, ahead, scope)?;
     let conn = store.open_existing()?;
     let key = super::landing_key(&conn, &design.repo, top)?;
     let change = Change {

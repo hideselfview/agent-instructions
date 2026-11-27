@@ -50,7 +50,8 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
     let material = run::Material::load(inputs.root, inputs.project)?;
     let design = Globs::read(&*inputs.store.open_existing()?, inputs.repo)?
         .with_capture_folders(inputs.worktree)?;
-    let change = run::diff_of(inputs.worktree, inputs.base)?;
+    let unread = material.unread(inputs.repo);
+    let change = run::diff_of(inputs.worktree, inputs.base, &unread)?;
     if change.diff.patch.text().trim().is_empty() {
         return Ok(Checked {
             text: format!(
@@ -73,6 +74,7 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
     let scope = run::Scope {
         material: &material,
         files: &design,
+        unread: &unread,
     };
     let asked = run::ask_groups(
         scope,

@@ -4312,9 +4312,15 @@ reads the full body of every rule in the group, the project's always-loaded
 instructions (projects/<project>.md), the diff and the landing's brief, and
 answers for every rule. No group reviews the test cases in the review/cases folder: a
 case holds old code on purpose, so builds leaves that folder out of every diff
-and list of changed paths that a review or `builds land` reads. To test
-another grouping, change the folders in a worktree of agent-instructions and
-run `review replay --rules-root` on it.
+and list of changed paths that a review or `builds land` reads. A project's file
+names more folders that no review reads, under the heading `## Paths no review
+reads`, each on a line of the form - `repo:folder/`, and builds leaves each of
+them out in the same way. A branch that changes only files in these folders
+needs no review, and a review of a branch that also changes other files reads
+the other files. A review still reads the commit messages of a branch that
+changes other files. In project bae, no review reads bae's website/ folder. To
+test another grouping, change the folders of rules in a worktree of
+agent-instructions and run `review replay --rules-root` on it.
 
   {land}
                               put the commits on origin/main from the worktree

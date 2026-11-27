@@ -18,14 +18,15 @@ use crate::lists::Lists;
 use crate::lists::design_paths::Globs;
 use crate::lists::store::Store;
 use crate::places::Places;
-use crate::review::commits;
+use crate::review::commits::{self, Unread};
 use crate::review::landing::{self, CodeCheck, Need, Verdict};
 use crate::review::record::Change;
 use crate::review::run::{Material, Scope};
 use crate::side_git::SideRead;
 
-/// A worktree and its commits (full hashes, oldest first).
-type ReadKey = (PathBuf, Vec<String>);
+/// A worktree, its commits (full hashes, oldest first) and the folders of its
+/// repo that no review reads.
+type ReadKey = (PathBuf, Vec<String>, Unread);
 
 /// The paths each commit of a worktree changes.
 type Read = Vec<Vec<String>>;
@@ -102,13 +103,13 @@ impl Reads {
     /// The paths each of <shas> changes in <top>, or why git could not read
     /// them. Reads keeps only a read that succeeded, so the next page build
     /// asks git again after a failure.
-    fn commits(&self, top: &Path, shas: &[String]) -> Result<Read, String> {
-        let key = (top.to_path_buf(), shas.to_vec());
+    fn commits(&self, top: &Path, shas: &[String], unread: &Unread) -> Result<Read, String> {
+        let key = (top.to_path_buf(), shas.to_vec(), unread.clone());
         let mut known = self.commits.lock().expect("no panic holding it");
         if let Some(found) = known.get(&key) {
             return Ok(found.clone());
         }
-        let read = commits::paths_of_each(top, shas).map_err(|why| {
+        let read = commits::paths_of_each(top, shas, unread).map_err(|why| {
             format!(
                 "reading the paths the commits of {} change: {}",
                 top.display(),
@@ -230,7 +231,8 @@ impl Reads {
         material: &Material,
     ) -> Result<Verdict, String> {
         let shas = worktree.git.ahead_oldest_first();
-        let paths = self.commits(worktree.top, &shas)?;
+        let unread = material.unread(worktree.repo);
+        let paths = self.commits(worktree.top, &shas, &unread)?;
         let conn = store.open_existing().map_err(Fail::text)?;
         // The store's version is part of the tip a verdict is kept for, so a
         // change to the repo's design globs judges the worktree again.
@@ -240,6 +242,7 @@ impl Reads {
         let scope = Scope {
             material,
             files: &design,
+            unread: &unread,
         };
         let needs: Vec<Need> = shas
             .iter()
@@ -280,7 +283,7 @@ fn same_review_rules(before: &Material, after: &Material) -> bool {
             .filter(|(_, members)| !members.is_empty())
             .map(|(group, members)| (group.name.as_str(), group.commit_text, members))
     }
-    groups(before).eq(groups(after))
+    before.unread_folders == after.unread_folders && groups(before).eq(groups(after))
 }
 
 type Outcome = Result<Arc<Verdict>, String>;

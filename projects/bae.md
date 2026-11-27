@@ -155,6 +155,15 @@ The `ci-only` line of `.app-build` names the whole test suites
 Notarized macOS releases come only from `main`, and `scripts/release-macos.sh`
 builds them on CI.
 
+## Paths no review reads
+
+No review reads bae.fm's website, so a branch that changes only the website
+lands with no review (`builds help`, LANDING AND REVIEW). Reviews read the
+design system in `design/system`, which the website reads, as they read other
+design files.
+
+- `bae:website/`
+
 ## Making a change
 
 ### Every commit keeps the spec current

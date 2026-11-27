@@ -612,7 +612,9 @@ fn a_group_whose_files_a_later_commit_changed_back_answers_no_findings() {
 /// Writes <text> to <file> in <top>, commits it with <message>, and returns
 /// the commit.
 fn commit_text(top: &Path, file: &str, text: &str, message: &str) -> String {
-    std::fs::write(top.join(file), text).unwrap();
+    let path = top.join(file);
+    std::fs::create_dir_all(path.parent().expect("a file is in a folder")).unwrap();
+    std::fs::write(path, text).unwrap();
     crate::testing::git(top, &["add", file]);
     crate::testing::git(top, &["commit", "-q", "-m", message]);
     head(top)
@@ -965,7 +967,7 @@ fn a_branch_called_mechanical_lands_with_land_saying_who_and_why() {
         &demo.store,
         "demo",
         &side,
-        "origin/main",
+        ("origin/main", &Default::default()),
         &key,
         ("agent-1", "the compiler"),
         &stamp(),
@@ -1041,7 +1043,7 @@ fn write_review_without_recheck(demo: &Demo, side: &Path) {
         .unwrap()
         .reviewed_run
         .unwrap();
-    let net = run::diff_between(side, "main", "HEAD").unwrap();
+    let net = run::diff_between(side, "main", "HEAD", &Default::default()).unwrap();
     let call = record::NewCall {
         group: "alpha".to_string(),
         model: "sonnet".to_string(),
@@ -1118,4 +1120,59 @@ fn land_takes_the_commits_once_a_review_gave_the_closed_finding_to_its_group() {
     assert!(reported.refusal.is_none(), "{:?}", reported.refusal);
     let asked = verdict_of(&demo, &fake, &side, &[undo]);
     assert!(matches!(asked.0, Verdict::Takes(_)), "{asked:?}");
+}
+
+/// Names `website/` as a folder of the repo `demo` that no review reads.
+fn leave_the_website_unread(fake: &Fake) {
+    std::fs::write(
+        fake.root.join("projects/demo.md"),
+        "Demo project facts.\n\n## Paths no review reads\n\n- `demo:website/`\n",
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_branch_of_unread_folders_only_lands_with_no_review() {
+    let demo = demo("landing-unread-only");
+    let fake = fake(&demo.scratch.dir);
+    commit_text_group(&fake);
+    let side = demo.add_side(1, "agent", "work");
+    commit_text(&side, "website/page.rs", "the page\n", "Add a page");
+    let page = [head(&side)];
+    assert!(verdict_of(&demo, &fake, &side, &page).1.is_some());
+    leave_the_website_unread(&fake);
+    let reported = review_of(&demo, &fake, &side);
+    assert_eq!(reported.landing, None, "{}", reported.text);
+    assert!(fake.prompts().is_empty());
+    let (verdict, refusal) = verdict_of(&demo, &fake, &side, &page);
+    assert_eq!(verdict, Verdict::NotNeeded);
+    assert_eq!(refusal, None);
+}
+
+#[test]
+fn a_review_of_a_mixed_branch_reads_only_the_paths_outside_unread_folders() {
+    let demo = demo("landing-unread-mixed");
+    let fake = fake(&demo.scratch.dir);
+    leave_the_website_unread(&fake);
+    let side = demo.add_side(1, "agent", "work");
+    commit_text(&side, "website/page.rs", "the page\n", "Add a page");
+    let page = head(&side);
+    demo.commit(&side, "a.rs");
+    let code = head(&side);
+    let reported = review_of(&demo, &fake, &side);
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{prompts:?}");
+    assert!(prompts[0].1.contains("+a.rs"), "{}", prompts[0].1);
+    assert!(!prompts[0].1.contains("page.rs"), "{}", prompts[0].1);
+    assert!(reported.refusal.is_none(), "{:?}", reported.refusal);
+    // A later change in the folder leaves the review nothing to read.
+    commit_text(
+        &side,
+        "website/page.rs",
+        "another page\n",
+        "Change the page",
+    );
+    let shas = [page, code, head(&side)];
+    let (verdict, refusal) = verdict_of(&demo, &fake, &side, &shas);
+    assert!(matches!(verdict, Verdict::Takes(_)), "{refusal:?}");
 }

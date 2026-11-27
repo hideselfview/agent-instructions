@@ -1,6 +1,8 @@
 //! A project's file in the rules checkout (projects/<project>.md): the
-//! description every agent of the project starts with, and its hard limits.
+//! description every agent of the project starts with, its hard limits and the
+//! folders no review reads.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::fail;
@@ -54,6 +56,55 @@ pub fn hard_limits_if_any(rules_root: &Path, project: &str) -> Result<Option<Str
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => fail!("reading {}: {error}", path.display()),
     }
+}
+
+/// The heading of the section that names the folders no review reads.
+const UNREAD_HEADING: &str = "## Paths no review reads";
+
+/// Per repo, the folders that the `## Paths no review reads` section of
+/// <text>, the project file at <path>, names, each as a line
+/// ``- `repo:folder/` ``. Other lines of the section are prose. Empty when the
+/// file has no such section. Fails on a list line in any other form, and on a
+/// section that names no folder.
+pub fn unread_folders(path: &Path, text: &str) -> Result<BTreeMap<String, Vec<String>>> {
+    let mut folders: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut lines = text.lines();
+    if !lines.any(|line| line.trim_end() == UNREAD_HEADING) {
+        return Ok(folders);
+    }
+    for line in lines.take_while(|line| !line.starts_with("## ")) {
+        let Some(entry) = line.strip_prefix("- ") else {
+            continue;
+        };
+        let Some((repo, folder)) = unread_entry(entry.trim_end()) else {
+            fail!(
+                "{}: `{line}` under `{UNREAD_HEADING}` is not a line of the form - `repo:folder/`",
+                path.display()
+            );
+        };
+        folders
+            .entry(repo.to_string())
+            .or_default()
+            .push(folder.to_string());
+    }
+    if folders.is_empty() {
+        fail!(
+            "{}: `{UNREAD_HEADING}` names no folder; name each as - `repo:folder/`, or remove the section",
+            path.display()
+        );
+    }
+    Ok(folders)
+}
+
+/// The repo and the folder, without its last slash, of `` `repo:folder/` ``.
+fn unread_entry(entry: &str) -> Option<(&str, &str)> {
+    let entry = entry.strip_prefix('`')?.strip_suffix('`')?;
+    let (repo, folder) = entry.split_once(':')?;
+    let folder = folder.strip_suffix('/')?;
+    let is_folder = folder
+        .split('/')
+        .all(|part| !matches!(part, "" | "." | ".."));
+    (!repo.is_empty() && is_folder).then_some((repo, folder))
 }
 
 /// The first paragraph after the title heading, its lines joined with

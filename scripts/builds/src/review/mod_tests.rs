@@ -2279,9 +2279,10 @@ fn a_group_whose_rules_judge_no_design_file_reads_no_design_file() {
     let scope = run::Scope {
         material: &material,
         files: &design,
+        unread: &Default::default(),
     };
     let shas = crate::git::commits_in_range(&side, "main", "HEAD").unwrap();
-    let needs = landing::needs(&side, shas, |paths| scope.group_names(paths)).unwrap();
+    let needs = landing::needs(&side, shas, scope).unwrap();
     let verdict = landing::judge(
         &conn,
         record::Change {
@@ -2517,7 +2518,7 @@ fn call(demo: &Demo, side: &Path) -> Result<String> {
         &demo.store,
         "demo",
         side,
-        "main",
+        ("main", &Default::default()),
         "k",
         ("agent-1", "the compiler"),
         &stamp(),

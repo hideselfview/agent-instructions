@@ -203,6 +203,7 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
         Scope {
             material: &material(&fake),
             files: &Globs::default(),
+            unread: &Default::default(),
         },
         &fake.program,
         &case,
@@ -219,6 +220,7 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
         Scope {
             material: &material(&fake),
             files: &Globs::default(),
+            unread: &Default::default(),
         },
         &fake.program,
         &case,
@@ -237,7 +239,8 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
         replay_case(
             Scope {
                 material: &material(&fake),
-                files: &Globs::default()
+                files: &Globs::default(),
+                unread: &Default::default(),
             },
             &fake.program,
             &case,
@@ -261,7 +264,8 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
         replay_case(
             Scope {
                 material: &material(&fake),
-                files: &Globs::default()
+                files: &Globs::default(),
+                unread: &Default::default(),
             },
             &fake.program,
             &clean,
@@ -275,6 +279,7 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
         Scope {
             material: &material(&fake),
             files: &Globs::default(),
+            unread: &Default::default(),
         },
         &fake.program,
         &clean,
@@ -311,6 +316,7 @@ fn a_failed_call_in_a_replay_is_counted_and_named() {
         Scope {
             material: &material(&fake),
             files: &Globs::default(),
+            unread: &Default::default(),
         },
         &fake.program,
         &case,
@@ -356,6 +362,7 @@ fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
         Scope {
             material: &material(&fake),
             files: &Globs::default(),
+            unread: &Default::default(),
         },
         &fake.program,
         &case,
@@ -422,6 +429,7 @@ fn site_labels_score_recall_wrong_findings_and_unlabelled_ones_per_rule() {
             Scope {
                 material: &material(&fake),
                 files: &Globs::default(),
+                unread: &Default::default(),
             },
             &fake.program,
             &case(labels),
@@ -456,7 +464,8 @@ fn site_labels_score_recall_wrong_findings_and_unlabelled_ones_per_rule() {
             ..replay_case(
                 Scope {
                     material: &material(&fake),
-                    files: &Globs::default()
+                    files: &Globs::default(),
+                    unread: &Default::default(),
                 },
                 &fake.program,
                 &case(Vec::new()),
@@ -515,6 +524,7 @@ fn a_comparison_prints_each_setups_caught_missed_and_wrong_flags_with_tokens_and
         Scope {
             material: &material(&fake),
             files: &Globs::default(),
+            unread: &Default::default(),
         },
         &fake.program,
         &case,
@@ -525,6 +535,7 @@ fn a_comparison_prints_each_setups_caught_missed_and_wrong_flags_with_tokens_and
         Scope {
             material: &material(&fake).with_model("haiku"),
             files: &Globs::default(),
+            unread: &Default::default(),
         },
         &fake.program,
         &case,

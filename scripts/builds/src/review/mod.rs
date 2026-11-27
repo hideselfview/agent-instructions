@@ -117,6 +117,7 @@ use crate::lists::Stamp;
 use crate::lists::design_paths::Globs;
 use crate::lists::spec_check::Brief;
 use crate::lists::store::{Store, project_of};
+use crate::review::commits::Unread;
 use crate::tool::Tool;
 use boards::git;
 use rusqlite::Connection;
@@ -308,29 +309,34 @@ pub struct Reported {
 /// again (`later_asks`); it refuses when none is open either.
 pub fn review(inputs: &Inputs) -> Result<Reported> {
     let conn = inputs.store.open_existing()?;
+    let material = run::Material::load(inputs.root, inputs.project)?;
+    let unread = material.unread(inputs.repo);
     let change = match inputs.head {
         Some(head) => {
-            let mut change = run::diff_between(inputs.worktree, inputs.base, head)?;
+            let mut change = run::diff_between(inputs.worktree, inputs.base, head, &unread)?;
             if let Some(source) = &mut change.diff.source {
                 source.in_place = false;
             }
             change
         }
-        None => run::diff_of(inputs.worktree, inputs.base)?,
+        None => run::diff_of(inputs.worktree, inputs.base, &unread)?,
     };
     if change.diff.patch.text().trim().is_empty() {
         return Ok(Reported {
             landing: None,
-            text: format!("nothing to review: no changes past {}\n", inputs.base),
+            text: format!(
+                "nothing to review: no changes past {} outside the folders no review reads\n",
+                inputs.base
+            ),
             refusal: None,
         });
     }
     let shas = crate::git::commits_in_range(inputs.worktree, &change.base, &change.head)?;
-    let material = run::Material::load(inputs.root, inputs.project)?;
     let design = Globs::read(&conn, inputs.repo)?.with_capture_folders(inputs.worktree)?;
     let scope = run::Scope {
         material: &material,
         files: &design,
+        unread: &unread,
     };
     if scope.group_names(&change.diff.changed).is_empty() {
         return Ok(Reported {
@@ -424,6 +430,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         &mut answers,
         &open_findings,
         &previous_runs,
+        &unread,
     )?;
     let stamp = inputs.stamp;
     let (landing, runs) = inputs
@@ -536,7 +543,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         }
     }
     // What builds land would say of the branch's commits now.
-    let needs = landing::needs(inputs.worktree, shas, |paths| scope.group_names(paths))?;
+    let needs = landing::needs(inputs.worktree, shas, scope)?;
     let verdict = landing::judge(
         &conn,
         under_review,
@@ -565,6 +572,7 @@ fn account_for_repeated_findings<'a>(
     answers: &mut [run::Asked],
     open: &'a [record::Finding],
     previous_runs: &[record::RunRow],
+    unread: &Unread,
 ) -> Result<Vec<Vec<&'a record::Finding>>> {
     let read: Vec<_> = previous_runs.iter().collect();
     let mut repeated_at_head = BTreeMap::new();
@@ -582,7 +590,7 @@ fn account_for_repeated_findings<'a>(
                     .filter(|held| held.group == call.group && held.could_match_quote(&raised));
                 let mut repeated = None;
                 for held in candidates {
-                    if same_finding_site(repo, &ask.change, &read, held, &raised)? {
+                    if same_finding_site(repo, &ask.change, &read, unread, held, &raised)? {
                         repeated = Some(held);
                         break;
                     }
@@ -629,6 +637,7 @@ fn same_finding_site(
     repo: &Path,
     change: &run::NetChange,
     read: &[&record::RunRow],
+    unread: &Unread,
     held: &record::Finding,
     raised: &record::NewFinding,
 ) -> Result<bool> {
@@ -642,7 +651,7 @@ fn same_finding_site(
         );
     };
     let previous = || {
-        run::diff_of_run(repo, read, run, |run| {
+        run::diff_of_run(repo, read, run, unread, |run| {
             Ok((run.base.clone(), run.head.clone()))
         })
     };
@@ -745,7 +754,7 @@ fn later_asks(
     let mut asks = Vec::new();
     for (run, missing) in &unanswered {
         asks.push(Ask {
-            change: run::diff_of_run(inputs.worktree, &read, run, |run| {
+            change: run::diff_of_run(inputs.worktree, &read, run, scope.unread, |run| {
                 Ok((run.base.clone(), run.head.clone()))
             })?,
             since: run.since,
@@ -771,6 +780,7 @@ fn later_asks(
             &from.head,
             &change.base,
             &change.head,
+            scope.unread,
         )?;
         if let (Some(source), Some(read)) = (&mut since.diff.source, &change.diff.source) {
             source.in_place = read.in_place;
@@ -999,11 +1009,16 @@ fn kind_of(tool: &Tool, args: &Args) -> Result<Option<ReviewKind>> {
 /// Whether the net change of <checkout> past <base> is one whose kind builds
 /// knows: only renamed identifiers, design files only, or capture files only.
 fn known_answer(tool: &Tool, args: &Args, checkout: &Checkout, base: &str) -> Result<bool> {
-    let net = run::diff_between(&checkout.top, base, "HEAD")?;
+    let project = project_given(tool, args, checkout)?;
+    let unread = match &project {
+        Some(project) => unread_of(args, project, &checkout.repo())?,
+        None => Unread::default(),
+    };
+    let net = run::diff_between(&checkout.top, base, "HEAD", &unread)?;
     if mechanical::only_renames(net.diff.patch.text()) {
         return Ok(true);
     }
-    let Some(project) = project_given(tool, args, checkout)? else {
+    let Some(project) = project else {
         return Ok(false);
     };
     let store = Store::named(&tool.places, &project)?;
@@ -1048,11 +1063,12 @@ fn call_mechanical(
     };
     let stamp = Stamp::resolve(tool.now, args, &checkout.top)?;
     let by = runner.map_or("the person", |caller| caller.id.as_str());
+    let unread = unread_of(args, &project, &checkout.repo())?;
     crate::output::answer(marked_mechanical::call_mechanical(
         &store,
         &checkout.repo(),
         &checkout.top,
-        base,
+        (base, &unread),
         &key,
         (by, checked_by),
         &stamp,
@@ -1266,6 +1282,12 @@ fn worktree_and_base(args: &Args) -> Result<(&str, &str)> {
         [worktree, base] => Ok((worktree.as_str(), base.as_str())),
         _ => fail!("{}", crate::command::Command::group_usage_text("review")),
     }
+}
+
+/// The folders of <repo> that no review of <project> reads, as the rules
+/// checkout of <args> says.
+fn unread_of(args: &Args, project: &str, repo: &str) -> Result<Unread> {
+    Ok(run::Material::load(&rules_root(args)?, project)?.unread(repo))
 }
 
 /// The project `--project` names, else the project of <checkout>'s repo;
@@ -2004,6 +2026,11 @@ fn list_groups(tool: &Tool, args: &Args) -> Result<()> {
         &*Store::named(&tool.places, project)?.open_existing()?,
         args.require("repo")?,
     )?;
+    let unread = unread_of(args, project, args.require("repo")?)?;
+    let changed: Vec<String> = changed
+        .into_iter()
+        .filter(|path| !unread.covers(path))
+        .collect();
     let project_rules = rules::load(&root, Some(project))?;
     for (group, members) in groups.pick(&project_rules, &changed, &design) {
         print_group(group, members.iter().map(|rule| rule.slug.as_str()));

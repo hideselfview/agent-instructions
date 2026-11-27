@@ -380,6 +380,13 @@ pub fn replay_case(
         })
     });
     let diff = Diff::from_patch(case.patch.clone(), messages, source);
+    let unread: Vec<String> = diff
+        .changed
+        .iter()
+        .filter(|path| scope.unread.covers(path))
+        .cloned()
+        .collect();
+    let diff = diff.without(&unread);
     let picked = scope.pick(&diff.changed);
     let asked = ask_groups(
         scope,
@@ -500,9 +507,11 @@ pub fn replay_all(
             .iter()
             .find(|(project, _)| *project == case.project)
             .expect("loaded above");
+        let unread = material.unread(&case.repo);
         let scope = Scope {
             material,
             files: design,
+            unread: &unread,
         };
         results.push(replay_case(scope, reviewer, case, source_repo));
     }
