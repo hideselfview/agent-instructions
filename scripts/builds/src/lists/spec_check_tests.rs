@@ -97,11 +97,11 @@ impl Bench {
         );
     }
 
-    /// `builds item take 1` with the brief, in side worktree 1, with <extra>.
-    fn take(&self, extra: &[&str]) -> Result<()> {
+    /// `builds item take 1` with the brief, in side worktree 1.
+    fn take(&self) -> Result<()> {
         let root = self.fake.root.display().to_string();
         let program = self.fake.program.executable().display().to_string();
-        let mut args = vec![
+        let args = [
             "take",
             "1",
             "--worktree",
@@ -115,7 +115,6 @@ impl Bench {
             "--reviewer",
             &program,
         ];
-        args.extend_from_slice(extra);
         cmd_item(&self.demo.tool, &crate::testing::no_ssh(), &words(&args))
     }
 
@@ -178,32 +177,16 @@ fn conflict(spec: &str) -> Value {
 }
 
 #[test]
-fn a_brief_that_contradicts_the_spec_refuses_the_take_quoting_both_texts() {
+fn a_brief_that_contradicts_the_spec_takes_the_item_and_prints_the_spec_edit() {
     let b = bench("spec-check-conflict", true);
     b.answer(conflict(SPEC_TEXT), json!([]));
-    let refused = refusal(b.take(&[]));
-    assert!(
-        refused.contains(&format!("the brief says: \"{CONFLICT}\"")),
-        "{refused}"
-    );
-    assert!(
-        refused.contains(&format!("spec/demo.md:5 (repo demo) says: \"{SPEC_TEXT}\"")),
-        "{refused}"
-    );
-    assert!(refused.contains("--spec-decided N"), "{refused}");
+    b.take().unwrap();
     let lists = b.lists();
     let item = &lists.items[0];
-    assert!(item.running.is_empty(), "a refused take starts nothing");
-    assert_eq!(
-        item.spec_checks.len(),
-        1,
-        "the take records the refused check"
-    );
+    assert_eq!(item.running.len(), 1);
+    assert_eq!(item.spec_checks.len(), 1);
     let check = &item.spec_checks[0];
-    assert_eq!(
-        (check.conflicts, check.unstated, check.decided),
-        (1, 0, None)
-    );
+    assert_eq!((check.conflicts, check.unstated), (1, 0));
     let prompts = b.prompts();
     assert_eq!(prompts.len(), 1);
     assert!(
@@ -215,13 +198,19 @@ fn a_brief_that_contradicts_the_spec_refuses_the_take_quoting_both_texts() {
         prompts[0].contains("Every change agrees with its product spec."),
         "the reviewer follows the rule's text"
     );
+    assert_eq!(
+        notes(&[b.check()]),
+        vec![format!(
+            "the spec of repo demo states this behavior otherwise than the brief does; tell the agent to change the spec to state the brief's behavior in the commit that does the work:\n  the brief says: \"{CONFLICT}\"\n  spec/demo.md:5 says: \"{SPEC_TEXT}\"\n  how they differ: The brief clears the selection; the spec keeps it."
+        )]
+    );
 }
 
 #[test]
 fn a_brief_that_agrees_with_the_spec_passes_and_the_check_is_recorded() {
     let b = bench("spec-check-agrees", true);
     b.answer(json!([]), json!([]));
-    b.take(&[]).unwrap();
+    b.take().unwrap();
     let lists = b.lists();
     let item = &lists.items[0];
     assert_eq!(item.running.len(), 1);
@@ -246,7 +235,7 @@ fn an_unstated_behavior_is_printed_and_the_take_passes() {
         json!([]),
         json!([{"brief": UNSTATED, "why": "searched for search box and text"}]),
     );
-    b.take(&[]).unwrap();
+    b.take().unwrap();
     let lists = b.lists();
     assert_eq!(lists.items[0].running.len(), 1);
     assert_eq!(lists.items[0].spec_checks[0].unstated, 1);
@@ -262,9 +251,7 @@ fn an_unstated_behavior_is_printed_and_the_take_passes() {
 #[test]
 fn a_project_with_no_spec_files_skips_the_check() {
     let b = bench("spec-check-no-spec", false);
-    let decided = refusal(b.take(&["--spec-decided", "1"]));
-    assert!(decided.contains("names the item #1"), "{decided}");
-    b.take(&[]).unwrap();
+    b.take().unwrap();
     let lists = b.lists();
     assert_eq!(lists.items[0].running.len(), 1);
     assert!(lists.items[0].spec_checks.is_empty());
@@ -272,59 +259,13 @@ fn a_project_with_no_spec_files_skips_the_check() {
 }
 
 #[test]
-fn the_decided_flag_records_its_ref_and_takes_the_item_despite_the_conflict() {
-    let b = bench("spec-check-decided", true);
-    b.answer(conflict(SPEC_TEXT), json!([]));
-    let question = b
-        .demo
-        .store
-        .write(&stamp(NOON), "question ask", |db| {
-            Ok(crate::lists::fixtures::question(db))
-        })
-        .unwrap();
-    let not_a_choice = refusal(b.take(&["--spec-decided", "1"]));
-    assert!(not_a_choice.contains("names the item #1"), "{not_a_choice}");
-    assert!(
-        b.prompts().is_empty(),
-        "a bad ref stops the take before the reviewer runs"
-    );
-    b.take(&["--spec-decided", &question.0.to_string()])
-        .unwrap();
-    let lists = b.lists();
-    let item = &lists.items[0];
-    assert_eq!(item.running.len(), 1);
-    let check = &item.spec_checks[0];
-    assert_eq!((check.conflicts, check.decided), (1, Some(question)));
-    assert!(
-        crate::lists::item_show::render_item(&lists, Id(1), 0)
-            .unwrap()
-            .contains(&format!("the person decided the conflicts in {question}")),
-    );
-}
-
-#[test]
-fn a_decided_ref_with_no_spec_check_to_record_it_on_is_refused() {
-    let b = bench("spec-check-decided-no-spec", false);
-    let question = b
-        .demo
-        .store
-        .write(&stamp(NOON), "question ask", |db| {
-            Ok(crate::lists::fixtures::question(db))
-        })
-        .unwrap();
-    let said = refusal(b.take(&["--spec-decided", &question.0.to_string()]));
-    assert!(said.contains("no spec check runs"), "{said}");
-    assert!(b.lists().items[0].running.is_empty());
-}
-
-#[test]
-fn a_conflict_whose_spec_quote_is_not_in_the_spec_is_set_aside_and_refuses_nothing() {
+fn a_conflict_whose_spec_quote_is_not_in_the_spec_is_set_aside() {
     let b = bench("spec-check-set-aside", true);
     b.answer(
         conflict("A release that finishes importing goes away."),
         json!([]),
     );
-    b.take(&[]).unwrap();
+    b.take().unwrap();
     let lists = b.lists();
     assert_eq!(lists.items[0].running.len(), 1);
     assert_eq!(lists.items[0].spec_checks[0].conflicts, 0);
@@ -346,7 +287,7 @@ fn a_check_that_fails_refuses_the_take_and_is_recorded() {
     let b = bench("spec-check-fails", true);
     b.answer(json!([]), json!([]));
     b.fake.fail("spec-check");
-    let refused = refusal(b.take(&[]));
+    let refused = refusal(b.take());
     assert!(refused.contains("gave no usable answer"), "{refused}");
     let lists = b.lists();
     assert!(lists.items[0].running.is_empty());
@@ -420,7 +361,7 @@ pub fn record_one(db: &Connection, item: Id, model: &str, usage: Usage) {
         name: "plans/briefs/b.md".to_string(),
         text: BRIEF.to_string(),
     };
-    let ids = record(db, &stamp(NOON), &brief, &[item], &[checked], None).unwrap();
+    let ids = record(db, &stamp(NOON), &brief, &[item], &[checked]).unwrap();
     let all = read_all(db).unwrap();
     let recorded = all[&item].iter().find(|check| check.id == ids[0]).unwrap();
     assert_eq!((recorded.conflicts, recorded.unstated), (1, 1));
@@ -496,26 +437,9 @@ fn the_tables_refuse_a_row_that_breaks_a_constraint() {
             "spec_check_cost_not_negative",
             vec![("cost_microdollars", v(-1))],
         ),
-        (
-            "spec_check_decided_by_a_decision_or_question",
-            vec![("decided_id", v(1)), ("decided_kind", v("item"))],
-        ),
-        ("spec_check_decided_whole", vec![("decided_id", v(1))]),
     ] {
         refused.check(name, plant(&db, "spec_check", &row(&check, &over)));
     }
-    refused.check_as(
-        "spec_check_decided_names_its_record",
-        "FOREIGN KEY constraint failed",
-        plant(
-            &db,
-            "spec_check",
-            &row(
-                &check,
-                &[("decided_id", v(99)), ("decided_kind", v("decision"))],
-            ),
-        ),
-    );
     let check_id: i64 = db
         .query_row("SELECT id FROM spec_check", [], |r| r.get(0))
         .unwrap();
@@ -627,18 +551,10 @@ pub fn recorded_usage(db: &Connection) -> Vec<(Option<i64>, Option<i64>)> {
 }
 
 #[test]
-fn check_brief_refuses_a_conflict_like_take_and_takes_and_records_nothing() {
+fn check_brief_passes_a_brief_with_a_conflict_and_takes_and_records_nothing() {
     let b = bench("spec-check-brief-conflict", true);
     b.answer(conflict(SPEC_TEXT), json!([]));
-    let refused = refusal(b.check_brief(&[]));
-    assert!(
-        refused.contains(&format!("the brief says: \"{CONFLICT}\"")),
-        "{refused}"
-    );
-    assert!(
-        refused.contains(&format!("spec/demo.md:5 (repo demo) says: \"{SPEC_TEXT}\"")),
-        "{refused}"
-    );
+    b.check_brief(&[]).unwrap();
     let lists = b.lists();
     assert!(lists.items[0].running.is_empty());
     assert!(
@@ -659,7 +575,7 @@ fn check_brief_passes_a_brief_with_an_unstated_behavior_and_takes_nothing() {
     let lists = b.lists();
     assert!(lists.items[0].running.is_empty());
     assert!(lists.items[0].spec_checks.is_empty());
-    b.take(&[]).unwrap();
+    b.take().unwrap();
     assert_eq!(
         b.lists().items[0].running.len(),
         1,

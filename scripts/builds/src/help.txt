@@ -3929,13 +3929,12 @@ spec's text, and each sentence that states a behavior the spec doesn't state
 such as a new column, is unstated, since the commit adds it to the spec. builds
 looks for each quote in the brief and in the spec file, finds the line the
 spec's text starts on, and sets aside a finding whose quote it does not find.
-When the reviewer finds a conflict, take refuses the items unless
---spec-decided names the decision or question that records the person's
-choice; take prints each unstated behavior and takes the items. take records
-every check in the project's store: the brief's text, the spec files and the
-commit the reviewer read them at, the model, prompt, answer, each finding,
-and the --spec-decided record. Builds keeps the same token counts as a branch
-review and records the price when the reviewer reports one (`builds help lists`, item take).
+take prints each conflict and each unstated behavior as a spec edit for the
+agent's commit, and takes the items. take records every check in the project's
+store: the brief's text, the spec files and the commit the reviewer read them
+at, the model, prompt, answer and each finding. Builds keeps the same token
+counts as a branch review and records the price when the reviewer reports one
+(`builds help lists`, item take).
 
 Every review command but `review groups` without --changed reads or writes a
 project's store:

@@ -215,13 +215,17 @@ const BEFORE_AGENT_ITEM_GIVEN_STAMP: i64 = 377_511_477;
 /// could name any app as their lane: they took only `mac` and `android`.
 const BEFORE_NAMED_LANES_STAMP: i64 = 54_534_517;
 
+/// The stamp of the schema before a spec check stopped keeping the decision or
+/// question a take gave for a conflict: a conflict refuses no take.
+const BEFORE_NO_SPEC_DECIDED_STAMP: i64 = 178_944_697;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 178_944_697;
+const SCHEMA_STAMP: i64 = 1_012_849_006;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -231,7 +235,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 56] = [
+const STAMPS: [i64; 57] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -288,6 +292,7 @@ const STAMPS: [i64; 56] = [
     BEFORE_FOREIGN_WAITS_STAMP,
     BEFORE_AGENT_ITEM_GIVEN_STAMP,
     BEFORE_NAMED_LANES_STAMP,
+    BEFORE_NO_SPEC_DECIDED_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -687,6 +692,13 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     if before(found, BEFORE_NAMED_LANES_STAMP) {
         crate::app_timing::allow_named_lanes(&tx)?;
         crate::app_shots_drop::allow_named_lanes(&tx)?;
+    }
+    // Every store from before a spec check stopped keeping the decision a take
+    // gave for a conflict gets the checks' table again without it; each check
+    // stays. A store from before the unknown usage got today's table above.
+    if !before(found, BEFORE_UNREPORTED_USAGE_STAMP) && before(found, BEFORE_NO_SPEC_DECIDED_STAMP)
+    {
+        crate::lists::spec_check::drop_decided(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

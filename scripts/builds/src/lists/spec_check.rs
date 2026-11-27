@@ -9,8 +9,8 @@
 //! doesn't state at all (unstated). builds finds each quote in the brief and
 //! in the spec file, reads the spec line from the file, and sets aside a
 //! finding whose quote it does not find. take records every check in the
-//! tables of spec_check.sql, which this module alone writes; a conflict
-//! refuses the take unless the person decided it (`--spec-decided`).
+//! tables of spec_check.sql, which this module alone writes; take prints each
+//! finding as a spec edit for the agent's commit.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -23,7 +23,7 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::design_paths::Globs;
-use crate::lists::{Id, Kind, Lists, Stamp};
+use crate::lists::{Id, Lists, Stamp};
 use crate::review::call::Usage;
 use crate::review::check::reviewers_map;
 use crate::review::check::{clause_in, squash};
@@ -473,32 +473,14 @@ pub fn line_of(text: &str, quote: &str) -> Option<i64> {
         .map(|(_, line)| *line as i64)
 }
 
-/// The decision or question a take's `--spec-decided` names, checked against
-/// <lists>.
-pub fn decided_ref(lists: &Lists, text: &str) -> Result<(Id, Kind)> {
-    let id = Id::parse(text)?;
-    match lists.locate(id) {
-        Some(found) if matches!(found.kind, Kind::Decision | Kind::Question) => {
-            Ok((id, found.kind))
-        }
-        Some(found) => fail!(
-            "--spec-decided {} names the {} {id}, and --spec-decided must name the decision or question that records the person's choice on the conflict",
-            id.0,
-            found.kind.name()
-        ),
-        None => fail!("--spec-decided {}: {id} is not a record", id.0),
-    }
-}
-
-/// Records <checked>, the checks of <brief> for <items>, each with <decided>
-/// when the take named it, and returns their ids.
+/// Records <checked>, the checks of <brief> for <items>, and returns their
+/// ids.
 pub fn record(
     db: &Connection,
     stamp: &Stamp,
     brief: &Brief,
     items: &[Id],
     checked: &[Checked],
-    decided: Option<(Id, Kind)>,
 ) -> Result<Vec<i64>> {
     let mut ids = Vec::new();
     for check in checked {
@@ -513,8 +495,8 @@ pub fn record(
             reasoning,
         } = check.usage.tokens;
         db.execute(
-            "INSERT INTO spec_check (at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version, system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached, tokens_reasoning, cost_microdollars, failure, decided_id, decided_kind)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+            "INSERT INTO spec_check (at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version, system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached, tokens_reasoning, cost_microdollars, failure)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
             params![
                 stamp.at,
                 stamp.by,
@@ -537,8 +519,6 @@ pub fn record(
                 reasoning,
                 check.usage.cost_microdollars,
                 check.failure,
-                decided.map(|(id, _)| id),
-                decided.map(|(_, kind)| kind.word()),
             ],
         )
         .sql()?;
@@ -593,16 +573,13 @@ pub struct SpecChecked {
     /// The unstated behaviors whose quotes builds found.
     pub unstated: usize,
     pub failure: Option<String>,
-    /// The decision or question that records the person's choice on the
-    /// conflicts.
-    pub decided: Option<Id>,
 }
 
 /// Every check, by item, oldest first.
 pub fn read_all(db: &Connection) -> Result<BTreeMap<Id, Vec<SpecChecked>>> {
     let mut statement = db
         .prepare(
-            "SELECT i.item_id, c.id, c.at, c.brief, c.repo, c.failure, c.decided_id,
+            "SELECT i.item_id, c.id, c.at, c.brief, c.repo, c.failure,
                 (SELECT COUNT(*) FROM spec_check_finding f WHERE f.check_id = c.id AND f.kind = 'conflict' AND f.check_failed IS NULL),
                 (SELECT COUNT(*) FROM spec_check_finding f WHERE f.check_id = c.id AND f.kind = 'unstated' AND f.check_failed IS NULL)
              FROM spec_check_item i JOIN spec_check c ON c.id = i.check_id
@@ -619,9 +596,8 @@ pub fn read_all(db: &Connection) -> Result<BTreeMap<Id, Vec<SpecChecked>>> {
                     brief: row.get(3)?,
                     repo: row.get(4)?,
                     failure: row.get(5)?,
-                    decided: row.get(6)?,
-                    conflicts: row.get::<_, i64>(7)? as usize,
-                    unstated: row.get::<_, i64>(8)? as usize,
+                    conflicts: row.get::<_, i64>(6)? as usize,
+                    unstated: row.get::<_, i64>(7)? as usize,
                 },
             ))
         })
@@ -644,12 +620,8 @@ pub fn line(check: &SpecChecked) -> String {
             crate::text::counted(check.unstated, "unstated behavior", "unstated behaviors")
         ),
     };
-    let decided = match check.decided {
-        Some(id) => format!("; the person decided the conflicts in {id}"),
-        None => String::new(),
-    };
     format!(
-        "spec check {} of {} against repo {}'s spec, {}: {found}{decided}",
+        "spec check {} of {} against repo {}'s spec, {}: {found}",
         check.id,
         check.brief,
         check.repo,
@@ -680,36 +652,21 @@ pub fn failures(checked: &[Checked]) -> Option<String> {
     ))
 }
 
-/// Each conflict whose quotes builds found, quoting the brief's sentence and
-/// the spec's text with its file and line; None when there is none.
-pub fn conflicts(brief: &Brief, checked: &[Checked]) -> Option<String> {
-    let mut out = String::new();
+/// The notes a check prints: each conflict and each unstated behavior as a
+/// spec edit for the agent's commit, and each finding builds set aside.
+pub fn notes(checked: &[Checked]) -> Vec<String> {
+    let mut notes = Vec::new();
     for check in checked {
         for (finding, spec, line) in check.conflicts() {
-            out.push_str(&format!(
-                "\n  the brief says: \"{}\"\n  {}:{line} (repo {}) says: \"{}\"\n  how they differ: {}\n",
+            notes.push(format!(
+                "the spec of repo {} states this behavior otherwise than the brief does; tell the agent to change the spec to state the brief's behavior in the commit that does the work:\n  the brief says: \"{}\"\n  {}:{line} says: \"{}\"\n  how they differ: {}",
+                check.target.repo,
                 finding.brief_quote.trim(),
                 spec.file,
-                check.target.repo,
                 spec.quote.trim(),
                 finding.why.trim()
             ));
         }
-    }
-    if out.is_empty() {
-        return None;
-    }
-    Some(format!(
-        "the brief {} states behavior that the product spec states otherwise:\n{out}",
-        brief.name
-    ))
-}
-
-/// The notes a check prints whatever the take does: each unstated behavior
-/// for the agent to add to the spec, and each finding builds set aside.
-pub fn notes(checked: &[Checked]) -> Vec<String> {
-    let mut notes = Vec::new();
-    for check in checked {
         for finding in check.unstated() {
             notes.push(format!(
                 "the spec of repo {} ({}) states nothing on this behavior of the brief; tell the agent to add it to the spec in its commit: \"{}\"",
@@ -751,6 +708,29 @@ pub fn plant(
 #[path = "spec_check_tests.rs"]
 pub mod tests;
 
+/// Drops the columns that named the decision or question a take gave for a
+/// conflict, from a store whose checks hold today's counters. Keeps every
+/// check.
+pub fn drop_decided(db: &Connection) -> Result<()> {
+    const KEPT: &str = "id, at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version, system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached, tokens_reasoning, cost_microdollars, failure";
+    crate::db::remake_table(
+        db,
+        "spec_check",
+        crate::db::statement(
+            crate::db::SPEC_CHECK_PART,
+            "CREATE TABLE spec_check (",
+            ") STRICT;",
+        ),
+        |db| {
+            db.execute_batch(&format!(
+                "INSERT INTO spec_check ({KEPT}) SELECT {KEPT} FROM spec_check_old"
+            ))
+            .sql()
+        },
+        &[],
+    )
+}
+
 /// Keeps stored checks while allowing a provider to omit token usage or cost.
 pub fn allow_unreported_usage(db: &rusqlite::Connection) -> Result<()> {
     use crate::db::{
@@ -765,12 +745,12 @@ pub fn allow_unreported_usage(db: &rusqlite::Connection) -> Result<()> {
             db.execute_batch(&format!(
                 "INSERT INTO spec_check (id, at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version,
                     system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written, tokens_uncached,
-                    cost_microdollars, failure, decided_id, decided_kind)
+                    cost_microdollars, failure)
                  SELECT id, at, by, brief, brief_text, repo, worktree, head, spec_files, model, rules_version,
                     system, message, output, tokens_in, tokens_out, tokens_cached, tokens_written,
                     {LEGACY_UNCACHED_INPUT},
                     CASE WHEN model IN ('gpt-6.2-astra', 'gpt-6.2-sol') AND cost_microdollars = 0 THEN NULL ELSE cost_microdollars END,
-                    failure, decided_id, decided_kind FROM spec_check_old",
+                    failure FROM spec_check_old",
             )).sql()
         },
         &[],

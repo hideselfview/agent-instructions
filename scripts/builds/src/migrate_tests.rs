@@ -3234,3 +3234,60 @@ fn a_store_from_before_named_lanes_keeps_its_runs_and_drops_and_takes_a_web_lane
     ))
     .unwrap();
 }
+
+#[test]
+fn the_no_spec_decided_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_no_spec_decided()),
+        BEFORE_NO_SPEC_DECIDED_STAMP
+    );
+}
+
+/// A store from before a spec check stopped keeping the decision a take gave
+/// for a conflict keeps each check, with its items and findings, and equals a
+/// fresh schema.
+#[test]
+fn a_store_from_before_no_spec_decided_keeps_its_checks_and_findings() {
+    use crate::lists::{fixtures, project, spec_check};
+    let scratch = Scratch::new("move-no-spec-decided");
+    let places = scratch.places();
+    let path = scratch.dir.join(DATABASE);
+    let item = {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_no_spec_decided())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_NO_SPEC_DECIDED_STAMP)
+            .unwrap();
+        project::init(
+            &conn,
+            &project::NewProject {
+                name: "demo".into(),
+                canvas: true,
+                repos: vec!["bae".into()],
+                places: Default::default(),
+                sources: Default::default(),
+                specs: Default::default(),
+            },
+        )
+        .unwrap();
+        crate::lists::area::add_area(&conn, "Alpha", None).unwrap();
+        let item = fixtures::item(&conn, Vec::new());
+        spec_check::tests::record_one(&conn, item, "opus", crate::review::call::Usage::ZERO);
+        let question = fixtures::question(&conn);
+        conn.execute(
+            "UPDATE spec_check SET decided_id = ?1, decided_kind = 'question'",
+            [question],
+        )
+        .unwrap();
+        item
+    };
+    move_store(&places, &path, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let checks = &spec_check::read_all(&conn).unwrap()[&item];
+    assert_eq!(checks.len(), 1);
+    assert_eq!((checks[0].conflicts, checks[0].unstated), (1, 1));
+}

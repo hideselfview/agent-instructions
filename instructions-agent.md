@@ -72,9 +72,11 @@ asks; a brief never tells an agent to.
 plan or a brief, settle a choice, or change a behavior, search the project's
 spec for that behavior and read the whole section. The spec is a draft that
 records what the user has said so far, and parts of it are wrong: never treat
-its text as a decision they made. The coding rules outrank it. When the spec
-contradicts a rule, the code or what you build, ask the user, say which text
-looks wrong and why, and offer the edit; edit the spec only after they agree
+its text as a decision they made. The coding rules outrank it. Changing the spec
+is part of the work: when work the user asked for or decided needs a spec edit,
+make it in the commit that does the work and ask no question. Only a change
+nobody decided goes to the user: say which text looks wrong and why, offer the
+edit, and edit the spec only after they agree
 (`rules/commits-and-repo-contents/every-change-agrees-with-its-product-spec.md`).
 
 **Read macOS's unified log with `/usr/bin/log`.** In zsh, `log` is a shell

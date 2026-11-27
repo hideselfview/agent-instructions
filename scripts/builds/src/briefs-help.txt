@@ -16,13 +16,13 @@ READ FIRST
   - The product spec's text on every behavior your items touch (bae:
     spec/bae.md; coven: spec/coven.md and spec/api.md). Search it by the
     behavior's words and read each whole section. The spec is a draft that
-    the coding rules outrank: a brief points at it and follows it where no
-    rule forbids what it states. A contradiction, or a choice that would
-    change what the spec says, goes to the person as a question, not into
-    the brief.
+    the coding rules outrank: a brief points at it and follows it on each
+    behavior that the work doesn't change and no rule forbids. Where work the
+    person asked for or decided differs from the spec, the brief follows the
+    work and names the spec edit, and nobody asks the person. A change nobody
+    decided goes to the person as a question, not into the brief.
     `builds item take` checks each brief against the spec before an agent
-    starts, and refuses a brief that states a behavior otherwise than the
-    spec does.
+    starts, and prints each spec edit the brief's work needs.
   - Each sentence of a brief that says the person decided, chose, prefers,
     forbids or allowed something, or that states a prohibition meant to hold
     beyond the task, names where it is written: the decision that records it
@@ -72,9 +72,9 @@ WRITE ONE BRIEF PER ITEM
     Android emulator.
   - Spec: the spec text that states each behavior the change touches, with
     file and line, and the sections to edit in the same commit, or "none"
-    with why. Name each behavior the spec doesn't state yet, so the agent
-    adds it to the spec in its commit; `builds item take` prints each one
-    it finds.
+    with why. Name each behavior that the work changes or that the spec
+    doesn't state yet, so the agent edits the spec in its commit; `builds item
+    take` prints each one it finds.
   - Names and comments: tell the agent to use the code's existing names,
     to coin no new terms, and to write few comments in tests. Most review
     findings are on the writing rule, and its reviewer raises a finding on

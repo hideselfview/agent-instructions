@@ -277,7 +277,7 @@ main checkout holds or that more than one holds; an absolute path is itself.
                     | --repo R --branch B [--repo R2 --branch B2]]
                     --brief P [--as design-session]
                     [--tier implementation|strongest] [--held WHY]
-                    [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]
+                    [--rules-root DIR] [--reviewer PROGRAM]
       Marks the items running. W is a claimed side worktree of a project repo
       (the claim names the agent; the item stores none) and B a branch of it.
       --repo R in place of --worktree W hands out a side worktree of repo R as
@@ -320,31 +320,27 @@ main checkout holds or that more than one holds; an absolute path is itself.
       sentence of P that states a behavior the spec states otherwise (a
       conflict) or doesn't state (unstated). Storage P adds that the spec's
       schema text does not list, such as a new column, is unstated, since the
-      commit adds it to the spec. When the reviewer finds a
-      conflict, take refuses the items and quotes the brief's sentence and
-      the spec's text with its file and line: the person decides each
-      conflict. Once they have, take the
-      items again with --spec-decided N, the decision or question that records
-      their choice, and take records N on the check. take prints each unstated
-      behavior and takes the items: the coordinator tells the agent to add it
-      to the spec. When the check gives no usable answer, take refuses the
-      items. take
+      commit adds it to the spec. take prints each conflict, quoting the
+      brief's sentence and the spec's text with its file and line, and each
+      unstated behavior, and takes the items: each is a spec edit that the
+      agent makes in its commit, and the coordinator tells the agent to make
+      it. When the check gives no usable answer, take refuses the items. take
       records every check in the project's store, and `item show` lists the
       checks of each item. A take in a project with no spec files for W's repo
-      runs no spec check and refuses --spec-decided. --rules-root names the
+      runs no spec check. --rules-root names the
       agent-instructions checkout that holds the spec rule and the rules a
       brief cites (default ~/.codex/agent-instructions), and --reviewer the
       program the spec check runs in place of the session reviewer.
 
   builds item check-brief --worktree W [--worktree W2] --brief P
-                    [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]
+                    [--rules-root DIR] [--reviewer PROGRAM]
       Runs the checks that `item take` runs on brief P (the pasted-text
       check and the spec check of each W's repo) with the
       same code, prints what take would print, and takes no item. It records
       nothing in the store, not even the spec check. A session that writes a
       brief runs it before it starts an agent, and fixes each sentence it
-      refuses. It takes the same --worktree, --brief, --spec-decided,
-      --rules-root and --reviewer as take, and names no item and no branch.
+      refuses. It takes the same --worktree, --brief, --rules-root and
+      --reviewer as take, and names no item and no branch.
 
   builds item handoff N --brief P
       Sets a running item's brief for its next agent, in every worktree it

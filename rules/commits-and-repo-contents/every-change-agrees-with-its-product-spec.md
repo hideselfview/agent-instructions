@@ -14,16 +14,18 @@ brief and change reads it first. No agent treats spec text as a decision the
 person already made.
 
 The coding rules outrank the spec. When the spec states a shape or a behavior
-that a rule forbids, the rule holds, and the spec text is a mistake to raise
-with the person.
+that a rule forbids, the rule holds, and the spec text is a mistake.
 
-The person decides every change to what the spec says. When work finds the spec
-contradicting a rule, another part of the spec, the code or what the change
-builds, the agent asks the person, quotes the spec text with its file and line,
-says why the text looks wrong, and offers the edit. The agent edits the spec
-only after the person agrees, in the commit that builds the change. A spec edit
-that only records what a commit builds, where the spec stated nothing or the
-person already decided, needs no question and goes in that commit.
+**Changing the spec is part of the work.** A spec edit for work the person asked
+for or decided needs no question: the agent makes it in the commit that does the
+work, whether the spec stated nothing on the behavior or stated it otherwise.
+When such work and the spec differ, the spec changes. Only a change nobody
+decided goes to the person, such as a contradiction the agent finds that its
+work doesn't ask it to settle, or a product choice that neither the person's
+request nor a decision made. For such a change, the agent asks the person,
+quotes the spec text with its file and line, says why the text looks wrong, and
+offers the edit. The agent edits the spec only after the person agrees, in the
+commit that builds the change.
 
 **A detail the code already settles.** When working code already does something
 sensible and the spec differs only on a detail, such as how the person reaches
@@ -33,8 +35,8 @@ the code does, in the commit it is making or one of its own, and asks no one.
 Which screen a button opens, when both screens let the person do the same thing,
 is such a detail: a button that opens the restore screen, where the person
 pastes or scans the code, settles a spec line that says it opens the camera. A
-difference in what the person can do, what they keep or lose, or what a screen
-tells them is theirs to decide.
+difference that nobody decided in what the person can do, what they keep or
+lose, or what a screen tells them is theirs to decide.
 
 **Storage the work needs.** A table, a column, an index or a synced field that
 the work needs is how the product does what the person decided, not a decision
@@ -47,18 +49,22 @@ table does not store that value.
 **Planning and briefs.** Before you write a plan or a brief, or settle an open
 choice an agent raises, search the spec for the behavior the change touches and
 read the whole section around each match. A brief points at that spec text
-instead of restating the behavior. When the spec states a behavior and nothing
-contradicts it, the plan follows the spec. When a rule forbids what the spec
-states, the plan follows the rule, and the question to the person offers the
-spec edit. Any other change to a behavior the spec states is the person's
-decision, except a detail the code already settles (above): raise it, and build
-nothing until they choose.
+instead of restating the behavior. A plan follows the spec on each behavior that
+its work doesn't change. Where work the person asked for or decided changes a
+behavior the spec states, or a rule forbids what the spec states, the plan
+follows the work or the rule and names the spec edit. Any other change to a
+behavior the spec states is the person's decision, as is what the product does
+instead of a forbidden behavior when neither the rule nor a decision says,
+except a detail the code already settles (above): raise it, and build nothing
+until they choose.
 
 **Building.** Read the spec's text on each behavior you change before you change
-it. Ask the person about each contradiction you find before you commit, except a
-detail the code already settles, and edit the spec in the same commit once they
-agree. A commit that changes or removes spec text names that edit in its
-message, and your report names it to the person with the old and the new text.
+it, and edit the spec in the same commit wherever your work changes what the
+spec says. Before you commit, ask the person about each contradiction whose
+resolution nobody decided, except a detail the code already settles, and make
+that edit once they agree. A commit that changes or removes spec text names that
+edit in its message, and your report names it to the person with the old and the
+new text.
 
 **Review.** Flag each change that:
 
@@ -68,7 +74,8 @@ message, and your report names it to the person with the old and the new text.
 - adds behavior a person can see, or a schema or sync shape, that the spec
   doesn't state, unless the same commit adds it to the spec;
 - edits the spec so that it contradicts another part of the spec;
-- changes or removes spec text in a commit whose message doesn't name that edit,
-  or whose brief doesn't say the person agreed to it.
+- changes or removes spec text in a commit whose message doesn't name that edit;
+- changes or removes spec text that neither the brief's work calls for nor the
+  code already settles, unless the brief says the person agreed to the edit.
 
 Quote the spec text with its file and line.

@@ -862,7 +862,7 @@ fn text_before(part: &str) -> String {
 #[cfg(test)]
 fn joined_before(part: &str) -> String {
     with_held_and_deferred(with_closed_once(with_ack_version_time(with_listed_lanes(
-        parts_before(part).join("\n"),
+        with_spec_decided(parts_before(part).join("\n")),
     ))))
 }
 
@@ -879,7 +879,42 @@ pub fn with_listed_lanes(schema: String) -> String {
 /// could name any app as their lane.
 #[cfg(test)]
 pub fn schema_before_named_lanes() -> String {
-    with_listed_lanes(schema())
+    with_listed_lanes(schema_before_no_spec_decided())
+}
+
+/// <schema> as it was before a spec check stopped keeping the decision or
+/// question a take gave for a conflict: with the columns that named it. A
+/// schema with no spec checks' table, or with the columns, is returned as it
+/// is.
+#[cfg(test)]
+pub fn with_spec_decided(schema: String) -> String {
+    const START: &str = "CREATE TABLE spec_check (";
+    const END: &str = ") STRICT;";
+    if !schema.contains(START) {
+        return schema;
+    }
+    let table = statement(&schema, START, END);
+    if table.contains("decided_id") {
+        return schema;
+    }
+    let old = table.replacen(
+        "    failure TEXT\n",
+        "    failure TEXT,
+    decided_id INTEGER,
+    decided_kind TEXT CONSTRAINT spec_check_decided_by_a_decision_or_question CHECK (decided_kind IN ('decision', 'question')),
+    CONSTRAINT spec_check_decided_whole CHECK ((decided_id IS NULL) = (decided_kind IS NULL)),
+    CONSTRAINT spec_check_decided_names_its_record FOREIGN KEY (decided_id, decided_kind) REFERENCES record (id, kind)
+",
+        1,
+    );
+    with_table_as(schema, START, END, &old)
+}
+
+/// The schema as it was before a spec check stopped keeping the decision or
+/// question a take gave for a conflict.
+#[cfg(test)]
+pub fn schema_before_no_spec_decided() -> String {
+    with_spec_decided(schema())
 }
 
 /// <schema> with the statement that starts with <start> and ends with <end>

@@ -36,13 +36,7 @@ CREATE TABLE spec_check (
     tokens_reasoning INTEGER CONSTRAINT spec_check_tokens_reasoning_not_negative CHECK (tokens_reasoning >= 0),
     cost_microdollars INTEGER CONSTRAINT spec_check_cost_not_negative CHECK (cost_microdollars >= 0),
     -- Why the check gave no usable answer; null when it did.
-    failure TEXT,
-    -- The decision or question that records the person's choice on the
-    -- conflicts, which the take named with --spec-decided.
-    decided_id INTEGER,
-    decided_kind TEXT CONSTRAINT spec_check_decided_by_a_decision_or_question CHECK (decided_kind IN ('decision', 'question')),
-    CONSTRAINT spec_check_decided_whole CHECK ((decided_id IS NULL) = (decided_kind IS NULL)),
-    CONSTRAINT spec_check_decided_names_its_record FOREIGN KEY (decided_id, decided_kind) REFERENCES record (id, kind)
+    failure TEXT
 ) STRICT;
 
 -- The items the take took, or meant to take, with the checked brief.

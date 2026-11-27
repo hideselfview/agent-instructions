@@ -19,12 +19,11 @@
 //!
 //! Before the take's write, take refuses a brief that pastes a coding rule or
 //! workflow text (pasted.rs). Then it checks the brief against the product spec of each named worktree's repo that has
-//! spec files (spec_check.rs) and records each check in its own write. A
-//! conflict refuses the take unless `--spec-decided` names the decision or
-//! question that records the person's choice on it; take prints each
-//! behavior the spec doesn't state and takes the items. `--reviewer` and
-//! `--rules-root` name the reviewer program and the rules checkout the
-//! spec check uses in place of the tool's.
+//! spec files (spec_check.rs) and records each check in its own write. Take
+//! prints each behavior the brief states otherwise than the spec, or that the
+//! spec doesn't state, as a spec edit for the agent's commit, and takes the
+//! items. `--reviewer` and `--rules-root` name the reviewer program and the
+//! rules checkout the spec check uses in place of the tool's.
 
 use std::path::Path;
 
@@ -45,14 +44,14 @@ use crate::lists::running::{
 };
 use crate::lists::spec_check::{self, Brief, Setup};
 use crate::lists::store::{self, Store};
-use crate::lists::{Audience, Id, Kind, Lists, Stamp};
+use crate::lists::{Audience, Id, Lists, Stamp};
 use crate::model_tier::Tier;
 use crate::review::Reviewer;
 use crate::text::note;
 use crate::tool::Tool;
 use crate::worktree::{Handed, Start, hand_out};
 
-const USAGE: &str = "builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2] | --repo R --branch B [--repo R2 --branch B2]] --brief P [--as design-session] [--tier implementation|strongest] [--held WHY] [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]";
+const USAGE: &str = "builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2] | --repo R --branch B [--repo R2 --branch B2]] --brief P [--as design-session] [--tier implementation|strongest] [--held WHY] [--rules-root DIR] [--reviewer PROGRAM]";
 
 /// One worktree an item runs in: checked, with its branch and the
 /// claim that holds it, if any.
@@ -328,37 +327,18 @@ fn require_joinable(item: &Item, places: &[Place], brief: &str, tier: Option<Tie
     Ok(())
 }
 
-/// What the take's checks of the brief run with, from its flags: the
-/// reviewer program and rules checkout (`--reviewer`, `--rules-root`, else
-/// the tool's), and the record of the person's choice on a spec conflict
-/// (`--spec-decided`).
-struct Checks {
-    reviewer: Reviewer,
-    decided: Option<(Id, Kind)>,
+/// The reviewer program and rules checkout the take's checks of the brief run
+/// with: `--reviewer` and `--rules-root`, else the tool's.
+fn reviewer_of(tool: &Tool, args: &Args) -> Result<Reviewer> {
+    Ok(Reviewer {
+        program: tool.reviewer.program_for(args.value("reviewer")?),
+        rules_root: match args.value("rules-root")? {
+            Some(root) => std::path::PathBuf::from(root),
+            None => tool.reviewer.rules_root.clone(),
+        },
+    })
 }
 
-impl Checks {
-    fn of(tool: &Tool, lists: &Lists, args: &Args) -> Result<Checks> {
-        Ok(Checks {
-            reviewer: Reviewer {
-                program: tool.reviewer.program_for(args.value("reviewer")?),
-                rules_root: match args.value("rules-root")? {
-                    Some(root) => std::path::PathBuf::from(root),
-                    None => tool.reviewer.rules_root.clone(),
-                },
-            },
-            decided: match args.value("spec-decided")? {
-                Some(text) => Some(spec_check::decided_ref(lists, text)?),
-                None => None,
-            },
-        })
-    }
-}
-
-/// Checks <brief> against the product spec of each of <checkouts>' repos that
-/// has spec files in <lists>, records each check, and fails the take when a
-/// check failed or found a conflict that `--spec-decided` does not settle.
-/// Prints what the checks found that does not stop the take.
 /// Where a take records its spec checks: the store, the stamp of the write,
 /// and the items the checks are for. A check of a brief that takes nothing
 /// records nothing.
@@ -368,14 +348,16 @@ struct Recording<'a> {
     ids: &'a [Id],
 }
 
+/// Checks <brief> against the product spec of each of <checkouts>' repos that
+/// has spec files in <lists>, records each check, and prints what the checks
+/// found. Fails when a check gave no usable answer.
 fn check_spec(
     recording: Option<&Recording>,
     lists: &Lists,
     checkouts: &[Checkout],
     brief: &Brief,
-    checks: &Checks,
+    reviewer: &Reviewer,
 ) -> Result<()> {
-    let (reviewer, decided) = (&checks.reviewer, checks.decided);
     let worktrees: Vec<(String, std::path::PathBuf)> = checkouts
         .iter()
         .map(|checkout| (checkout.repo(), checkout.top.clone()))
@@ -383,13 +365,6 @@ fn check_spec(
     let targets = spec_check::targets(lists, &worktrees)?;
     if targets.is_empty() {
         let repos: Vec<&str> = worktrees.iter().map(|(repo, _)| repo.as_str()).collect();
-        if decided.is_some() {
-            fail!(
-                "--spec-decided names the person's choice on a spec conflict, and project {} names no spec files for {}, so no spec check runs",
-                lists.project,
-                repos.join(" or ")
-            );
-        }
         note(format!(
             "no spec check: project {} names no spec files for {}",
             lists.project,
@@ -402,7 +377,7 @@ fn check_spec(
     let listed = match recording {
         Some(Recording { store, stamp, ids }) => {
             let check_ids = store.write(stamp, &format!("spec check of {}", brief.name), |db| {
-                spec_check::record(db, stamp, brief, ids, &checked, decided)
+                spec_check::record(db, stamp, brief, ids, &checked)
             })?;
             let shown: Vec<String> = check_ids.iter().map(|id| id.to_string()).collect();
             let first = ids.first().expect("a take names an item");
@@ -420,16 +395,6 @@ fn check_spec(
     for line in spec_check::notes(&checked) {
         note(line);
     }
-    if let Some(conflicts) = spec_check::conflicts(brief, &checked) {
-        match decided {
-            None => fail!(
-                "{conflicts}\nThe person decides each conflict between a brief and the spec, so builds took nothing. Ask the person about each conflict, and say which text looks wrong and why: the spec is a draft that the coding rules outrank. Once they decide, record the choice as a decision or question, then take the items again with --spec-decided N, or change the brief when the brief is wrong.{listed}"
-            ),
-            Some((id, _)) => note(format!(
-                "{conflicts}the person decided these conflicts in {id}, so the take goes on"
-            )),
-        }
-    }
     Ok(())
 }
 
@@ -441,29 +406,19 @@ fn check_brief(
     lists: &Lists,
     checkouts: &[Checkout],
     brief: &Brief,
-    checks: &Checks,
+    reviewer: &Reviewer,
 ) -> Result<()> {
-    crate::lists::pasted::require_unpasted(brief, &checks.reviewer.rules_root, &lists.project)?;
-    check_spec(recording, lists, checkouts, brief, checks)
+    crate::lists::pasted::require_unpasted(brief, &reviewer.rules_root, &lists.project)?;
+    check_spec(recording, lists, checkouts, brief, reviewer)
 }
 
-const CHECK_USAGE: &str = "builds item check-brief --worktree W [--worktree W2] --brief P [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]";
+const CHECK_USAGE: &str = "builds item check-brief --worktree W [--worktree W2] --brief P [--rules-root DIR] [--reviewer PROGRAM]";
 
 /// `builds item check-brief`: runs the checks `item take` runs on a brief
 /// (pasted text, spec) in the worktrees <args> names, and takes and
 /// records nothing.
 pub fn check(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(
-        args,
-        &[
-            "worktree",
-            "brief",
-            "spec-decided",
-            "rules-root",
-            "reviewer",
-        ],
-        &[],
-    )?;
+    let args = Args::parse(args, &["worktree", "brief", "rules-root", "reviewer"], &[])?;
     if !args.positional().is_empty() {
         fail!("check-brief names no items, because it takes none: {CHECK_USAGE}");
     }
@@ -487,8 +442,8 @@ pub fn check(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     for checkout in &checkouts {
         require_project_repo(&lists, checkout)?;
     }
-    let checks = Checks::of(tool, &lists, &args)?;
-    check_brief(None, &lists, &checkouts, &read_brief, &checks)?;
+    let reviewer = reviewer_of(tool, &args)?;
+    check_brief(None, &lists, &checkouts, &read_brief, &reviewer)?;
     note(format!(
         "brief {brief} passes the checks of `builds item take`; nothing was taken or recorded"
     ));
@@ -506,7 +461,6 @@ pub fn take(tool: &Tool, ssh: &Ssh, args: &[String], cwd: &Path) -> Result<()> {
             "as",
             "tier",
             "held",
-            "spec-decided",
             "rules-root",
             "reviewer",
         ],
@@ -705,10 +659,10 @@ impl Request<'_> {
             design_session,
             held.is_some(),
         )?;
-        let checks = Checks::of(tool, &lists, args)?;
+        let reviewer = reviewer_of(tool, args)?;
         let recording = Recording { store, stamp, ids };
         let checkouts: Vec<Checkout> = places.iter().map(|place| place.checkout.clone()).collect();
-        check_brief(Some(&recording), &lists, &checkouts, &read_brief, &checks)?;
+        check_brief(Some(&recording), &lists, &checkouts, &read_brief, &reviewer)?;
         let take = store.write(
             stamp,
             &format!(

@@ -218,8 +218,10 @@ WHAT AN IMPLEMENTING AGENT DOES
   1. Read the code paths its brief names, and the spec's text on each behavior
      it changes
      (rules/commits-and-repo-contents/every-change-agrees-with-its-product-spec.md).
-     A choice the brief didn't settle, or a brief that disagrees with the spec,
-     goes back to the coordinator with both texts, never into a guess.
+     A choice the brief didn't settle goes back to the coordinator, never into
+     a guess. When the brief and the spec differ on work the person asked for
+     or decided, edit the spec in the commit that does the work. A change
+     nobody decided goes back to the coordinator with both texts.
   2. Branch from origin/main in its claimed worktree.
   3. Implement to the brief. A bug fix starts with its failing test. The
      first time you edit a file in Claude Code, builds adds to your context
@@ -384,13 +386,10 @@ DISPATCH
     --brief P`: it runs the checks of `builds item take` (pasted text,
     spec) on the brief and takes nothing, so you fix a refused
     sentence before an agent starts and reads the brief.
-  - `builds item take` checks the brief against the product spec. When it
-    refuses for a conflict, put the conflict on the decision stack with which
-    text looks wrong and why, or fix the brief when the brief is wrong. Once
-    the person decides, take the items again with --spec-decided N, the
-    decision or question that records the choice. When take prints a behavior
-    the spec doesn't state, tell the agent to add it to the spec in its
-    commit.
+  - `builds item take` checks the brief against the product spec, prints each
+    behavior that the brief states otherwise than the spec or that the spec
+    doesn't state, and takes the items. Tell the agent to make each of those
+    spec edits in its commit, and fix the brief when the brief is wrong.
   - Brief a mechanical change (moved or renamed code, generated files, a
     codemod) as one change, and tell the agent to review it with `--kind
     mechanical --checked-by TEXT` (REVIEW).
