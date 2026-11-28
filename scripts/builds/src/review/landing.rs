@@ -439,7 +439,7 @@ fn assess(
             scope.unread,
         )?;
         let branch = Changed {
-            only_comments: crate::comments::paths_only_in_comments(
+            only_comments: crate::comment_change::paths_only_in_comments(
                 dir,
                 &since.base,
                 &since.head,

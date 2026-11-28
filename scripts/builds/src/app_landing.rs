@@ -91,14 +91,14 @@ fn config_of(top: &Path, rev: &str) -> Result<Option<Config>> {
 
 /// The paths that the commits <shas> in the repository at <top> change in
 /// code, each against its parent, without repeats. A commit that changes a
-/// path only in its comments (`comments::paths_only_in_comments`) changes
+/// path only in its comments (`comment_change::paths_only_in_comments`) changes
 /// nothing a compiler reads there.
 fn code_paths_of_commits(top: &Path, shas: &[String]) -> Result<Vec<String>> {
     let mut paths = Vec::new();
     for sha in shas {
         let parent = format!("{sha}^");
         let changed = paths_between(top, &parent, sha)?;
-        let comments = crate::comments::paths_only_in_comments(top, &parent, sha, &changed)?;
+        let comments = crate::comment_change::paths_only_in_comments(top, &parent, sha, &changed)?;
         paths.extend(changed.into_iter().filter(|path| !comments.contains(path)));
     }
     paths.sort();

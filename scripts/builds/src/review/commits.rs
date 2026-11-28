@@ -126,7 +126,7 @@ pub fn paths_of_each(repo: &Path, shas: &[String], unread: &Unread) -> Result<Ve
             let paths = paths(repo, std::slice::from_ref(sha), unread)?;
             let only_comments = match crate::git::resolve_revision(repo, &format!("{sha}^"))? {
                 Some(parent) => {
-                    crate::comments::paths_only_in_comments(repo, &parent, sha, &paths)?
+                    crate::comment_change::paths_only_in_comments(repo, &parent, sha, &paths)?
                 }
                 None => Vec::new(),
             };

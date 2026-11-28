@@ -73,6 +73,7 @@ mod claimed_branch;
 mod claude_sessions;
 mod clock;
 mod command;
+mod comment_change;
 mod comments;
 #[cfg(target_os = "macos")]
 mod core_foundation;

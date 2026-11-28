@@ -1,21 +1,18 @@
-//! Which changes to a source file are only in its comments. A change is
-//! comment-only when the file's text before and after differ, and are the
-//! same once every comment is gone, read by a lexer of the file's language that knows its
-//! string and character literals (so `"//"` inside a string is no comment)
-//! and its nested block comments, and the change neither adds nor removes the
-//! file. builds lexes Swift, Kotlin, C# and Rust, the languages of the app
-//! sources whose change decides an app build; a file of any other language
-//! changes code.
+//! A lexer that removes the comments of a Swift, Kotlin, C# or Rust file. It
+//! knows each language's string and character literals (so `"//"` inside a
+//! string is no comment) and its nested block comments, and it reads doc
+//! comments as comments. builds' version of the shots checker reads harness
+//! files through it (build_source.rs), and comment_change.rs tells with it
+//! which changes are only in comments. The build script compiles this file
+//! too, so it uses nothing else of builds.
 //!
-//! Doc comments are comments. A change to whitespace outside comments is code,
-//! because compilers and formatters read it, with one exception: the spaces
-//! between a comment and the code before it on its line, and the line a
-//! comment alone fills, go with the comment, so that adding or deleting a
-//! comment whole is comment-only.
+//! The text it gives keeps the whitespace outside comments, which compilers
+//! and formatters read, with one exception: the spaces between a comment and
+//! the code before it on its line, and the line a comment alone fills, go
+//! with the comment, so that adding or deleting a comment whole leaves the
+//! same text.
 
 use std::path::Path;
-
-use crate::fail::Result;
 
 /// A language builds can lex comments out of.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,39 +41,6 @@ impl Language {
     fn nests_block_comments(self) -> bool {
         self != Language::CSharp
     }
-}
-
-/// Whether the change of a file of <language> from <before> to <after>, each
-/// None when the file is absent, is only in comments. Two equal texts are no
-/// change at all.
-pub fn only_in_comments(language: Language, before: Option<&str>, after: Option<&str>) -> bool {
-    let (Some(before), Some(after)) = (before, after) else {
-        return false;
-    };
-    before != after && without_comments(language, before) == without_comments(language, after)
-}
-
-/// The paths of <paths> whose change from the commit or tree <from> to <to>
-/// in the repository at <top> is only in comments (`only_in_comments`). A
-/// path of a language with no lexer changes code.
-pub fn paths_only_in_comments(
-    top: &Path,
-    from: &str,
-    to: &str,
-    paths: &[String],
-) -> Result<Vec<String>> {
-    let mut only = Vec::new();
-    for path in paths {
-        let Some(language) = Language::of(path) else {
-            continue;
-        };
-        let before = crate::git::file_text(top, from, path)?;
-        let after = crate::git::file_text(top, to, path)?;
-        if only_in_comments(language, before.as_deref(), after.as_deref()) {
-            only.push(path.clone());
-        }
-    }
-    Ok(only)
 }
 
 /// <text> with its comments gone: each comment that ends its line goes with
@@ -421,7 +385,3 @@ impl Lexer<'_> {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "comments_tests.rs"]
-mod tests;

@@ -37,7 +37,7 @@ fn one() -> usize {
 pub enum Comments {
     /// The rules judge code, and a comment as part of it: the group reads
     /// the comments of a file whose code changed, and no file that a change
-    /// changes only in comments (`comments::only_in_comments`).
+    /// changes only in comments (`comment_change::only_in_comments`).
     Code,
     /// The rules judge what a comment says, so the group also reads a file
     /// that a change changes only in comments.

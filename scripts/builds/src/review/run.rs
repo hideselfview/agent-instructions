@@ -186,7 +186,7 @@ pub struct Diff {
     /// changes (`commits::paths`), or, for a diff since the net change an
     /// earlier run read (`diff_since`), every path where the two differ.
     /// Of those, the paths the diff changes only in comments
-    /// (`comments::only_in_comments`), which builds finds for a diff it read
+    /// (`comment_change::only_in_comments`), which builds finds for a diff it read
     /// from a repo. A diff read back from a stored message or a test case's
     /// patch changes each path in code.
     pub changed: Changed,
@@ -226,7 +226,7 @@ impl NetChange {
     fn with_only_comments(mut self, worktree: &Path) -> Result<NetChange> {
         let mut only = Vec::new();
         for path in &self.diff.changed.paths {
-            only.extend(crate::comments::paths_only_in_comments(
+            only.extend(crate::comment_change::paths_only_in_comments(
                 worktree,
                 self.before(path),
                 &self.head,
