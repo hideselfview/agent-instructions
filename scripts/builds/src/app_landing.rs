@@ -9,8 +9,10 @@
 //!
 //! Each lane's `on` lines in the branch's `.app-build` (app_config.rs) name
 //! the paths whose change the lane's apps compile. The landing changes a
-//! lane's apps when a path that one of its own commits changes matches one of
-//! the lane's `on` lines. A passing run of the lane covers the branch when it
+//! lane's apps when a path that one of its own commits changes in code
+//! matches one of the lane's `on` lines: a commit that changes a Swift,
+//! Kotlin, C# or Rust file only in its comments (comments.rs) compiles to
+//! the same apps. A passing run of the lane covers the branch when it
 //! passed every step the landing's change needs in the lane, covered every shots
 //! prefix the branch's own app builds ran since its merge base, and the commit
 //! it built has the branch commit's files at every path the lane's `on` lines
@@ -87,12 +89,17 @@ fn config_of(top: &Path, rev: &str) -> Result<Option<Config>> {
     config_in(top, rev).map(Some)
 }
 
-/// The paths that the commits <shas> in the repository at <top> change, each
-/// against its parent, without repeats.
-fn paths_of_commits(top: &Path, shas: &[String]) -> Result<Vec<String>> {
+/// The paths that the commits <shas> in the repository at <top> change in
+/// code, each against its parent, without repeats. A commit that changes a
+/// path only in its comments (`comments::paths_only_in_comments`) changes
+/// nothing a compiler reads there.
+fn code_paths_of_commits(top: &Path, shas: &[String]) -> Result<Vec<String>> {
     let mut paths = Vec::new();
     for sha in shas {
-        paths.extend(paths_between(top, &format!("{sha}^"), sha)?);
+        let parent = format!("{sha}^");
+        let changed = paths_between(top, &parent, sha)?;
+        let comments = crate::comments::paths_only_in_comments(top, &parent, sha, &changed)?;
+        paths.extend(changed.into_iter().filter(|path| !comments.contains(path)));
     }
     paths.sort();
     paths.dedup();
@@ -580,7 +587,7 @@ pub fn cmd_landing_coverage(places: &Places, args: &crate::args::Args) -> Result
         ));
         return Ok(());
     };
-    let changed = paths_of_commits(top, own)?;
+    let changed = code_paths_of_commits(top, own)?;
     let (Coverage { covering, unbuilt }, Excused { dropped, waiting }) = branch_builds.coverage(
         &config,
         &changed,

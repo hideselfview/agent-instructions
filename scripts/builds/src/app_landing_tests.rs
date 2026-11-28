@@ -788,3 +788,77 @@ fn a_landing_is_judged_over_its_own_commits() {
     )
     .unwrap();
 }
+
+/// The landing of a branch that changes only the doc comments of Logo.swift
+/// and Logo.kt, and nothing else of the mac or android app, compiles to the
+/// same apps, so it needs no app build of either lane.
+#[test]
+fn a_landing_that_changes_only_comments_of_app_files_needs_no_app_build() {
+    let scratch = crate::testing::Scratch::new("app-landing-comments");
+    let places = scratch.places();
+    let dir = scratch.dir.join("bae");
+    crate::testing::repo(&dir, "target 1\n");
+    let write = |path: &str, text: &str| {
+        std::fs::create_dir_all(dir.join(path).parent().unwrap()).unwrap();
+        std::fs::write(dir.join(path), text).unwrap();
+    };
+    write(
+        ".app-build",
+        "step mac macos ./macos.sh\nstep android android ./android.sh\non bae-macos/ macos\non bae-android/ android\n",
+    );
+    write(
+        "bae-macos/Logo.swift",
+        "/// The logo.\nstruct Logo {\n    let word = \"bae // fm\"\n}\n",
+    );
+    write(
+        "bae-android/Logo.kt",
+        "/** The logo. */\nclass Logo {\n    val word = \"bae /* fm\"\n}\n",
+    );
+    crate::testing::git(&dir, &["add", "."]);
+    crate::testing::git(&dir, &["commit", "-q", "-m", "base"]);
+    crate::testing::git(&dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    crate::testing::git(&dir, &["checkout", "-q", "-b", "work"]);
+    write(
+        "bae-macos/Logo.swift",
+        "/// The logo, drawn as the word bae.\n/// It scales with the window.\nstruct Logo {\n    let word = \"bae // fm\" // the word\n}\n",
+    );
+    write(
+        "bae-android/Logo.kt",
+        "/**\n * The logo, drawn as the word bae.\n */\nclass Logo {\n    val word = \"bae /* fm\" /* the word */\n}\n",
+    );
+    crate::testing::git(
+        &dir,
+        &["commit", "-q", "-a", "-m", "Say what the logo draws"],
+    );
+    let head = crate::testing::git_out(&dir, &["rev-parse", "HEAD"]);
+    crate::lists::fixtures::make_store_named(&places, "demo", &["bae"]);
+    let check = || {
+        cmd_landing_coverage(
+            &places,
+            &crate::args::Args::of(
+                crate::command::Command::AppBuild(crate::command::app_build::LandingCoverage),
+                &[dir.display().to_string(), head.clone(), "work".into()],
+            )
+            .unwrap(),
+        )
+    };
+    check().unwrap();
+    // A change to the string the comment sits beside is code.
+    write(
+        "bae-android/Logo.kt",
+        "/**\n * The logo, drawn as the word bae.\n */\nclass Logo {\n    val word = \"bae /* fm!\" /* the word */\n}\n",
+    );
+    crate::testing::git(&dir, &["commit", "-q", "-a", "-m", "Change the word"]);
+    let head = crate::testing::git_out(&dir, &["rev-parse", "HEAD"]);
+    assert!(
+        cmd_landing_coverage(
+            &places,
+            &crate::args::Args::of(
+                crate::command::Command::AppBuild(crate::command::app_build::LandingCoverage),
+                &[dir.display().to_string(), head, "work".into()],
+            )
+            .unwrap(),
+        )
+        .is_err()
+    );
+}

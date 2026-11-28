@@ -2008,9 +2008,21 @@ built again.
                               build, and the landing's <own commit>s (<branch>
                               alone when none are named). The landing changes a
                               lane's apps when a path that one of its own
-                              commits changes matches an `on` line of
+                              commits changes in code matches an `on` line of
                               <branch>'s .app-build that names a step of the
-                              lane. A passing run of the lane covers <branch>
+                              lane. A commit changes a file only in comments
+                              when builds reads the same text in the file
+                              before and after the commit once every comment
+                              is gone, and the commit neither adds nor removes
+                              the file. builds reads the comments of Swift,
+                              Kotlin, C# and Rust files, with their strings,
+                              character literals and nested block comments,
+                              and counts doc comments as comments. Whitespace
+                              outside comments is code, except the spaces
+                              between a comment and the code before it on its
+                              line and a line that holds only comments. Every
+                              change to a file of another language is code.
+                              A passing run of the lane covers <branch>
                               when it passed every step the change needs in the
                               lane, covered every shots prefix that the branch's
                               own app builds ran since its merge base with
@@ -4412,7 +4424,9 @@ agent-instructions and run `review replay --rules-root` on it.
                               build: in a repo of a project, a landing whose
                               commits change what a lane's apps compile needs a
                               passing app build of the branch's own files in
-                              that lane. The build must cover the branch's
+                              that lane. A commit that changes an app's source
+                              files only in comments changes nothing the apps
+                              compile (`app-build --landing-coverage`). The build must cover the branch's
                               earlier shots prefixes by running the shots they
                               select. Land checks both before it fetches
                               anything (`builds app-build --landing-coverage`),
