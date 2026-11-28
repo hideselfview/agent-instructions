@@ -22,7 +22,7 @@ use crate::lists::Stamp;
 use crate::lists::store::Store;
 use crate::review::check;
 use crate::review::files;
-use crate::review::groups::Group;
+use crate::review::groups::{Comments, Group};
 use crate::review::model_check;
 use crate::review::prompt;
 use crate::review::record::{self, Finding, Kind, NewRun};
@@ -56,7 +56,13 @@ impl Rng {
     }
 }
 
-fn synthetic(name: String, model: &Selection, question: &str, rules: &[&Rule]) -> Group {
+fn synthetic(
+    name: String,
+    model: &Selection,
+    question: &str,
+    rules: &[&Rule],
+    comments: Comments,
+) -> Group {
     Group {
         name,
         dir: String::new(),
@@ -68,7 +74,7 @@ fn synthetic(name: String, model: &Selection, question: &str, rules: &[&Rule]) -
         enumerate: false,
         sites: None,
         commit_text: false,
-        skips_comments: false,
+        comments,
         copy: false,
         passes: 1,
     }
@@ -86,6 +92,7 @@ pub fn per_rule_groups(audited: &[(&Group, Vec<&Rule>)]) -> Vec<Group> {
                     &group.model,
                     &group.question,
                     &[*rule],
+                    group.comments,
                 )
             })
         })
@@ -94,7 +101,9 @@ pub fn per_rule_groups(audited: &[(&Group, Vec<&Rule>)]) -> Vec<Group> {
 
 /// The rules of <audited> in a random order, cut into groups of <size>. A
 /// shuffled group holds only rules whose own groups run one model, and runs
-/// that model, so the shuffle changes the grouping and nothing else.
+/// that model, so the shuffle changes the grouping and nothing else. It
+/// reads a file a change changes only in comments when one of its rules'
+/// own groups does (`Comments::Judged`).
 pub fn shuffled_groups(audited: &[(&Group, Vec<&Rule>)], size: usize, rng: &mut Rng) -> Vec<Group> {
     let mut models: Vec<&Selection> = Vec::new();
     for (group, _) in audited {
@@ -104,21 +113,30 @@ pub fn shuffled_groups(audited: &[(&Group, Vec<&Rule>)], size: usize, rng: &mut 
     }
     let mut shuffled = Vec::new();
     for model in models {
-        let mut order: Vec<&Rule> = audited
+        let mut order: Vec<(&Rule, Comments)> = audited
             .iter()
             .filter(|(group, _)| &group.model == model)
-            .flat_map(|(_, rules)| rules.iter().copied())
+            .flat_map(|(group, rules)| rules.iter().map(|rule| (*rule, group.comments)))
             .collect();
         for i in (1..order.len()).rev() {
             let j = (rng.next() % (i as u64 + 1)) as usize;
             order.swap(i, j);
         }
         for chunk in order.chunks(size.max(1)) {
+            let rules: Vec<&Rule> = chunk.iter().map(|(rule, _)| *rule).collect();
+            let judged = chunk
+                .iter()
+                .any(|(_, comments)| *comments == Comments::Judged);
             shuffled.push(synthetic(
                 format!("shuffle {}", shuffled.len() + 1),
                 model,
                 "Does the change follow each of these rules?",
-                chunk,
+                &rules,
+                if judged {
+                    Comments::Judged
+                } else {
+                    Comments::Code
+                },
             ));
         }
     }

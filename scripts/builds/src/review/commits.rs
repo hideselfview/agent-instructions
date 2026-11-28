@@ -5,6 +5,7 @@
 use std::path::Path;
 
 use crate::fail::Result;
+use crate::review::groups::Changed;
 
 /// The full SHA of each of <revs>, in order; a rev that names no commit fails.
 fn full_shas(repo: &Path, revs: &[String]) -> Result<Vec<String>> {
@@ -116,10 +117,42 @@ pub fn paths(repo: &Path, revs: &[String], unread: &Unread) -> Result<Vec<String
     Ok(all)
 }
 
-/// The paths each of <shas> adds, changes or deletes, in the order given.
-pub fn paths_of_each(repo: &Path, shas: &[String], unread: &Unread) -> Result<Vec<Vec<String>>> {
+/// The paths one commit adds, changes or deletes, and those of them it
+/// changes only in comments (`comments::only_in_comments`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommitPaths {
+    pub paths: Vec<String>,
+    pub only_comments: Vec<String>,
+}
+
+impl CommitPaths {
+    /// The paths builds picks groups by.
+    pub fn changes(&self) -> Changed<'_> {
+        Changed {
+            paths: &self.paths,
+            only_comments: &self.only_comments,
+        }
+    }
+}
+
+/// The paths each of <shas> adds, changes or deletes, in the order given,
+/// each against the commit's parent. A commit with no parent adds each of
+/// its files, so it changes none only in comments.
+pub fn paths_of_each(repo: &Path, shas: &[String], unread: &Unread) -> Result<Vec<CommitPaths>> {
     shas.iter()
-        .map(|sha| paths(repo, std::slice::from_ref(sha), unread))
+        .map(|sha| {
+            let paths = paths(repo, std::slice::from_ref(sha), unread)?;
+            let only_comments = match crate::git::resolve_revision(repo, &format!("{sha}^"))? {
+                Some(parent) => {
+                    crate::comments::paths_only_in_comments(repo, &parent, sha, &paths)?
+                }
+                None => Vec::new(),
+            };
+            Ok(CommitPaths {
+                paths,
+                only_comments,
+            })
+        })
         .collect()
 }
 

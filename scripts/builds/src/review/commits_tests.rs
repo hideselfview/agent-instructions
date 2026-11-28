@@ -40,7 +40,11 @@ fn the_paths_of_commits_leave_out_an_empty_commit_and_a_bad_rev_fails() {
         ["a.txt", "b.txt"]
     );
     assert_eq!(
-        paths_of_each(&dir, &[a, empty, b], &Unread::default()).unwrap(),
+        paths_of_each(&dir, &[a, empty, b], &Unread::default())
+            .unwrap()
+            .into_iter()
+            .map(|commit| commit.paths)
+            .collect::<Vec<_>>(),
         [vec!["a.txt".to_string()], vec![], vec!["b.txt".to_string()]]
     );
     assert!(paths(&dir, &["no-such-commit".to_string()], &Unread::default()).is_err());

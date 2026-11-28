@@ -30,6 +30,43 @@ fn one() -> usize {
     1
 }
 
+/// What a group's rules judge of a code comment (a doc or line comment in a
+/// source file).
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Comments {
+    /// The rules judge code, and a comment as part of it: the group reads
+    /// the comments of a file whose code changed, and no file that a change
+    /// changes only in comments (`comments::only_in_comments`).
+    #[default]
+    Code,
+    /// The rules judge what a comment says, so the group also reads a file
+    /// that a change changes only in comments.
+    Judged,
+    /// The rules judge no comment, so builds drops a finding of one of them
+    /// whose code sits only on comment lines (`check::only_on_comment_lines`).
+    Skipped,
+}
+
+/// The paths a change touches, and those of them it changes only in
+/// comments, which only the groups whose rules judge what a comment says
+/// read (`Comments::Judged`).
+#[derive(Clone, Copy, Debug)]
+pub struct Changed<'a> {
+    pub paths: &'a [String],
+    pub only_comments: &'a [String],
+}
+
+impl<'a> Changed<'a> {
+    /// The paths of <self> that a group whose rules judge comments as
+    /// <comments> reads.
+    fn read_by(self, comments: Comments) -> impl Iterator<Item = &'a String> {
+        self.paths
+            .iter()
+            .filter(move |path| comments == Comments::Judged || !self.only_comments.contains(path))
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 #[serde(deny_unknown_fields)]
@@ -63,11 +100,9 @@ pub struct Group {
     /// Whether the commit messages of the change are read as one more file.
     #[serde(default)]
     pub commit_text: bool,
-    /// Whether the group's rules judge no code comment, so builds drops a
-    /// finding of one of them whose code sits only on comment lines
-    /// (`check::only_on_comment_lines`).
+    /// What the group's rules judge of a code comment.
     #[serde(default)]
-    pub skips_comments: bool,
+    pub comments: Comments,
     /// Whether the group reviews copy: its rules judge word choice, grammar
     /// and style. Only the copy review (`builds review copy`) asks such a
     /// group; `builds review`, its audits and its replays never do.
@@ -175,11 +210,12 @@ impl Groups {
     /// The groups a review of a change to <changed>, in a repo whose design and capture
     /// files <files> name, runs, each with its rules that exist in <rules>
     /// (the project's): a group that reviews no copy runs when at least one of
-    /// those rules is reviewable and covers a changed path (`Rule::matches`).
+    /// those rules is reviewable and covers a changed path that the group
+    /// reads (`Rule::matches`, `Changed::read_by`).
     pub fn pick<'a>(
         &'a self,
         rules: &'a [Rule],
-        changed: &[String],
+        changed: Changed,
         files: &Globs,
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
         self.covering(rules, changed, files, false)
@@ -190,24 +226,26 @@ impl Groups {
     pub fn pick_copy<'a>(
         &'a self,
         rules: &'a [Rule],
-        changed: &[String],
+        changed: Changed,
         files: &Globs,
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
         self.covering(rules, changed, files, true)
     }
 
     /// The groups whose `copy` is <copy> and whose reviewable rules of
-    /// <rules> cover one of <changed>, each with those rules.
+    /// <rules> cover one of the paths of <changed> that the group reads, each
+    /// with those rules.
     fn covering<'a>(
         &'a self,
         rules: &'a [Rule],
-        changed: &[String],
+        changed: Changed,
         files: &Globs,
         copy: bool,
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
         self.with_members(rules)
             .filter(|(group, members)| {
-                group.copy == copy && members.iter().any(|rule| rule.matches(changed, files))
+                let read: Vec<String> = changed.read_by(group.comments).cloned().collect();
+                group.copy == copy && members.iter().any(|rule| rule.matches(&read, files))
             })
             .collect()
     }

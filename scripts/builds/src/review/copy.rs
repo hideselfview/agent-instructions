@@ -63,7 +63,7 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
     }
     let picked = material
         .groups
-        .pick_copy(&material.rules, &change.diff.changed, &design);
+        .pick_copy(&material.rules, change.diff.changes(), &design);
     if picked.is_empty() {
         return Ok(Checked {
             text: "no copy group's rules cover the changed paths, so there is nothing to check\n"

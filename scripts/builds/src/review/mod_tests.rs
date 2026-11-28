@@ -2905,3 +2905,51 @@ fn a_closed_finding_on_a_commit_message_goes_back_to_its_group_when_a_commit_add
         "{prompt}"
     );
 }
+
+/// A review of a branch that changes a.rs only in comments asks only the
+/// groups whose rules judge what a comment says, and with a code change
+/// beside it, every other group reads only the code change.
+#[test]
+fn a_file_changed_only_in_comments_is_read_only_by_the_groups_that_judge_comments() {
+    let demo = demo("review-comments-only");
+    let fake = fake(&demo.scratch.dir);
+    std::fs::create_dir_all(fake.root.join("rules/said")).unwrap();
+    rule_file(
+        &fake.root,
+        "said",
+        "rule-s",
+        "**/*.rs",
+        false,
+        "**Rule S.** Say what is true now.",
+    );
+    group_file(
+        &fake.root,
+        "said",
+        "said",
+        "high",
+        "comments = \"judged\"\n",
+    );
+    fake.answer("said", &[("rule-s", None)]);
+    std::fs::write(demo.main.join("a.rs"), "fn a() {}\n").unwrap();
+    crate::testing::git(&demo.main, &["add", "a.rs"]);
+    crate::testing::git(&demo.main, &["commit", "-q", "-m", "Add a"]);
+    let comment = |side: &Path| {
+        std::fs::write(side.join("a.rs"), "/// Says a.\nfn a() {} // a\n").unwrap();
+        crate::testing::git(side, &["commit", "-q", "-a", "-m", "Say what a does"]);
+    };
+    let side = demo.add_side(1, "agent", "work");
+    comment(&side);
+    run_review(&demo, &fake, &side, "k");
+    assert_eq!(read_by_group(&fake), [("said".to_string(), vec!["a.rs"])]);
+    let other = demo.add_side(2, "agent", "other");
+    comment(&other);
+    demo.commit(&other, "c.rs");
+    run_review(&demo, &fake, &other, "other");
+    assert_eq!(
+        read_by_group(&fake),
+        [
+            ("alpha".to_string(), vec!["c.rs"]),
+            ("said".to_string(), vec!["a.rs", "c.rs"])
+        ]
+    );
+}

@@ -139,7 +139,7 @@ pub fn style_group(fake: &Fake, sites: serde_json::Value) {
         "style",
         "style",
         "high",
-        "enumerate = true\nsites = \"is a sentence\"\nskips_comments = true\n",
+        "enumerate = true\nsites = \"is a sentence\"\ncomments = \"skipped\"\n",
     );
     fake.answer_task("style", serde_json::json!({"summary": "s", "sites": sites}));
 }
@@ -162,7 +162,7 @@ pub fn copy_group(fake: &Fake, sites: serde_json::Value) {
         "copy",
         "copy",
         "high",
-        "enumerate = true\nsites = \"is a sentence\"\nskips_comments = true\ncopy = true\n",
+        "enumerate = true\nsites = \"is a sentence\"\ncomments = \"skipped\"\ncopy = true\n",
     );
     fake.answer_task("copy", serde_json::json!({"summary": "s", "sites": sites}));
 }

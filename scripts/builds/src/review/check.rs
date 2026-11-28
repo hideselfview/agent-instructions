@@ -3,7 +3,7 @@
 //! names, on a line the diff adds or removes. A finding that fails either is
 //! dropped and recorded as dropped.
 //! The check also tells whether the code sits only on comment lines, for the
-//! groups whose rules judge no code comment (`groups::Group::skips_comments`).
+//! groups whose rules judge no code comment (`groups::Comments::Skipped`).
 
 /// <text> with every run of whitespace as one space, and without the markdown
 /// marks (`*`, backtick) a quote may have lost or kept.

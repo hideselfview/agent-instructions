@@ -29,7 +29,7 @@ use crate::side_git::SideRead;
 type ReadKey = (PathBuf, Vec<String>, Unread);
 
 /// The paths each commit of a worktree changes.
-type Read = Vec<Vec<String>>;
+type Read = Vec<commits::CommitPaths>;
 
 /// A project's last valid rules and the version of the whole rules checkout
 /// they came from. A new read with the same review rules keeps the earlier
@@ -247,11 +247,7 @@ impl Reads {
         let needs: Vec<Need> = shas
             .iter()
             .zip(&paths)
-            .map(|(sha, paths)| Need {
-                sha: sha.clone(),
-                paths: paths.clone(),
-                groups: scope.group_names(paths),
-            })
+            .map(|(sha, changed)| Need::of(sha.clone(), changed, scope))
             .collect();
         let key =
             crate::review::landing_key(&conn, worktree.repo, worktree.top).map_err(Fail::text)?;

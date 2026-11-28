@@ -17,7 +17,7 @@ use crate::review::check::reviewers_map;
 use crate::review::check::{DiffFile, clause_in, code_site, names_file, only_on_comment_lines};
 use crate::review::commits::{self, Unread};
 use crate::review::files::{self, CommitMessages, FileDiff, FilePaths, Source};
-use crate::review::groups::{Group, Groups};
+use crate::review::groups::{Changed, Comments, Group, Groups};
 use crate::review::prompt::{self, PROJECT_FACTS};
 use crate::review::record::{Finding, FindingLine, NewCall, NewExchange, NewFinding, RunRow};
 use crate::review::rules::{self, Rule};
@@ -103,14 +103,13 @@ impl Material {
     }
 
     /// Whether the group that holds rule <slug> judges no code comment
-    /// (`Group::skips_comments`). The rule's own group answers, so a finding
+    /// (`Comments::Skipped`). The rule's own group answers, so a finding
     /// of the rule counts the same whichever group asked for it, as in an
     /// audit.
     pub fn skips_comments(&self, slug: &str) -> bool {
-        self.groups
-            .groups
-            .iter()
-            .any(|group| group.skips_comments && group.rules.iter().any(|rule| rule == slug))
+        self.groups.groups.iter().any(|group| {
+            group.comments == Comments::Skipped && group.rules.iter().any(|rule| rule == slug)
+        })
     }
 
     /// The same material with every group asked in <model>.
@@ -137,14 +136,15 @@ pub struct Scope<'a> {
 impl Scope<'_> {
     /// The groups a change to <changed> runs, each with its rules
     /// (`Groups::pick`).
-    pub fn pick(&self, changed: &[String]) -> Vec<(&Group, Vec<&Rule>)> {
+    pub fn pick(&self, changed: Changed) -> Vec<(&Group, Vec<&Rule>)> {
         self.material
             .groups
             .pick(&self.material.rules, changed, self.files)
     }
 
-    /// The names of the groups whose rules cover one of <changed>.
-    pub fn group_names(&self, changed: &[String]) -> Vec<String> {
+    /// The names of the groups whose rules cover one of <changed> that they
+    /// read.
+    pub fn group_names(&self, changed: Changed) -> Vec<String> {
         self.pick(changed)
             .into_iter()
             .map(|(group, _)| group.name.clone())
@@ -154,8 +154,9 @@ impl Scope<'_> {
     /// The names of the groups that read the commit messages of <since>, the
     /// changes since the last review of a branch whose commits change
     /// <branch>: each group that reads commit messages and whose rules cover
-    /// a path of <branch>. The list is empty when <since> holds no message.
-    pub fn commit_text_groups(&self, since: &Diff, branch: &[String]) -> Vec<String> {
+    /// a path of <branch> that it reads. The list is empty when <since> holds
+    /// no message.
+    pub fn commit_text_groups(&self, since: &Diff, branch: Changed) -> Vec<String> {
         if CommitMessages::from_text(&since.messages).is_none() {
             return Vec::new();
         }
@@ -185,6 +186,11 @@ pub struct Diff {
     /// changes (`commits::paths`), or, for a diff since the net change an
     /// earlier run read (`diff_since`), every path where the two differ.
     pub changed: Vec<String>,
+    /// The paths of `changed` that the diff changes only in comments
+    /// (`comments::only_in_comments`), or None when builds cannot read the
+    /// diff's files, as for a diff read back from a stored message or a test
+    /// case's patch.
+    pub only_comments: Option<Vec<String>>,
 }
 
 /// A diff that builds read from a repo, with the two commits of its net
@@ -215,6 +221,22 @@ impl NetChange {
             _ => &self.base,
         }
     }
+
+    /// The change with the paths it changes only in comments, each read from
+    /// its text before (`before`) and at the head, in <worktree>'s repo.
+    fn with_only_comments(mut self, worktree: &Path) -> Result<NetChange> {
+        let mut only = Vec::new();
+        for path in &self.diff.changed {
+            only.extend(crate::comments::paths_only_in_comments(
+                worktree,
+                self.before(path),
+                &self.head,
+                std::slice::from_ref(path),
+            )?);
+        }
+        self.diff.only_comments = Some(only);
+        Ok(self)
+    }
 }
 
 impl Diff {
@@ -226,6 +248,17 @@ impl Diff {
             commits: None,
             source,
             changed,
+            only_comments: None,
+        }
+    }
+
+    /// The paths builds picks groups by, with those the diff changes only in
+    /// comments. A diff whose files builds cannot read changes each path in
+    /// code.
+    pub fn changes(&self) -> Changed<'_> {
+        Changed {
+            paths: &self.changed,
+            only_comments: self.only_comments.as_deref().unwrap_or_default(),
         }
     }
 
@@ -284,6 +317,13 @@ impl Diff {
                 .filter(|path| kept_paths.contains(path))
                 .cloned()
                 .collect(),
+            only_comments: self.only_comments.as_ref().map(|paths| {
+                paths
+                    .iter()
+                    .filter(|path| kept_paths.contains(path))
+                    .cloned()
+                    .collect()
+            }),
         }
     }
 }
@@ -326,7 +366,7 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str, unread: &Unread) ->
         unread,
     )?;
     let commit_summary = commits::summary(worktree, &merge_base, &head, unread)?;
-    Ok(NetChange {
+    NetChange {
         diff: Diff {
             messages,
             commits: Some(commit_summary),
@@ -337,11 +377,13 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str, unread: &Unread) ->
             }),
             patch: files::Patch::parse(text)?,
             changed,
+            only_comments: None,
         },
         base: merge_base,
         head,
         before: BeforeDiff::Base,
-    })
+    }
+    .with_only_comments(worktree)
 }
 
 /// The changes since the last review: how the net change of <head> past
@@ -429,7 +471,7 @@ pub fn diff_since(
         .filter(|message| !earlier.contains(message))
         .collect();
     let commit_summary = commits::summary(worktree, &merge_base, &head, unread)?;
-    Ok(NetChange {
+    NetChange {
         diff: Diff {
             messages: messages.join("\n"),
             commits: Some(commit_summary),
@@ -440,6 +482,7 @@ pub fn diff_since(
             }),
             patch: files::Patch::parse(text)?,
             changed,
+            only_comments: None,
         },
         base: merge_base,
         head,
@@ -447,7 +490,8 @@ pub fn diff_since(
             tree,
             at_base: whole,
         },
-    })
+    }
+    .with_only_comments(worktree)
 }
 
 /// The diff <run> read, in <worktree>'s repo, from a copy of its head's
@@ -607,6 +651,9 @@ struct GroupView<'a> {
 /// Leave uncovered design and capture files out of the diff for new findings.
 /// When the group holds open findings, show uncovered capture changes as
 /// evidence for closing them. Every unit of the group gets that evidence.
+/// Leave out the files the diff changes only in comments too, unless the
+/// group's rules judge what a comment says or the group holds open findings,
+/// whose fix may be in any file.
 fn view_of<'a>(
     group: &Group,
     members: &[&Rule],
@@ -617,8 +664,16 @@ fn view_of<'a>(
     let held = held_by(group, members, open);
     let mut excluded = Vec::new();
     let mut capture_evidence = String::new();
+    let only_comments = diff.changes().only_comments;
     for file in diff.patch.files() {
         let paths = file.paths();
+        if group.comments != Comments::Judged
+            && held.is_empty()
+            && paths.iter().all(|path| only_comments.contains(path))
+        {
+            excluded.push(file.path.clone());
+            continue;
+        }
         let kinds: Vec<_> = paths
             .iter()
             .filter_map(|path| files.kind_of(path))

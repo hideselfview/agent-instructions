@@ -1,6 +1,6 @@
 //! Which changes to a source file are only in its comments. A change is
-//! comment-only when the file's text before and after are the same once every
-//! comment is gone, read by a lexer of the file's language that knows its
+//! comment-only when the file's text before and after differ, and are the
+//! same once every comment is gone, read by a lexer of the file's language that knows its
 //! string and character literals (so `"//"` inside a string is no comment)
 //! and its nested block comments, and the change neither adds nor removes the
 //! file. builds lexes Swift, Kotlin, C# and Rust, the languages of the app
@@ -47,12 +47,13 @@ impl Language {
 }
 
 /// Whether the change of the file at <path> from <before> to <after>, each
-/// None when the file is absent, is only in comments.
+/// None when the file is absent, is only in comments. Two equal texts are no
+/// change at all.
 pub fn only_in_comments(path: &str, before: Option<&str>, after: Option<&str>) -> bool {
     let (Some(language), Some(before), Some(after)) = (Language::of(path), before, after) else {
         return false;
     };
-    without_comments(language, before) == without_comments(language, after)
+    before != after && without_comments(language, before) == without_comments(language, after)
 }
 
 /// The paths of <paths> whose change from the commit or tree <from> to <to>

@@ -2013,8 +2013,8 @@ built again.
                               lane. A commit changes a file only in comments
                               when builds reads the same text in the file
                               before and after the commit once every comment
-                              is gone, and the commit neither adds nor removes
-                              the file. builds reads the comments of Swift,
+                              is gone, the text differs, and the commit
+                              neither adds nor removes the file. builds reads the comments of Swift,
                               Kotlin, C# and Rust files, with their strings,
                               character literals and nested block comments,
                               and counts doc comments as comments. Whitespace
@@ -4123,7 +4123,9 @@ group (below).
 
 In a later run, each group that holds open findings reads every file that
 changed since the last review, because the fix of a finding may be in any file.
-Each other group reads the changed files its rules cover, except a file where a
+Each other group reads the changed files its rules cover, except a file that
+the changes change only in comments, which only a group whose rules judge
+comments reads, and a file where a
 group holds an open finding: only the groups that hold findings there read that
 file. The run's report names each group that did not read a file, with the
 files it did not read.
@@ -4195,7 +4197,7 @@ commit message, that is on a design file when its rule judges no design file
 (below), whose whole quote appears on neither side of the diff with a line
 that the diff adds or removes, or whose
 code sits only on comment lines when the group of its rule judges no code
-comment (skips_comments), and records it as dropped with that reason.
+comment (`comments = "skipped"`), and records it as dropped with that reason.
 When several changed lines hold the same quote, the line number must
 identify one occurrence. Builds drops the finding if both versions hold
 the quote at that number or if the number identifies neither occurrence.
@@ -4366,10 +4368,17 @@ checks this, and so does builds' test. The group.toml fields are top-level keys:
   commit_text   true when the commit messages of the change are read as one
                 more file named COMMIT_MESSAGE: one more call for an enumerate
                 group, and the end of the diff for any other
-  skips_comments
-                true when the group's rules judge no code comment: builds
-                drops a finding of such a rule whose code sits only on
-                comment lines
+  comments      what the group's rules judge of a code comment (a doc or
+                line comment in a source file). Without the field, they
+                judge code and its comments, and the group reads no file
+                that a change changes only in comments (below). "judged"
+                means they judge what a comment says, so the group also
+                reads such a file: in agent-instructions, the groups
+                Commits and repo contents (a comment describes the current
+                state) and Necessary code (a comment describes the wiring
+                the code has). "skipped" means they judge no code comment:
+                builds drops a finding of such a rule whose code sits only
+                on comment lines
   copy          true when the group's rules judge word choice, grammar and
                 style: only the copy review (`builds review copy`) asks the
                 group, and `builds review`, its audits and its replays never
@@ -4384,7 +4393,19 @@ checks this, and so does builds' test. The group.toml fields are top-level keys:
 A group runs when at least one of its rules covers a path that a commit of
 the change adds, changes or deletes: a path the rule's paths match that is no
 design or capture file, or such a file when the rule judges files of its
-kind (`design: true`, `capture: true`). Its reviewer
+kind (`design: true`, `capture: true`). A file that the change changes only
+in comments counts only for a group whose rules judge what a comment says
+(`comments = "judged"`), and only such a group reads it, besides a group
+that holds an open finding, which reads every changed file. A change is
+only in comments when builds reads the same text in the file before and
+after the change once every comment is gone, the text differs, and the
+change neither adds nor removes the file. builds reads the comments of
+Swift, Kotlin, C# and Rust files, with their strings, character literals and
+nested block comments, and counts doc comments as comments. Whitespace
+outside comments is code, except the spaces between a comment and the code
+before it on its line and a line that holds only comments. Every change to a
+file of another language is code, and so is every path of `builds review
+groups --changed`, whose files builds does not read. Its reviewer
 reads the full body of every rule in the group, the project's always-loaded
 instructions (projects/<project>.md), the diff and the landing's brief, and
 answers for every rule. No group reviews the test cases in the review/cases folder: a

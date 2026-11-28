@@ -338,7 +338,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         files: &design,
         unread: &unread,
     };
-    if scope.group_names(&change.diff.changed).is_empty() {
+    if scope.group_names(change.diff.changes()).is_empty() {
         return Ok(Reported {
             landing: None,
             text: "no group's rules cover the changed paths: nothing to review, and builds land needs no review\n".to_string(),
@@ -385,7 +385,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     let (asks, previous_runs) = match open {
         None => (
             vec![Ask {
-                groups: scope.group_names(&change.diff.changed),
+                groups: scope.group_names(change.diff.changes()),
                 change,
                 since: None,
                 last_review: true,
@@ -862,8 +862,8 @@ fn later_asks(
         });
     }
     let since = since_run(last)?;
-    let mut groups = scope.group_names(&since.diff.changed);
-    for group in scope.commit_text_groups(&since.diff, &change.diff.changed) {
+    let mut groups = scope.group_names(since.diff.changes());
+    for group in scope.commit_text_groups(&since.diff, change.diff.changes()) {
         if !groups.contains(&group) {
             groups.push(group);
         }
@@ -2032,7 +2032,12 @@ fn list_groups(tool: &Tool, args: &Args) -> Result<()> {
         .filter(|path| !unread.covers(path))
         .collect();
     let project_rules = rules::load(&root, Some(project))?;
-    for (group, members) in groups.pick(&project_rules, &changed, &design) {
+    // builds reads no file of the paths, so it counts each as changed in code.
+    let changed = groups::Changed {
+        paths: &changed,
+        only_comments: &[],
+    };
+    for (group, members) in groups.pick(&project_rules, changed, &design) {
         print_group(group, members.iter().map(|rule| rule.slug.as_str()));
     }
     Ok(())

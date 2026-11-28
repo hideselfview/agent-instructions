@@ -122,7 +122,7 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                 unread: &unread,
             };
             let picked: Vec<_> = scope
-                .pick(&diff.changed)
+                .pick(diff.changes())
                 .into_iter()
                 .filter(|(g, _)| {
                     inputs.groups.is_empty() || inputs.groups.contains(&g.name.as_str())

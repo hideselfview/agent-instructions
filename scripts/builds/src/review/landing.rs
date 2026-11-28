@@ -57,6 +57,7 @@ use crate::lists::store::{Store, resolve_by};
 use crate::review::check;
 use crate::review::commits::{self, Unread};
 use crate::review::files;
+use crate::review::groups::Changed;
 use crate::review::marked_mechanical;
 use crate::review::record::{self, Change, LandingRow};
 use crate::review::render;
@@ -75,18 +76,26 @@ pub struct Need {
     pub groups: Vec<String>,
 }
 
+impl Need {
+    /// Commit <sha>, which changes <changed>, with the groups that <scope>
+    /// picks for it.
+    pub fn of(sha: String, changed: &commits::CommitPaths, scope: Scope) -> Need {
+        Need {
+            groups: scope.group_names(changed.changes()),
+            paths: changed.paths.clone(),
+            sha,
+        }
+    }
+}
+
 /// Each of <shas> of the repo at <dir> with the groups that <scope> picks for
 /// the paths it changes.
 pub fn needs(dir: &Path, shas: Vec<String>, scope: Scope) -> Result<Vec<Need>> {
     let touched = commits::paths_of_each(dir, &shas, scope.unread)?;
     Ok(shas
         .into_iter()
-        .zip(touched)
-        .map(|(sha, paths)| Need {
-            groups: scope.group_names(&paths),
-            paths,
-            sha,
-        })
+        .zip(&touched)
+        .map(|(sha, changed)| Need::of(sha, changed, scope))
         .collect())
 }
 
@@ -429,13 +438,31 @@ fn assess(
             &crate::git::commits_in_range(dir, &since.base, &since.head)?,
             scope.unread,
         )?;
+        let branch = commits::CommitPaths {
+            only_comments: crate::comments::paths_only_in_comments(
+                dir,
+                &since.base,
+                &since.head,
+                &branch,
+            )?,
+            paths: branch,
+        };
         let messages_unread = matches!(check, CodeCheck::Branch(_))
-            && !scope.commit_text_groups(&since.diff, &branch).is_empty();
-        unfinished.unreviewed = since
-            .diff
-            .changed
-            .into_iter()
-            .filter(|path| !scope.group_names(std::slice::from_ref(path)).is_empty())
+            && !scope
+                .commit_text_groups(&since.diff, branch.changes())
+                .is_empty();
+        let changes = since.diff.changes();
+        unfinished.unreviewed = changes
+            .paths
+            .iter()
+            .filter(|path| {
+                let one = Changed {
+                    paths: std::slice::from_ref(path),
+                    only_comments: changes.only_comments,
+                };
+                !scope.group_names(one).is_empty()
+            })
+            .cloned()
             .collect();
         if messages_unread {
             unfinished

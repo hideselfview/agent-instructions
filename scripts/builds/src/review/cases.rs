@@ -387,7 +387,7 @@ pub fn replay_case(
         .cloned()
         .collect();
     let diff = diff.without(&unread);
-    let picked = scope.pick(&diff.changed);
+    let picked = scope.pick(diff.changes());
     let asked = ask_groups(
         scope,
         reviewer,

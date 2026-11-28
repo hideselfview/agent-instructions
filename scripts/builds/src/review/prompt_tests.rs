@@ -13,7 +13,7 @@ fn group(name: &str, enumerate: bool) -> Group {
         enumerate,
         sites: enumerate.then(|| "handles rows a query returned".to_string()),
         commit_text: false,
-        skips_comments: false,
+        comments: Default::default(),
         copy: false,
         passes: 1,
     }

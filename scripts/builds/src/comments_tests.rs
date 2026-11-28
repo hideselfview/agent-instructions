@@ -166,3 +166,8 @@ fn a_file_added_or_removed_or_in_a_language_with_no_lexer_is_code() {
     assert!(!only_in_comments("a.swift", Some("// a\n"), None));
     assert!(!only("a.m", "// a\nint x;\n", "// b\nint x;\n"));
 }
+
+#[test]
+fn an_unchanged_file_is_no_change_only_in_comments() {
+    assert!(!only("a.swift", "// a\nlet a = 1\n", "// a\nlet a = 1\n"));
+}

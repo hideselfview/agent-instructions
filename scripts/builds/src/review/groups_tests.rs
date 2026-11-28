@@ -29,6 +29,14 @@ fn groups(groups: Vec<Group>) -> Groups {
     Groups { groups }
 }
 
+/// <paths>, each changed in code.
+fn code(paths: &[String]) -> Changed<'_> {
+    Changed {
+        paths,
+        only_comments: &[],
+    }
+}
+
 #[test]
 fn every_rule_of_the_checkout_is_in_a_group_folder() {
     let root = checkout();
@@ -81,7 +89,7 @@ fn a_group_runs_when_one_of_its_rules_covers_a_changed_path() {
     ];
     let picked = g.pick(
         &rules,
-        &["bae-macos/A.swift".to_string()],
+        code(&["bae-macos/A.swift".to_string()]),
         &Globs::default(),
     );
     assert_eq!(picked.len(), 1);
@@ -89,7 +97,7 @@ fn a_group_runs_when_one_of_its_rules_covers_a_changed_path() {
     let slugs: Vec<&str> = picked[0].1.iter().map(|r| r.slug.as_str()).collect();
     assert_eq!(slugs, ["s1", "s2"]);
     assert!(
-        g.pick(&rules, &["README.md".to_string()], &Globs::default())
+        g.pick(&rules, code(&["README.md".to_string()]), &Globs::default())
             .is_empty()
     );
 }
@@ -102,7 +110,7 @@ fn a_rule_marked_review_false_never_runs_its_group() {
         "---\npaths: ['**']\nreview: false\n---\nb\n",
     )];
     assert!(
-        g.pick(&rules, &["a".to_string()], &Globs::default())
+        g.pick(&rules, code(&["a".to_string()]), &Globs::default())
             .is_empty()
     );
 }
@@ -164,7 +172,7 @@ fn a_review_of_the_checkout_runs_no_wording_rule() {
         "bae-android/app/src/main/res/values/strings.xml".to_string(),
     ];
     let asked: Vec<&str> = groups
-        .pick(&rules, &changed, &Globs::default())
+        .pick(&rules, code(&changed), &Globs::default())
         .into_iter()
         .flat_map(|(_, members)| members.into_iter().map(|rule| rule.slug.as_str()))
         .collect();
@@ -176,7 +184,7 @@ fn a_review_of_the_checkout_runs_no_wording_rule() {
         assert!(!asked.contains(&slug), "{slug}");
     }
     let copy: Vec<&str> = groups
-        .pick_copy(&rules, &changed, &Globs::default())
+        .pick_copy(&rules, code(&changed), &Globs::default())
         .into_iter()
         .flat_map(|(_, members)| members.into_iter().map(|rule| rule.slug.as_str()))
         .collect();
@@ -213,7 +221,7 @@ fn a_review_of_bae_design_files_asks_only_the_rules_that_judge_design_files() {
         "design/system/components/src/10-mac.js".to_string(),
     ];
     let asked: Vec<&Rule> = groups
-        .pick(&rules, &changed, &design)
+        .pick(&rules, code(&changed), &design)
         .into_iter()
         .flat_map(|(_, members)| members)
         .collect();
@@ -246,7 +254,7 @@ fn a_review_of_capture_files_asks_only_the_rules_that_judge_capture_files() {
         ..Globs::default()
     };
     let changed = vec!["bae-macos/bae/baeShots/Components/MacRow.swift".to_string()];
-    let picked = groups.pick(&rules, &changed, &files);
+    let picked = groups.pick(&rules, code(&changed), &files);
     let asked: Vec<&Rule> = picked
         .iter()
         .flat_map(|(_, members)| members.iter().copied())
@@ -276,4 +284,36 @@ fn the_group_parser_rejects_an_unknown_tier() {
     .unwrap_err();
     let message = error.text();
     assert!(message.contains("unknown variant"), "{message}");
+}
+
+/// A file a change changes only in comments runs only the groups whose rules
+/// judge what a comment says, and a file changed in code runs every group
+/// that covers it.
+#[test]
+fn a_file_changed_only_in_comments_runs_only_the_groups_that_judge_comments() {
+    let g = groups(vec![
+        group("code", "", &["c"]),
+        group("said", "comments = \"judged\"\n", &["s"]),
+        group("words", "comments = \"skipped\"\n", &["w"]),
+    ]);
+    let rules = vec![
+        rule("c", "**/*.swift", "code"),
+        rule("s", "**/*.swift", "said"),
+        rule("w", "**/*.swift", "words"),
+    ];
+    let names = |changed: Changed| -> Vec<String> {
+        g.pick(&rules, changed, &Globs::default())
+            .into_iter()
+            .map(|(group, _)| group.name.clone())
+            .collect()
+    };
+    let logo = ["bae-macos/Logo.swift".to_string()];
+    assert_eq!(
+        names(Changed {
+            paths: &logo,
+            only_comments: &logo,
+        }),
+        ["said"]
+    );
+    assert_eq!(names(code(&logo)), ["code", "said", "words"]);
 }
