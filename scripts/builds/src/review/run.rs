@@ -136,7 +136,7 @@ pub struct Scope<'a> {
 impl Scope<'_> {
     /// The groups a change to <changed> runs, each with its rules
     /// (`Groups::pick`).
-    pub fn pick(&self, changed: Changed) -> Vec<(&Group, Vec<&Rule>)> {
+    pub fn pick(&self, changed: &Changed) -> Vec<(&Group, Vec<&Rule>)> {
         self.material
             .groups
             .pick(&self.material.rules, changed, self.files)
@@ -144,7 +144,7 @@ impl Scope<'_> {
 
     /// The names of the groups whose rules cover one of <changed> that they
     /// read.
-    pub fn group_names(&self, changed: Changed) -> Vec<String> {
+    pub fn group_names(&self, changed: &Changed) -> Vec<String> {
         self.pick(changed)
             .into_iter()
             .map(|(group, _)| group.name.clone())
@@ -156,7 +156,7 @@ impl Scope<'_> {
     /// <branch>: each group that reads commit messages and whose rules cover
     /// a path of <branch> that it reads. The list is empty when <since> holds
     /// no message.
-    pub fn commit_text_groups(&self, since: &Diff, branch: Changed) -> Vec<String> {
+    pub fn commit_text_groups(&self, since: &Diff, branch: &Changed) -> Vec<String> {
         if CommitMessages::from_text(&since.messages).is_none() {
             return Vec::new();
         }
@@ -185,12 +185,11 @@ pub struct Diff {
     /// The paths builds picks groups by: every path a commit of the change
     /// changes (`commits::paths`), or, for a diff since the net change an
     /// earlier run read (`diff_since`), every path where the two differ.
-    pub changed: Vec<String>,
-    /// The paths of `changed` that the diff changes only in comments
-    /// (`comments::only_in_comments`), or None when builds cannot read the
-    /// diff's files, as for a diff read back from a stored message or a test
-    /// case's patch.
-    pub only_comments: Option<Vec<String>>,
+    /// Of those, the paths the diff changes only in comments
+    /// (`comments::only_in_comments`), which builds finds for a diff it read
+    /// from a repo. A diff read back from a stored message or a test case's
+    /// patch changes each path in code.
+    pub changed: Changed,
 }
 
 /// A diff that builds read from a repo, with the two commits of its net
@@ -226,7 +225,7 @@ impl NetChange {
     /// its text before (`before`) and at the head, in <worktree>'s repo.
     fn with_only_comments(mut self, worktree: &Path) -> Result<NetChange> {
         let mut only = Vec::new();
-        for path in &self.diff.changed {
+        for path in &self.diff.changed.paths {
             only.extend(crate::comments::paths_only_in_comments(
                 worktree,
                 self.before(path),
@@ -234,31 +233,20 @@ impl NetChange {
                 std::slice::from_ref(path),
             )?);
         }
-        self.diff.only_comments = Some(only);
+        self.diff.changed.only_comments = only;
         Ok(self)
     }
 }
 
 impl Diff {
     pub fn from_patch(patch: files::Patch, messages: String, source: Option<Source>) -> Self {
-        let changed = patch.paths();
+        let changed = Changed::in_code(patch.paths());
         Self {
             patch,
             messages,
             commits: None,
             source,
             changed,
-            only_comments: None,
-        }
-    }
-
-    /// The paths builds picks groups by, with those the diff changes only in
-    /// comments. A diff whose files builds cannot read changes each path in
-    /// code.
-    pub fn changes(&self) -> Changed<'_> {
-        Changed {
-            paths: &self.changed,
-            only_comments: self.only_comments.as_deref().unwrap_or_default(),
         }
     }
 
@@ -302,6 +290,13 @@ impl Diff {
         }
         let patch = self.patch.without_files(dropped);
         let kept_paths = patch.paths();
+        let kept = |paths: &[String]| -> Vec<String> {
+            paths
+                .iter()
+                .filter(|path| kept_paths.contains(path))
+                .cloned()
+                .collect()
+        };
         Self {
             messages: if dropped.iter().any(|path| path == files::COMMIT_MESSAGE) {
                 String::new()
@@ -311,19 +306,10 @@ impl Diff {
             commits: self.commits.clone(),
             source: self.source.clone(),
             patch,
-            changed: self
-                .changed
-                .iter()
-                .filter(|path| kept_paths.contains(path))
-                .cloned()
-                .collect(),
-            only_comments: self.only_comments.as_ref().map(|paths| {
-                paths
-                    .iter()
-                    .filter(|path| kept_paths.contains(path))
-                    .cloned()
-                    .collect()
-            }),
+            changed: Changed {
+                paths: kept(&self.changed.paths),
+                only_comments: kept(&self.changed.only_comments),
+            },
         }
     }
 }
@@ -376,8 +362,7 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str, unread: &Unread) ->
                 in_place: true,
             }),
             patch: files::Patch::parse(text)?,
-            changed,
-            only_comments: None,
+            changed: Changed::in_code(changed),
         },
         base: merge_base,
         head,
@@ -481,8 +466,7 @@ pub fn diff_since(
                 in_place: true,
             }),
             patch: files::Patch::parse(text)?,
-            changed,
-            only_comments: None,
+            changed: Changed::in_code(changed),
         },
         base: merge_base,
         head,
@@ -664,7 +648,7 @@ fn view_of<'a>(
     let held = held_by(group, members, open);
     let mut excluded = Vec::new();
     let mut capture_evidence = String::new();
-    let only_comments = diff.changes().only_comments;
+    let only_comments = &diff.changed.only_comments;
     for file in diff.patch.files() {
         let paths = file.paths();
         if group.comments != Comments::Judged

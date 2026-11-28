@@ -29,7 +29,7 @@ use crate::side_git::SideRead;
 type ReadKey = (PathBuf, Vec<String>, Unread);
 
 /// The paths each commit of a worktree changes.
-type Read = Vec<commits::CommitPaths>;
+type Read = Vec<crate::review::groups::Changed>;
 
 /// A project's last valid rules and the version of the whole rules checkout
 /// they came from. A new read with the same review rules keeps the earlier

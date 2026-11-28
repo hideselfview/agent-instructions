@@ -20,6 +20,7 @@ use crate::review::cases::{self, Addition, SiteLabel, same_code, same_file};
 use crate::review::check::reviewers_map;
 use crate::review::check::{quote_file, squash};
 use crate::review::files;
+use crate::review::groups::Changed;
 use crate::review::model_check;
 use crate::review::record::{self, Finding, RunRow};
 use crate::review::rerun::net_change;
@@ -258,7 +259,7 @@ fn path_in(
 /// The parts of <diff> a case needs to check its expected findings.
 fn cut(mut diff: Diff, paths: &[String]) -> Diff {
     diff.patch = diff.patch.only_files(paths);
-    diff.changed = diff.patch.paths();
+    diff.changed = Changed::in_code(diff.patch.paths());
     diff
 }
 

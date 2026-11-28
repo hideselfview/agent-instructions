@@ -79,9 +79,9 @@ pub struct Need {
 impl Need {
     /// Commit <sha>, which changes <changed>, with the groups that <scope>
     /// picks for it.
-    pub fn of(sha: String, changed: &commits::CommitPaths, scope: Scope) -> Need {
+    pub fn of(sha: String, changed: &Changed, scope: Scope) -> Need {
         Need {
-            groups: scope.group_names(changed.changes()),
+            groups: scope.group_names(changed),
             paths: changed.paths.clone(),
             sha,
         }
@@ -352,7 +352,7 @@ impl Coverage {
                     let net = run::diff_of_run(worktree, &read, closing, scope.unread, |run| {
                         Ok((run.base.clone(), run.head.clone()))
                     })?;
-                    held.insert(net.diff.changed);
+                    held.insert(net.diff.changed.paths);
                 }
                 if let Entry::Vacant(held) = changes.entry(check.id) {
                     let net = run::diff_since(
@@ -391,7 +391,7 @@ impl Coverage {
 /// The paths <net> changes, and `files::COMMIT_MESSAGE` when it holds commit
 /// messages.
 fn changed_paths(net: &run::NetChange) -> Vec<String> {
-    let mut paths = net.diff.changed.clone();
+    let mut paths = net.diff.changed.paths.clone();
     if files::CommitMessages::from_text(&net.diff.messages).is_some() {
         paths.push(files::COMMIT_MESSAGE.to_string());
     }
@@ -438,7 +438,7 @@ fn assess(
             &crate::git::commits_in_range(dir, &since.base, &since.head)?,
             scope.unread,
         )?;
-        let branch = commits::CommitPaths {
+        let branch = Changed {
             only_comments: crate::comments::paths_only_in_comments(
                 dir,
                 &since.base,
@@ -448,20 +448,12 @@ fn assess(
             paths: branch,
         };
         let messages_unread = matches!(check, CodeCheck::Branch(_))
-            && !scope
-                .commit_text_groups(&since.diff, branch.changes())
-                .is_empty();
-        let changes = since.diff.changes();
-        unfinished.unreviewed = changes
+            && !scope.commit_text_groups(&since.diff, &branch).is_empty();
+        let changed = &since.diff.changed;
+        unfinished.unreviewed = changed
             .paths
             .iter()
-            .filter(|path| {
-                let one = Changed {
-                    paths: std::slice::from_ref(path),
-                    only_comments: changes.only_comments,
-                };
-                !scope.group_names(one).is_empty()
-            })
+            .filter(|path| !scope.group_names(&changed.only(path)).is_empty())
             .cloned()
             .collect();
         if messages_unread {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::review::groups::Comments;
 use crate::review::rules::Rule;
 
 fn group(name: &str, enumerate: bool) -> Group {
@@ -13,7 +14,7 @@ fn group(name: &str, enumerate: bool) -> Group {
         enumerate,
         sites: enumerate.then(|| "handles rows a query returned".to_string()),
         commit_text: false,
-        comments: Default::default(),
+        comments: Comments::Code,
         copy: false,
         passes: 1,
     }

@@ -382,12 +382,13 @@ pub fn replay_case(
     let diff = Diff::from_patch(case.patch.clone(), messages, source);
     let unread: Vec<String> = diff
         .changed
+        .paths
         .iter()
         .filter(|path| scope.unread.covers(path))
         .cloned()
         .collect();
     let diff = diff.without(&unread);
-    let picked = scope.pick(diff.changes());
+    let picked = scope.pick(&diff.changed);
     let asked = ask_groups(
         scope,
         reviewer,

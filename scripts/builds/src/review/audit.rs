@@ -305,7 +305,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
         let covering: Vec<&Rule> = members
             .iter()
             .copied()
-            .filter(|rule| rule.matches(&diff.changed, &design))
+            .filter(|rule| rule.matches(&diff.changed.paths, &design))
             .collect();
         if covering.is_empty() {
             text.push_str(&format!(

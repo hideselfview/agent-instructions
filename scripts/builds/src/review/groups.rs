@@ -32,13 +32,12 @@ fn one() -> usize {
 
 /// What a group's rules judge of a code comment (a doc or line comment in a
 /// source file).
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Comments {
     /// The rules judge code, and a comment as part of it: the group reads
     /// the comments of a file whose code changed, and no file that a change
     /// changes only in comments (`comments::only_in_comments`).
-    #[default]
     Code,
     /// The rules judge what a comment says, so the group also reads a file
     /// that a change changes only in comments.
@@ -48,22 +47,47 @@ pub enum Comments {
     Skipped,
 }
 
+/// A group whose group.toml says nothing of comments judges code.
+fn comments_code() -> Comments {
+    Comments::Code
+}
+
 /// The paths a change touches, and those of them it changes only in
 /// comments, which only the groups whose rules judge what a comment says
 /// read (`Comments::Judged`).
-#[derive(Clone, Copy, Debug)]
-pub struct Changed<'a> {
-    pub paths: &'a [String],
-    pub only_comments: &'a [String],
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Changed {
+    pub paths: Vec<String>,
+    pub only_comments: Vec<String>,
 }
 
-impl<'a> Changed<'a> {
-    /// The paths of <self> that a group whose rules judge comments as
+impl Changed {
+    /// <paths>, each changed in code, as builds counts the paths of a change
+    /// whose files it does not read.
+    pub fn in_code(paths: Vec<String>) -> Changed {
+        Changed {
+            paths,
+            only_comments: Vec::new(),
+        }
+    }
+
+    /// The change of <path> alone.
+    pub fn only(&self, path: &str) -> Changed {
+        let one = |paths: &[String]| paths.iter().filter(|p| *p == path).cloned().collect();
+        Changed {
+            paths: one(&self.paths),
+            only_comments: one(&self.only_comments),
+        }
+    }
+
+    /// The paths of the change that a group whose rules judge comments as
     /// <comments> reads.
-    fn read_by(self, comments: Comments) -> impl Iterator<Item = &'a String> {
+    fn read_by(&self, comments: Comments) -> Vec<String> {
         self.paths
             .iter()
-            .filter(move |path| comments == Comments::Judged || !self.only_comments.contains(path))
+            .filter(|path| comments == Comments::Judged || !self.only_comments.contains(path))
+            .cloned()
+            .collect()
     }
 }
 
@@ -101,7 +125,7 @@ pub struct Group {
     #[serde(default)]
     pub commit_text: bool,
     /// What the group's rules judge of a code comment.
-    #[serde(default)]
+    #[serde(default = "comments_code")]
     pub comments: Comments,
     /// Whether the group reviews copy: its rules judge word choice, grammar
     /// and style. Only the copy review (`builds review copy`) asks such a
@@ -215,7 +239,7 @@ impl Groups {
     pub fn pick<'a>(
         &'a self,
         rules: &'a [Rule],
-        changed: Changed,
+        changed: &Changed,
         files: &Globs,
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
         self.covering(rules, changed, files, false)
@@ -226,7 +250,7 @@ impl Groups {
     pub fn pick_copy<'a>(
         &'a self,
         rules: &'a [Rule],
-        changed: Changed,
+        changed: &Changed,
         files: &Globs,
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
         self.covering(rules, changed, files, true)
@@ -238,13 +262,13 @@ impl Groups {
     fn covering<'a>(
         &'a self,
         rules: &'a [Rule],
-        changed: Changed,
+        changed: &Changed,
         files: &Globs,
         copy: bool,
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
         self.with_members(rules)
             .filter(|(group, members)| {
-                let read: Vec<String> = changed.read_by(group.comments).cloned().collect();
+                let read = changed.read_by(group.comments);
                 group.copy == copy && members.iter().any(|rule| rule.matches(&read, files))
             })
             .collect()

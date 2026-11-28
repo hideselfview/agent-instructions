@@ -117,28 +117,10 @@ pub fn paths(repo: &Path, revs: &[String], unread: &Unread) -> Result<Vec<String
     Ok(all)
 }
 
-/// The paths one commit adds, changes or deletes, and those of them it
-/// changes only in comments (`comments::only_in_comments`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CommitPaths {
-    pub paths: Vec<String>,
-    pub only_comments: Vec<String>,
-}
-
-impl CommitPaths {
-    /// The paths builds picks groups by.
-    pub fn changes(&self) -> Changed<'_> {
-        Changed {
-            paths: &self.paths,
-            only_comments: &self.only_comments,
-        }
-    }
-}
-
 /// The paths each of <shas> adds, changes or deletes, in the order given,
 /// each against the commit's parent. A commit with no parent adds each of
 /// its files, so it changes none only in comments.
-pub fn paths_of_each(repo: &Path, shas: &[String], unread: &Unread) -> Result<Vec<CommitPaths>> {
+pub fn paths_of_each(repo: &Path, shas: &[String], unread: &Unread) -> Result<Vec<Changed>> {
     shas.iter()
         .map(|sha| {
             let paths = paths(repo, std::slice::from_ref(sha), unread)?;
@@ -148,7 +130,7 @@ pub fn paths_of_each(repo: &Path, shas: &[String], unread: &Unread) -> Result<Ve
                 }
                 None => Vec::new(),
             };
-            Ok(CommitPaths {
+            Ok(Changed {
                 paths,
                 only_comments,
             })
