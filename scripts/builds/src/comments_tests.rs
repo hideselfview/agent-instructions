@@ -1,7 +1,8 @@
 use super::*;
 
 fn only(path: &str, before: &str, after: &str) -> bool {
-    only_in_comments(path, Some(before), Some(after))
+    let language = Language::of(path).expect("a language with a lexer");
+    only_in_comments(language, Some(before), Some(after))
 }
 
 #[test]
@@ -162,9 +163,9 @@ fn block_comments_nest_in_swift_kotlin_and_rust_and_not_in_csharp() {
 
 #[test]
 fn a_file_added_or_removed_or_in_a_language_with_no_lexer_is_code() {
-    assert!(!only_in_comments("a.swift", None, Some("// a\n")));
-    assert!(!only_in_comments("a.swift", Some("// a\n"), None));
-    assert!(!only("a.m", "// a\nint x;\n", "// b\nint x;\n"));
+    assert!(!only_in_comments(Language::Swift, None, Some("// a\n")));
+    assert!(!only_in_comments(Language::Swift, Some("// a\n"), None));
+    assert_eq!(Language::of("a.m"), None);
 }
 
 #[test]

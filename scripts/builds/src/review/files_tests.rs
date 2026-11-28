@@ -76,7 +76,7 @@ fn hunks_read_old_and_new_ranges_with_and_without_a_count() {
 
 #[test]
 fn no_source_gives_no_context() {
-    assert_eq!(context(None, "a.rs", DIFF), "");
+    assert_eq!(context(None, "a.rs", DIFF).unwrap(), "");
 }
 
 #[test]

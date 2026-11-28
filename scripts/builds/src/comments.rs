@@ -46,18 +46,19 @@ impl Language {
     }
 }
 
-/// Whether the change of the file at <path> from <before> to <after>, each
+/// Whether the change of a file of <language> from <before> to <after>, each
 /// None when the file is absent, is only in comments. Two equal texts are no
 /// change at all.
-pub fn only_in_comments(path: &str, before: Option<&str>, after: Option<&str>) -> bool {
-    let (Some(language), Some(before), Some(after)) = (Language::of(path), before, after) else {
+pub fn only_in_comments(language: Language, before: Option<&str>, after: Option<&str>) -> bool {
+    let (Some(before), Some(after)) = (before, after) else {
         return false;
     };
     before != after && without_comments(language, before) == without_comments(language, after)
 }
 
 /// The paths of <paths> whose change from the commit or tree <from> to <to>
-/// in the repository at <top> is only in comments (`only_in_comments`).
+/// in the repository at <top> is only in comments (`only_in_comments`). A
+/// path of a language with no lexer changes code.
 pub fn paths_only_in_comments(
     top: &Path,
     from: &str,
@@ -66,32 +67,16 @@ pub fn paths_only_in_comments(
 ) -> Result<Vec<String>> {
     let mut only = Vec::new();
     for path in paths {
-        if Language::of(path).is_none() {
+        let Some(language) = Language::of(path) else {
             continue;
-        }
-        let before = text_at(top, from, path)?;
-        let after = text_at(top, to, path)?;
-        if only_in_comments(path, before.as_deref(), after.as_deref()) {
+        };
+        let before = crate::git::file_text(top, from, path)?;
+        let after = crate::git::file_text(top, to, path)?;
+        if only_in_comments(language, before.as_deref(), after.as_deref()) {
             only.push(path.clone());
         }
     }
     Ok(only)
-}
-
-/// The text of <path> in the commit or tree <rev> of the repository at
-/// <top>, or None when <rev> has no file there (a submodule is no file).
-fn text_at(top: &Path, rev: &str, path: &str) -> Result<Option<String>> {
-    let entry = crate::git::text(top, &["ls-tree", "-z", "--full-tree", rev, "--", path])?;
-    let blob = entry.split('\0').find_map(|line| {
-        let (meta, named) = line.split_once('\t')?;
-        let mut fields = meta.split(' ');
-        let (_, kind, sha) = (fields.next()?, fields.next()?, fields.next()?);
-        (named == path && kind == "blob").then_some(sha)
-    });
-    match blob {
-        Some(sha) => crate::git::text(top, &["cat-file", "blob", sha]).map(Some),
-        None => Ok(None),
-    }
 }
 
 /// <text> with its comments gone: each comment that ends its line goes with
@@ -101,6 +86,7 @@ fn text_at(top: &Path, rev: &str, path: &str) -> Result<Option<String>> {
 pub fn without_comments(language: Language, text: &str) -> String {
     let mut lexer = Lexer {
         language,
+        source: text,
         text: text.as_bytes(),
         at: 0,
         comments: Vec::new(),
@@ -140,6 +126,8 @@ pub fn without_comments(language: Language, text: &str) -> String {
 /// character never matches one.
 struct Lexer<'a> {
     language: Language,
+    source: &'a str,
+    /// The bytes of `source`.
     text: &'a [u8],
     at: usize,
     comments: Vec<(usize, usize)>,
@@ -396,9 +384,8 @@ impl Lexer<'_> {
                 true
             }
             Some(b'\'') => {
-                let after = std::str::from_utf8(&self.text[self.at + 1..])
-                    .ok()
-                    .and_then(|rest| rest.chars().next());
+                // The quote is one byte, so a character starts after it.
+                let after = self.source[self.at + 1..].chars().next();
                 let closes = after
                     .is_some_and(|c| self.text.get(self.at + 1 + c.len_utf8()) == Some(&b'\''));
                 if self.peek(1) == Some(b'\\') || closes {

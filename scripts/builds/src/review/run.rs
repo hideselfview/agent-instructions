@@ -894,10 +894,12 @@ pub fn ask_groups(
         let group = unit.group;
         let read = &diffs[unit.diff];
         let (text_diff, context) = match &unit.file {
-            Some(file) => (
-                file.text.clone(),
-                files::context(read.source.as_ref(), &file.path, &file.text),
-            ),
+            Some(file) => match files::context(read.source.as_ref(), &file.path, &file.text) {
+                Ok(context) => (file.text.clone(), context),
+                Err(why) => {
+                    return bare_call(reviewer, group, unit.members, Some(why.text()));
+                }
+            },
             None => (read.text_for(group), String::new()),
         };
         let names = prompt::answer_names(group, unit.members);

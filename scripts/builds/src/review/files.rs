@@ -462,13 +462,14 @@ pub fn line_at(repo: &Path, from: &str, head: &str, path: &str, line: i64) -> Re
 }
 
 /// The new text of <path> around each hunk of <file_diff>, every line
-/// numbered, as the reviewer reads it; empty when the text is not available.
-pub fn context(source: Option<&Source>, path: &str, file_diff: &str) -> String {
+/// numbered, as the reviewer reads it; empty when the diff has no source or
+/// the source has no file at <path>.
+pub fn context(source: Option<&Source>, path: &str, file_diff: &str) -> Result<String> {
     let Some(source) = source else {
-        return String::new();
+        return Ok(String::new());
     };
-    let Some(text) = new_text(&source.repo, &source.rev, path) else {
-        return String::new();
+    let Some(text) = crate::git::file_text(&source.repo, &source.rev, path)? else {
+        return Ok(String::new());
     };
     let lines: Vec<&str> = text.lines().collect();
     let total = lines.len() as i64;
@@ -492,19 +493,7 @@ pub fn context(source: Option<&Source>, path: &str, file_diff: &str) -> String {
         }
         out.push('\n');
     }
-    out
-}
-
-fn new_text(repo: &Path, rev: &str, path: &str) -> Option<String> {
-    let output = git(repo)
-        .args(["show", &format!("{rev}:{path}")])
-        .stdin(Stdio::null())
-        .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(out)
 }
 
 #[cfg(test)]

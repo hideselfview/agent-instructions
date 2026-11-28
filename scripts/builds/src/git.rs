@@ -17,6 +17,22 @@ pub fn text(repo: &Path, args: &[&str]) -> Result<String> {
     )?)
 }
 
+/// The text of <path> in the commit or tree <rev> of <repo>, or None when
+/// <rev> has no file there (a submodule is no file).
+pub fn file_text(repo: &Path, rev: &str, path: &str) -> Result<Option<String>> {
+    let entry = text(repo, &["ls-tree", "-z", "--full-tree", rev, "--", path])?;
+    let blob = entry.split('\0').find_map(|line| {
+        let (meta, named) = line.split_once('\t')?;
+        let mut fields = meta.split(' ');
+        let (_, kind, sha) = (fields.next()?, fields.next()?, fields.next()?);
+        (named == path && kind == "blob").then_some(sha)
+    });
+    match blob {
+        Some(sha) => text(repo, &["cat-file", "blob", sha]).map(Some),
+        None => Ok(None),
+    }
+}
+
 /// The full object ID of <rev>, or None when Git cannot find it. Quiet
 /// verification exits 1 both for a missing revision and for a broken ref,
 /// but emits a diagnostic for the broken ref.
