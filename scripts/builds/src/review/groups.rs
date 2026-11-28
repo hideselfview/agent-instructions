@@ -55,7 +55,7 @@ fn comments_code() -> Comments {
 /// The paths a change touches, and those of them it changes only in
 /// comments, which only the groups whose rules judge what a comment says
 /// read (`Comments::Judged`).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Changed {
     pub paths: Vec<String>,
     pub only_comments: Vec<String>,
