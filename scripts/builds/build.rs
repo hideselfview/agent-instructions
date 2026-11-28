@@ -12,6 +12,8 @@
 //! key the board pictures, shots and findings builds stores.
 
 mod build_source;
+#[path = "src/comments.rs"]
+mod comments;
 
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};

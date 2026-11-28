@@ -243,10 +243,9 @@ pub fn shots_files(scripts: &Path, side: Side) -> Vec<(String, PathBuf)> {
 /// What a version of the shots checker hashes of the file <shown>, whose
 /// contents are <bytes>: the part of it that can change what the checker
 /// does. Of a Rust file that is its tokens without comments, doc comments or
-/// test modules. Of a Kotlin or Swift file it is every line but those that
-/// hold only a `//` comment, unless the file opens a block comment or a
-/// multi-line string, which such a line could be part of. Of any other file it
-/// is the whole contents.
+/// test modules. Of a Kotlin or Swift file it is its text without comments
+/// (`comments::without_comments`). Of any other file it is the whole
+/// contents.
 pub fn meaning(shown: &str, bytes: Vec<u8>) -> Vec<u8> {
     let text = |bytes: Vec<u8>| {
         String::from_utf8(bytes).unwrap_or_else(|error| panic!("{shown} is not UTF-8: {error}"))
@@ -258,16 +257,8 @@ pub fn meaning(shown: &str, bytes: Vec<u8>) -> Vec<u8> {
         let mut meant = String::new();
         write_tokens(tokens, &mut meant);
         meant.into_bytes()
-    } else if shown.ends_with(".kt") || shown.ends_with(".swift") {
-        let source = text(bytes);
-        if source.contains("/*") || source.contains("\"\"\"") {
-            return source.into_bytes();
-        }
-        source
-            .split_inclusive('\n')
-            .filter(|line| !line.trim_start().starts_with("//"))
-            .collect::<String>()
-            .into_bytes()
+    } else if let Some(language) = crate::comments::Language::of(shown) {
+        crate::comments::without_comments(language, &text(bytes)).into_bytes()
     } else {
         bytes
     }

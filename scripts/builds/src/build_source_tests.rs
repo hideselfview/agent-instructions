@@ -265,11 +265,11 @@ fn a_version_reads_no_comment_layout_or_test_module_of_a_rust_file() {
     );
 }
 
-/// A line of a Kotlin or Swift harness that holds only a comment changes no
-/// shot. A file that a block comment or a multi-line string could make such a
-/// line part of is read whole.
+/// A comment of a Kotlin or Swift harness changes no shot, whether it is a
+/// line, block or doc comment, while the text of a string, a multi-line one
+/// too, and the code do.
 #[test]
-fn a_version_reads_no_comment_line_of_a_harness() {
+fn a_version_reads_no_comment_of_a_harness() {
     for file in [
         "shots/harness/android/BoardShot.kt",
         "shots/harness/mac/ShotScene.swift",
@@ -277,13 +277,26 @@ fn a_version_reads_no_comment_line_of_a_harness() {
         let code = "let a = \"x // y\"\nlet b = 2 // two\n";
         assert_eq!(
             meant(file, code),
-            meant(file, &format!("// why\n    /// more\n{code}"))
+            meant(
+                file,
+                &format!("// why\n    /// more\n/**\n * A doc comment.\n */\n{code}")
+            )
+        );
+        assert_eq!(
+            meant(file, "let b = /* two */ 2\n"),
+            meant(file, "let b = /* the number two */ 2\n")
         );
         assert_ne!(meant(file, code), meant(file, &code.replace('2', "3")));
-        for opens in ["/*", "\"\"\""] {
-            let whole = format!("{opens}\n// kept\n");
-            assert_eq!(meant(file, &whole), whole);
-        }
+        assert_ne!(
+            meant(file, &code.replace("// y", "// z")),
+            meant(file, code),
+            "the text of a string is no comment"
+        );
+        let lines = "let a = \"\"\"\n// one\n\"\"\"\n";
+        assert_ne!(
+            meant(file, lines),
+            meant(file, &lines.replace("one", "two"))
+        );
     }
     let script = "shots/harness/mac/display/shot-display.py";
     assert_eq!(meant(script, "// a\n"), "// a\n");
